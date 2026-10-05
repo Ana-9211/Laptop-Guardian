@@ -5,22 +5,72 @@ export class ApiError extends Error {
   status: number;
   /** Every reason the bridge gave (for example each failed live check), not just the first. */
   errors: string[];
-  constructor(status: number, message: string, errors: string[] = []) { super(message); this.status = status; this.errors = errors; }
+  /** Set when the bridge refuses a settings change until the user confirms the listed risks. */
+  needsConfirmation: string[];
+  constructor(status: number, message: string, errors: string[] = [], needsConfirmation: string[] = []) { super(message); this.status = status; this.errors = errors; this.needsConfirmation = needsConfirmation; }
 }
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+const TOKEN_KEY = 'guardian-session';
+const TOKEN_HASH = /guardian-token=([A-Za-z0-9_-]{16,200})/;
+let sessionToken: string | null = null;
+/** The launcher opens the dashboard with the per-start session token in the URL fragment. Keep it in this tab only and remove it from the address bar. */
+export function captureSessionToken() {
+  try {
+    const m = TOKEN_HASH.exec(window.location.hash);
+    if (m) {
+      sessionToken = m[1];
+      try { window.sessionStorage.setItem(TOKEN_KEY, sessionToken); } catch { /* private window: the token stays in memory */ }
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/`);
+    } else {
+      try { sessionToken = window.sessionStorage.getItem(TOKEN_KEY); } catch { sessionToken = null; }
+    }
+  } catch { sessionToken = null; }
+}
+captureSessionToken();
+
+const NO_TOKEN = 'This window is not signed in to the Laptop Guardian bridge. Close it and open Laptop Guardian from its shortcut.';
+function authHeaders(method: string): Record<string, string> {
   const headers: Record<string, string> = {};
+  if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
   if (method !== 'GET') { headers['X-Guardian'] = '1'; headers['Content-Type'] = 'application/json'; }
+  return headers;
+}
+
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
   let res: Response;
   try {
-    res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(path, { method, headers: authHeaders(method), body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
     throw new ApiError(0, 'Cannot reach the Laptop Guardian bridge. Check that it is running.');
   }
+  if (res.status === 401) throw new ApiError(401, NO_TOKEN);
+  return res;
+}
+
+/** Fetch a file through the authenticated channel and hand it to the browser as a download (plain links cannot carry the token). */
+export async function downloadFile(method: 'GET' | 'POST', path: string, body: unknown, fallbackName: string): Promise<void> {
+  const res = await send(method, path, body);
+  if (!res.ok) { let msg = `Download failed (${res.status})`; try { msg = ((await res.json()) as { error?: string }).error || msg; } catch { /* not json */ } throw new ApiError(res.status, msg); }
+  const cd = res.headers.get('Content-Disposition') || '';
+  const name = /filename="([^"]+)"/.exec(cd)?.[1] || fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/** Plain-text body of an authenticated GET (for example a rendered report shown inside a sandboxed frame). */
+export async function fetchText(path: string): Promise<string> {
+  const res = await send('GET', path);
+  if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status})`);
+  return res.text();
+}
+
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await send(method, path, body);
   const text = await res.text();
   let data: unknown = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* non-JSON */ }
-  if (!res.ok) { const body = data as { error?: string; errors?: string[] } | null; throw new ApiError(res.status, body?.error || `Request failed (${res.status})`, body?.errors || []); }
+  if (!res.ok) { const body = data as { error?: string; errors?: string[]; needsConfirmation?: string[] } | null; throw new ApiError(res.status, body?.error || `Request failed (${res.status})`, body?.errors || [], body?.needsConfirmation || []); }
   return data as T;
 }
 
@@ -49,6 +99,10 @@ export const remediation = {
   execute: (token: string, acknowledged: string[]) => api.post<ExecResponse>('/api/remediation/execute', { token, confirm: true, acknowledged }),
   result: (ticket: string) => api.get<ExecResponse>(`/api/remediation/result/${ticket}`),
   undo: (eventId: string) => api.post<Plan>('/api/remediation/undo', { eventId }),
+};
+
+export const shutdown = {
+  cancel: () => api.post<{ cancelled: boolean; message: string }>('/api/shutdown/cancel', {}),
 };
 
 /** Network Guard. Deep capture and DNS filtering have their own confirmed endpoints and cannot be switched on from settings. */

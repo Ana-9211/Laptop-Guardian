@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, ApiError, useQuery } from '../api';
+import { api, ApiError, fetchText, useQuery } from '../api';
 import type { Any, Report, ReportRow } from '../types';
-import { Badge, Card, Drawer, Empty, ErrorState, PageHead, SearchBox, Seg, Skeleton, SkeletonCards, Tabs, useConfirm, useToast, Icon } from '../components/ui';
+import { Badge, Card, Drawer, Empty, ErrorState, PageHead, SearchBox, Seg, Skeleton, SkeletonCards, Tabs, useConfirm, useToast, Icon, DownloadButton } from '../components/ui';
 import { ReportView } from '../components/ReportView';
 import { fmtFull, scoreTone, NA } from '../format';
 import { go, useHash } from '../router';
@@ -12,12 +12,19 @@ const key = (r: { type: string; id: string }) => `${r.type}/${r.id}`;
 function OpenReport({ row, onClose }: { row: ReportRow; onClose: () => void }) {
   const q = useQuery<Report>(`/api/reports/${row.type}/${row.id}`);
   const [tab, setTab] = useState<'summary' | 'html' | 'json'>('summary');
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab !== 'html' || row.hasHtml === false || html !== null) return;
+    let live = true;
+    fetchText(`/api/reports/${row.type}/${row.id}/html`).then((t) => { if (live) setHtml(t); }).catch(() => { if (live) setHtml('<p>The rendered report could not be loaded.</p>'); });
+    return () => { live = false; };
+  }, [tab, row.type, row.id, row.hasHtml, html]);
   return (
     <Drawer title={`${row.type === 'daily' ? 'Daily' : 'Weekly'} report ${row.id}`} sub={fmtFull(row.generatedAt)} onClose={onClose}
-      footer={<><a className="btn" href={`/api/reports/export?type=${row.type}&id=${row.id}&format=json`} download><Icon name="download" size={13} />JSON</a><a className="btn" href={`/api/reports/export?type=${row.type}&id=${row.id}&format=csv`} download><Icon name="download" size={13} />CSV</a></>}>
+      footer={<><DownloadButton path={`/api/reports/export?type=${row.type}&id=${row.id}&format=json`} name={`${row.type}-${row.id}.json`}><Icon name="download" size={13} />JSON</DownloadButton><DownloadButton path={`/api/reports/export?type=${row.type}&id=${row.id}&format=csv`} name={`${row.type}-${row.id}.csv`}><Icon name="download" size={13} />CSV</DownloadButton></>}>
       <Tabs value={tab} onChange={setTab} label="Report views" items={[{ id: 'summary', label: 'Summary' }, { id: 'html', label: 'Rendered report' }, { id: 'json', label: 'Raw data' }]} />
       {tab === 'summary' && (q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : q.data ? <ReportView r={q.data} /> : <Skeleton h={120} />)}
-      {tab === 'html' && (row.hasHtml === false ? <Empty title="No rendered HTML for this report" /> : <iframe className="report-frame" title="Rendered report" sandbox="" src={`/api/reports/${row.type}/${row.id}/html`} />)}
+      {tab === 'html' && (row.hasHtml === false ? <Empty title="No rendered HTML for this report" /> : <iframe className="report-frame" title="Rendered report" sandbox="" srcDoc={html ?? ''} />)}
       {tab === 'json' && (q.data ? <pre className="mono-block" style={{ maxHeight: '65vh', overflow: 'auto', whiteSpace: 'pre-wrap' }}>{JSON.stringify(q.data, null, 2)}</pre> : <Skeleton h={120} />)}
     </Drawer>
   );
@@ -97,7 +104,7 @@ export default function Reports() {
                     <td className="t2 trunc" style={{ maxWidth: 360 }}>{r.summary?.headline}</td>
                     <td className="r num small muted">{r.sizeKB} KB</td>
                     <td onClick={(e) => e.stopPropagation()}><span className="row tight" style={{ flexWrap: 'nowrap' }}>
-                      <a className="btn sm" href={`/api/reports/export?type=${r.type}&id=${r.id}&format=json`} download aria-label={`Export ${r.id}`}><Icon name="download" size={13} />Export</a>
+                      <DownloadButton className="btn sm" path={`/api/reports/export?type=${r.type}&id=${r.id}&format=json`} name={`${r.type}-${r.id}.json`} ariaLabel={`Export ${r.id}`}><Icon name="download" size={13} />Export</DownloadButton>
                       <button className="btn sm danger" onClick={() => del(r)} aria-label={`Delete ${r.id}`}><Icon name="trash" size={13} /></button></span></td>
                   </tr>))}</tbody>
               </table>

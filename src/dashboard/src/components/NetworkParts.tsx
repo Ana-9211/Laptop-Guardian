@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useId, useState } from 'react';
 import { ApiError, api, network, useQuery } from '../api';
 import type { DeepEvent, NetConnection, NetFirewallRule, NetworkCurrent } from '../types';
-import { Badge, Card, Col, DataTable, Drawer, Empty, Icon, KV, Sep, useOverlay, useToast } from './ui';
+import { Badge, Card, Col, DataTable, Drawer, DownloadButton, Empty, Icon, KV, Sep, useOverlay, useToast } from './ui';
 import { ActionButton, useActionFlow } from './ActionFlow';
 import { ago, fmtFull, NA } from '../format';
 
@@ -189,8 +189,8 @@ export function DeepPanel({ current, flow, reload }: { current: NetworkCurrent; 
             <button className="btn" disabled={busy || (days === s.retentionDays && mb === s.maxMB && sec === s.sampleSec)} onClick={() => void save()}>Save</button>
           </div>
           <div className="row">
-            <a className="btn" href="/api/network/deep/export?format=csv" download>Export CSV</a>
-            <a className="btn" href="/api/network/deep/export?format=jsonl" download>Export JSON lines</a>
+            <DownloadButton path="/api/network/deep/export" method="POST" body={{ format: 'csv' }} name="laptop-guardian-network-events.csv">Export CSV</DownloadButton>
+            <DownloadButton path="/api/network/deep/export" method="POST" body={{ format: 'jsonl' }} name="laptop-guardian-network-events.jsonl">Export JSON lines</DownloadButton>
             <button className="btn danger" disabled={busy || d.files === 0} onClick={() => void run(() => network.deepDelete(), 'Recorded network data deleted.')}>Delete recorded data</button>
           </div>
         </div>

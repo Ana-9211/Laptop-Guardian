@@ -80,7 +80,7 @@ The installer: validates prerequisites, creates `data/ reports/ logs/ config/`, 
 * Windows 10/11, Windows PowerShell 5.1 (ships with Windows). PowerShell 7 is not required.
 * Node.js 18+ (the dashboard bridge). npm is needed once to build the dashboard.
 * Microsoft Defender cmdlets for the Defender checks (if a third-party antivirus replaced Defender, those checks report "unavailable").
-* Administrator rights are only needed for SFC, DISM, `Repair-Volume -Scan`, `C:\Windows\Temp` cleanup and `C:\Windows\Minidump`. Everything else runs as your normal user.
+* Administrator rights are only needed for SFC, DISM, and `Repair-Volume -Scan`. Everything else runs as your normal user.
 * Optional: a Gemini API key for AI analysis.
 
 ## Architecture
@@ -303,7 +303,7 @@ shutdown /a                                   # only if a shutdown is pending an
 * `npm audit` reports 2 advisories (vite/esbuild) that affect only the Vite **dev server**, which Guardian never runs; the shipped dashboard is a static build served by the bridge. Upgrading needs Vite 8 (breaking), deferred.
 * Tasks run only for a logged-on user (DPAPI + interactive session). A cold-powered-off laptop will not run the 02:00 task.
 * Temperature is reported only when Windows exposes `MSAcpi_ThermalZoneTemperature` (often unavailable/admin-only).
-* Without elevation: no SFC/DISM/`Repair-Volume`, no `Windows\Temp`/`Minidump` cleanup, process paths of some system services are unreadable (classified by name).
+* Without elevation: no SFC/DISM/`Repair-Volume`, process paths of some system services are unreadable (classified by name).
 * The "Recycle Bin older than 30 days" policy is best-effort (Shell COM); `always` uses `Clear-RecycleBin`. Both are permanent.
 * Duplicate detection covers files ≥ `duplicateMinMB` and hashes at most ~30 GB per run; results are display-only.
 * Process "known application" recognition is a curated publisher list + signature check, not a reputation database. Treat classifications as hints.

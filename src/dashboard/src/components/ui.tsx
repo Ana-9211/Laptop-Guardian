@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { Cmd } from '../types';
+import { downloadFile } from '../api';
 import { riskTone, NA } from '../format';
 import { MAX_TOASTS, TOAST_MS } from '../config';
 
@@ -289,6 +290,16 @@ function highlight(cmd: string): ReactNode[] {
   out.push(cmd.slice(last));
   return out;
 }
+/** A download that goes through the authenticated channel (a plain link cannot carry the session token). */
+export function DownloadButton({ path, method = 'GET', body, name, className = 'btn', children, ariaLabel }: { path: string; method?: 'GET' | 'POST'; body?: unknown; name: string; className?: string; children: ReactNode; ariaLabel?: string }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  return (
+    <button type="button" className={className} disabled={busy} aria-label={ariaLabel}
+      onClick={() => { setBusy(true); downloadFile(method, path, body, name).catch((e: Error) => toast('error', e.message)).finally(() => setBusy(false)); }}>{children}</button>
+  );
+}
+
 export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   const toast = useToast();

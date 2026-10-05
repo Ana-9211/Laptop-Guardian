@@ -45,7 +45,7 @@ async function startTarget() {
     // Read-only second bridge over the real data tree. pidFile:false so the real bridge.json is never touched.
     const app = createApp(repo, { pidFile: false });
     const port = await new Promise((r) => app.listen_(0, r));
-    return { port, close: () => app.close(), restart: null, root: repo };
+    return { port, token: app.token, close: () => app.close(), restart: null, root: repo };
   }
   const ps = fakeRunner({
     'Scheduler.ps1': () => ({ ok: true, data: { tasks: [task({ scheduledFlag: true }), weeklyTask({}), { name: 'Dashboard Bridge', kind: 'dashboard', state: 'Ready', lastResult: 0, runLevel: 'Limited', trigger: null, days: [], scriptCurrent: true }] } }),
@@ -58,11 +58,13 @@ async function startTarget() {
   // Deep mode samples through injected netstat output: the smoke test never reads real connections or captures anything.
   const fakeNetstat = async () => '  TCP    192.168.1.20:50001     203.0.113.5:443        ESTABLISHED     100';
   const b = await startBridge({ ps, withDist: false, opts: { dist: path.join(repo, 'src', 'dashboard', 'dist'), runNetstat: fakeNetstat, runTasklist: async () => '' } });
-  return { port: b.port, close: () => b.close(), root: b.root, bridge: b, ps };
+  return { port: b.port, token: b.app.token, close: () => b.close(), root: b.root, bridge: b, ps };
 }
 
 const target = await startTarget();
 const base = () => `http://127.0.0.1:${target.port}/`;
+// The launcher passes the session token in the URL fragment and the page keeps it in sessionStorage; contexts are seeded the same way.
+const seedToken = (c) => c.addInitScript((t) => { try { window.sessionStorage.setItem('guardian-session', t); } catch { /* none */ } }, target.token);
 const browser = await chromium.launch({ executablePath: findBrowser(), headless: true });
 let exitCode = 0;
 try {
@@ -70,6 +72,7 @@ try {
     note(`\n== theme: ${theme}`);
     const ctx = await browser.newContext({ viewport: { width: 1366, height: 880 }, colorScheme: theme });
     await ctx.addInitScript((t) => { try { localStorage.setItem('lg-theme', t); } catch { /* ignore */ } }, theme);
+    await seedToken(ctx);
     const page = await ctx.newPage();
     const expected = []; // substrings of console errors caused on purpose by a step
     page.on('console', (m) => { if (m.type() === 'error' && !expected.some((e) => m.text().includes(e))) fail(`[${theme}] console error: ${m.text().slice(0, 160)}`); });
@@ -278,6 +281,7 @@ try {
   // Narrow layout: no horizontal overflow on any page.
   note('\n== narrow viewport (390 px)');
   const mctx = await browser.newContext({ viewport: { width: 390, height: 800 }, colorScheme: 'dark' });
+  await seedToken(mctx);
   const mpage = await mctx.newPage();
   mpage.on('pageerror', (e) => fail(`[mobile] page error: ${e.message.slice(0, 160)}`));
   for (const id of PAGES) {
@@ -308,6 +312,7 @@ try {
 
   note('\n== reduced motion');
   const rctx = await browser.newContext({ viewport: { width: 1366, height: 880 }, reducedMotion: 'reduce' });
+  await seedToken(rctx);
   const rpage = await rctx.newPage();
   await rpage.goto(`${base()}#/overview`);
   await rpage.waitForSelector('main .page');

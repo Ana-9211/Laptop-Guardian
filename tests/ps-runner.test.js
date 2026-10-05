@@ -27,3 +27,15 @@ test('runner: exit 0 with JSON is ok; non-zero exit with JSON is a failure; time
     const slow = await ps.run('slow.ps1', [], { timeoutMs: 3000 }); assert.strictEqual(slow.ok, false); assert.match(slow.error, /timed out/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('runner: never more than MAX_CONCURRENT PowerShell children at once', async () => {
+  const { MAX_CONCURRENT } = require('../src/bridge/lib/ps');
+  const root = rootWith({ 'nap.ps1': "Start-Sleep -Milliseconds 700; '{\"ok\":true}'" });
+  try {
+    const ps = makeRunner(root);
+    const runs = Array.from({ length: MAX_CONCURRENT + 3 }, () => ps.run('nap.ps1'));
+    await new Promise((r) => setTimeout(r, 150));
+    const s = ps._stats(); assert.ok(s.active <= MAX_CONCURRENT && s.waiting >= 3, JSON.stringify(s));
+    const all = await Promise.all(runs); assert.ok(all.every((x) => x.ok));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

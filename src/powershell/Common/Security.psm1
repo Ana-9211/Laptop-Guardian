@@ -84,6 +84,55 @@ function Test-CommandAllowed {
 }
 
 # ---------- Recycle Bin ----------
+function Get-RecycleVolumeFacts {
+    # Thin wrapper (mocked in tests): what kind of volume holds this path, and which Recycle Bin settings apply to it.
+    param([string]$Drive)   # "C:"
+    $ld = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$Drive'" -ErrorAction SilentlyContinue
+    $vol = Get-CimInstance Win32_Volume -Filter "DriveLetter='$Drive'" -ErrorAction SilentlyContinue
+    $guid = $null; if ($vol -and $vol.DeviceID -match '\{[0-9a-fA-F-]+\}') { $guid = $Matches[0] }
+    $nuke = $false; $maxMB = $null
+    if ($guid) {
+        try { $k = Get-ItemProperty -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\$guid" -ErrorAction Stop
+            if ($k.PSObject.Properties['NukeOnDelete']) { $nuke = ([int]$k.NukeOnDelete -eq 1) }
+            if ($k.PSObject.Properties['MaxCapacity']) { $maxMB = [int64]$k.MaxCapacity } } catch { }
+    }
+    [pscustomobject]@{ driveType = $(if ($ld) { [int]$ld.DriveType } else { 0 }); fileSystem = $(if ($ld) { [string]$ld.FileSystem } else { '' }); capacityBytes = $(if ($ld) { [int64]$ld.Size } else { 0 }); nukeOnDelete = $nuke; maxCapacityMB = $maxMB }
+}
+
+function Test-RecycleBinSafe {
+    <# $null when the Recycle Bin will really keep this file; otherwise the reason it would not (the file would be deleted permanently). #>
+    param([string]$Path, [int64]$SizeBytes)
+    $drive = [IO.Path]::GetPathRoot($Path).TrimEnd('\')
+    if ($drive -notmatch '^[A-Za-z]:$') { return 'Only files on a local drive letter are recycled.' }
+    $f = Get-RecycleVolumeFacts -Drive $drive
+    if ($f.driveType -ne 3) { return "$drive is not a fixed disk. Windows deletes files from removable and network drives permanently instead of recycling them." }
+    if ($f.fileSystem -notin 'NTFS', 'ReFS') { return "$drive uses $($f.fileSystem). Only NTFS and ReFS volumes have a working Recycle Bin." }
+    if ($f.nukeOnDelete) { return "The Recycle Bin is switched off for $drive (files are deleted immediately). Turn it on in the Recycle Bin properties first." }
+    $limit = if ($f.maxCapacityMB) { [int64]$f.maxCapacityMB * 1MB } else { [int64]($f.capacityBytes * 0.10) }
+    if ($limit -gt 0 -and $SizeBytes -gt $limit) { return 'This file is larger than the Recycle Bin can hold, so Windows would delete it permanently.' }
+    return $null
+}
+
+function Find-RecycledItem {
+    <# $true when this user's Recycle Bin on the drive holds an entry whose original path is $OriginalPath (read from the $I metadata files). #>
+    param([string]$OriginalPath, [int]$WithinMinutes = 5)
+    try {
+        $drive = [IO.Path]::GetPathRoot($OriginalPath)
+        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $bin = Join-Path $drive "`$Recycle.Bin\$sid"
+        if (-not (Test-Path -LiteralPath $bin)) { return $false }
+        $cut = (Get-Date).AddMinutes(-$WithinMinutes)
+        foreach ($i in @(Get-ChildItem -LiteralPath $bin -Force -Filter '$I*' -ErrorAction Stop | Where-Object { $_.LastWriteTime -gt $cut })) {
+            $b = [IO.File]::ReadAllBytes($i.FullName)
+            if ($b.Length -lt 28) { continue }
+            $ver = [BitConverter]::ToInt64($b, 0)
+            $p = if ($ver -eq 2) { $n = [BitConverter]::ToInt32($b, 24); [Text.Encoding]::Unicode.GetString($b, 28, [math]::Min([math]::Max(0, ($n - 1) * 2), $b.Length - 28)) } else { [Text.Encoding]::Unicode.GetString($b, 24, [math]::Min(520, $b.Length - 24)).TrimEnd([char]0) }
+            if ($p -ieq $OriginalPath) { return $true }
+        }
+    } catch { }
+    return $false
+}
+
 function Move-ToRecycleBin {
     param([Parameter(Mandatory)][string]$Path, [string[]]$ProtectedDirs = @())
     if (Test-ProtectedPath -Path $Path -ExtraProtected $ProtectedDirs) { throw "Path is protected: $Path" }
@@ -92,7 +141,10 @@ function Move-ToRecycleBin {
     $item = Get-Item -LiteralPath $Path -Force
     if ($item.PSIsContainer) { throw 'Directories are not recycled by Guardian; select individual files.' }
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse points are not recycled.' }
+    $why = Test-RecycleBinSafe -Path $item.FullName -SizeBytes ([int64]$item.Length)
+    if ($why) { throw "Not recycled: $why" }
     [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($item.FullName, [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs, [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)
+    if (-not (Find-RecycledItem -OriginalPath $item.FullName)) { throw 'The file is gone, but it was not found in the Recycle Bin, so it may have been deleted permanently. Check the Recycle Bin before assuming it can be restored.' }
     return $true
 }
 

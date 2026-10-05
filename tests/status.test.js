@@ -17,7 +17,7 @@ const H = { 'X-Guardian': '1', 'Content-Type': 'application/json' };
 function req(method, p, { body, headers = {}, host } = {}) {
   return new Promise((resolve, reject) => {
     const data = body !== undefined ? JSON.stringify(body) : undefined;
-    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { Host: host || `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, ...headers } }, (res) => {
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { Host: host || `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, Authorization: `Bearer ${app.token}`, ...headers } }, (res) => {
       const chunks = []; res.on('data', (c) => chunks.push(c));
       res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8'); let json = null; try { json = JSON.parse(text); } catch { /* not json */ } resolve({ status: res.statusCode, json, text }); });
     });
@@ -174,7 +174,7 @@ test('polls never wait for Task Scheduler: cold start answers immediately with p
   fs.writeFileSync(path.join(r2, 'src', 'powershell', 'Scheduler.ps1'), "Start-Sleep -Seconds 3; '{\"tasks\":[{\"name\":\"Daily Audit\",\"kind\":\"daily\",\"state\":\"Ready\",\"lastResult\":267011,\"runLevel\":\"Highest\",\"trigger\":\"2026-10-05T19:00:00+05:30\"}]}'");
   const a2 = createApp(r2, { pidFile: false });
   const p2 = await new Promise((res) => a2.listen_(0, res));
-  const call = () => new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port: p2, path: '/api/status', headers: { Host: `127.0.0.1:${p2}` } }, (x) => { let b = ''; x.on('data', (c) => b += c); x.on('end', () => resolve(JSON.parse(b))); }).on('error', reject));
+  const call = () => new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port: p2, path: '/api/status', headers: { Host: `127.0.0.1:${p2}`, Authorization: `Bearer ${a2.token}` } }, (x) => { let b = ''; x.on('data', (c) => b += c); x.on('end', () => resolve(JSON.parse(b))); }).on('error', reject));
   try {
     const t0 = Date.now(); const first = await call();
     assert.ok(Date.now() - t0 < 2000, 'status answered without waiting for the 3 s scheduler query');

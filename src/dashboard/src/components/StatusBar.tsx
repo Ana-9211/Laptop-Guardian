@@ -120,7 +120,7 @@ export function StatusRail() {
           </Tip>
           <Tip text={s.next.daily ? `Next daily audit: ${fmtDate(s.next.daily)}` : 'The daily audit is turned off in Settings.'}><a className="chip" href="#/settings"><Icon name="daily" size={12} />Daily {s.next.daily ? until(s.next.daily) : 'off'}</a></Tip>
           <Tip text={s.next.weekly ? `Next weekly analysis: ${fmtDate(s.next.weekly)}` : 'The weekly analysis is turned off in Settings.'}><a className="chip" href="#/settings"><Icon name="weekly" size={12} />Weekly {s.next.weekly ? until(s.next.weekly) : 'off'}</a></Tip>
-          <Tip text={s.shutdown.pending ? 'A shutdown is scheduled. Cancel it with: shutdown /a' : s.shutdown.armed ? `The scheduled weekly run may shut the laptop down at ${fmtDate(s.shutdown.target)}. ${s.shutdown.note}` : 'Weekly shutdown is off. The laptop stays on after the weekly run.'}>
+          <Tip text={s.shutdown.pending ? 'A shutdown is scheduled. Use the Cancel shutdown button at the top of the page.' : s.shutdown.armed ? `The scheduled weekly run may shut the laptop down at ${fmtDate(s.shutdown.target)}. ${s.shutdown.note}` : 'Weekly shutdown is off. The laptop stays on after the weekly run.'}>
             <a className={`chip ${s.shutdown.pending ? 'warn' : ''}`} href="#/settings"><i className={`dot ${s.shutdown.pending ? 'warn' : s.shutdown.armed ? 'info' : 'ok'}`} />{s.shutdown.pending ? `Shutdown at ${fmtDate(s.shutdown.pending.at)}` : s.shutdown.armed ? `Shutdown ${fmtDate(s.shutdown.target)}` : 'Shutdown off'}</a>
           </Tip>
         </>}

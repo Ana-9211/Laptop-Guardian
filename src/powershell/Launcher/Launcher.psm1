@@ -46,6 +46,18 @@ function Get-BridgePing {
     return $null
 }
 
+function Get-BridgeToken {
+    <# The session token the running bridge wrote for itself. Only trusted when it belongs to the bridge process that answered the ping. #>
+    param([string]$Root, $Ping)
+    try {
+        $f = Join-Path $Root 'data\state\bridge.json'
+        if (-not (Test-Path -LiteralPath $f)) { return $null }
+        $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+        if ($j.PSObject.Properties['token'] -and $j.token -match '^[A-Za-z0-9_-]{16,200}$' -and $Ping -and [int]$j.pid -eq [int]$Ping.pid) { return [string]$j.token }
+    } catch { }
+    return $null
+}
+
 function Test-PortInUse {
     param([int]$Port)
     $c = New-Object System.Net.Sockets.TcpClient
@@ -249,9 +261,13 @@ function Start-GuardianDashboard {
         $result.ok = $true; $result.message = "Dashboard ready at $url"
         if ($NoBrowser) { return [pscustomobject]$result }
 
+        # The token travels in the URL fragment only (never sent to the server, never logged, removed from the address bar by the page).
+        $tok = Get-BridgeToken -Root $Root -Ping $ping
+        $openUrl = if ($tok) { "${url}#guardian-token=$tok" } else { $url }
         $profile = Join-Path $Root 'data\state\app-profile'
         $existing = @(Get-AppWindowProcess -ProfileDir $profile)
-        if ($existing.Count -gt 0) {
+        # A window opened before this bridge started holds an old token, so a freshly started bridge always gets a new window.
+        if ($existing.Count -gt 0 -and $result.bridge -ne 'started') {
             if (Set-ForegroundWindowOfProcess -ProcessIds @($existing | ForEach-Object { [int]$_.ProcessId })) { $result.window = 'focused'; Write-LauncherLog -Root $Root -Message 'focused existing window'; return [pscustomobject]$result }
         }
         $browser = Find-AppBrowser
@@ -259,12 +275,12 @@ function Start-GuardianDashboard {
         if ($browser) {
             try {
                 New-Item -ItemType Directory -Path $profile -Force | Out-Null
-                Start-Process -FilePath $browser.Path -ArgumentList @("--app=$url", "--user-data-dir=`"$profile`"", '--no-first-run', '--no-default-browser-check', '--window-size=1366,880') | Out-Null
+                Start-Process -FilePath $browser.Path -ArgumentList @("--app=$openUrl", "--user-data-dir=`"$profile`"", '--no-first-run', '--no-default-browser-check', '--window-size=1366,880') | Out-Null
                 $result.window = 'opened'; $opened = $true; Write-LauncherLog -Root $Root -Message "opened app window with $($browser.Name)"
             } catch { Write-LauncherLog -Root $Root -Message "app-mode launch failed: $($_.Exception.Message)" }
         }
         if (-not $opened) {
-            try { Start-Process $url; $result.window = 'default-browser'; $result.message = "Opened in your default browser: $url" } catch { $result.window = 'none'; $result.message = "Dashboard is running. Open $url in your browser." }
+            try { Start-Process $openUrl; $result.window = 'default-browser'; $result.message = "Opened in your default browser: $url" } catch { $result.window = 'none'; $result.message = "Dashboard is running. Open $url in your browser." }
             Write-LauncherLog -Root $Root -Message "fallback: $($result.window)"
         }
         return [pscustomobject]$result

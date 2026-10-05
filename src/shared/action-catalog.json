@@ -503,7 +503,7 @@
         }
       },
       "summary": "Adds \"0.0.0.0 {domain}\" inside the Laptop Guardian section of the Windows hosts file, so this exact host name stops resolving.",
-      "consequences": "Programs on this laptop cannot reach that name. Wildcards are not supported, and programs that use their own encrypted DNS (DoH) can bypass the hosts file. Needs DNS filtering to be switched on.",
+      "consequences": "Programs on this laptop cannot reach that name. Wildcards are not supported, and programs that use their own encrypted DNS (DoH) can bypass the hosts file. Needs DNS filtering to be switched on. Windows Defender may report any edit to the hosts file as a change to review.",
       "undo": "Unblock the domain, or roll back all DNS blocks, from Network Guard, DNS."
     },
     {

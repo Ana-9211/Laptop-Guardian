@@ -83,4 +83,33 @@ Describe 'Recommendation sweep' {
         ($out | Where-Object { $_.id -eq $proc.id }).stopCommand | Should BeNullOrEmpty
     }
 }
+Describe 'Report retention' {
+    It 'only deletes report-id folders, never links or other names' {
+        $rp = Join-Path (Get-GuardianPath 'Reports') 'daily'; New-Item -ItemType Directory -Path $rp -Force | Out-Null
+        $old = (Get-Date).AddDays(-400)
+        foreach ($n in '2020-01-01', 'precious-notes') { $d = Join-Path $rp $n; New-Item -ItemType Directory -Path $d -Force | Out-Null; Set-Content (Join-Path $d 'x.txt') 'x'; (Get-Item $d).LastWriteTime = $old }
+        $target = Join-Path $root 'outside'; New-Item -ItemType Directory -Path $target -Force | Out-Null; Set-Content (Join-Path $target 'keep.txt') 'keep'
+        $link = Join-Path $rp '2020-02-02'; cmd /c mklink /J "$link" "$target" | Out-Null
+        Invoke-Retention -Config ([pscustomobject]@{ retention = [pscustomobject]@{ reportsDays = 30 } })
+        (Test-Path (Join-Path $rp '2020-01-01')) | Should Be $false
+        (Test-Path (Join-Path $rp 'precious-notes')) | Should Be $true
+        (Test-Path (Join-Path $target 'keep.txt')) | Should Be $true
+        cmd /c rmdir "$link" | Out-Null
+    }
+}
+Describe 'Recycle Bin pre-checks' {
+    It 'refuses removable drives, non-NTFS volumes, a disabled bin and oversize files' {
+        $global:T_F = [pscustomobject]@{ driveType = 2; fileSystem = 'NTFS'; capacityBytes = 100GB; nukeOnDelete = $false; maxCapacityMB = $null }
+        Mock -ModuleName Security Get-RecycleVolumeFacts { $global:T_F }
+        Test-RecycleBinSafe -Path 'E:\x.bin' -SizeBytes 10 | Should Match 'not a fixed disk'
+        $global:T_F = [pscustomobject]@{ driveType = 3; fileSystem = 'exFAT'; capacityBytes = 100GB; nukeOnDelete = $false; maxCapacityMB = $null }
+        Test-RecycleBinSafe -Path 'D:\x.bin' -SizeBytes 10 | Should Match 'exFAT'
+        $global:T_F = [pscustomobject]@{ driveType = 3; fileSystem = 'NTFS'; capacityBytes = 100GB; nukeOnDelete = $true; maxCapacityMB = $null }
+        Test-RecycleBinSafe -Path 'C:\x.bin' -SizeBytes 10 | Should Match 'switched off'
+        $global:T_F = [pscustomobject]@{ driveType = 3; fileSystem = 'NTFS'; capacityBytes = 100GB; nukeOnDelete = $false; maxCapacityMB = 1024 }
+        Test-RecycleBinSafe -Path 'C:\x.bin' -SizeBytes 2GB | Should Match 'larger than the Recycle Bin'
+        Test-RecycleBinSafe -Path 'C:\x.bin' -SizeBytes 5MB | Should BeNullOrEmpty
+        Test-RecycleBinSafe -Path '\\server\share\x.bin' -SizeBytes 5 | Should Match 'local drive'
+    }
+}
 Remove-TestRoot $root

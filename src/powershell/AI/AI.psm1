@@ -13,7 +13,12 @@ function Save-GeminiKey {
     $p = Get-GuardianPath 'GeminiKey'
     $dir = Split-Path $p; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     [System.IO.File]::WriteAllText($p, $blob, (New-Object System.Text.UTF8Encoding($false)))
-    try { & icacls.exe $p /inheritance:r /grant:r "$($env:USERNAME):(F)" 2>&1 | Out-Null } catch { }
+    # Grant by SID (a user name can be ambiguous or contain characters icacls reads differently) and say so if the lock-down failed.
+    try {
+        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        & "$env:SystemRoot\System32\icacls.exe" $p /inheritance:r /grant:r "*${sid}:(F)" 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { [void](Write-GuardianEvent -Category config -Action 'ai:key-acl' -Result failure -Severity warning -Reason "Could not restrict the key file to your account (icacls exit $LASTEXITCODE). The key is still DPAPI-encrypted for your Windows account.") }
+    } catch { [void](Write-GuardianEvent -Category config -Action 'ai:key-acl' -Result failure -Severity warning -ErrorDetails $_.Exception.Message) }
     [void](Write-GuardianEvent -Category config -Action 'ai:key-saved' -Actor user)
 }
 
@@ -55,8 +60,9 @@ function Protect-Text {
     param([string]$Text)
     if (-not $Text) { return $Text }
     $t = $Text
-    if ($env:USERPROFILE) { $t = $t.Replace($env:USERPROFILE, '%USERPROFILE%') }
-    if ($env:USERNAME) { $t = $t -replace [regex]::Escape($env:USERNAME), '<user>' }
+    if ($env:USERPROFILE) { $t = $t -replace [regex]::Escape($env:USERPROFILE), '%USERPROFILE%' }
+    # Whole-word and only for names long enough to be specific; a 2-letter user name would otherwise mangle ordinary words.
+    if ($env:USERNAME -and $env:USERNAME.Length -ge 4) { $t = $t -replace ('(?i)\b' + [regex]::Escape($env:USERNAME) + '\b'), '<user>' }
     foreach ($n in @($env:COMPUTERNAME, $env:USERDOMAIN)) { if ($n -and $n.Length -ge 3) { $t = $t -replace [regex]::Escape($n), "<host>" } }
     $t = $t -replace '(?i)(api[-_]?key|token|secret|password|passwd|pwd|authorization|bearer)\s*[=: ]\s*\S+', '$1=<redacted>'
     $t = $t -replace '\b[A-Za-z0-9_\-]{32,}\b', '<redacted-token>'

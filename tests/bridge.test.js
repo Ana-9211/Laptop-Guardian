@@ -15,7 +15,7 @@ const H = { 'X-Guardian': '1', 'Content-Type': 'application/json' };
 function req(method, p, { body, headers = {}, host, raw } = {}) {
   return new Promise((resolve, reject) => {
     const data = raw !== undefined ? raw : body !== undefined ? JSON.stringify(body) : undefined;
-    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { Host: host || `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, ...headers } }, (res) => {
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { Host: host || `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, Authorization: `Bearer ${app.token}`, ...headers } }, (res) => {
       const chunks = []; res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8'); let json = null;
@@ -185,4 +185,49 @@ test('api: overview and status agree on the shutdown gate (automation paused hid
     assert.strictEqual((await get('/api/overview')).json.next.shutdown, null);
     assert.strictEqual((await get('/api/status')).json.shutdown.armed, false);
   } finally { await mut('PUT', '/api/config', { safety: { automationPaused: false } }); }
+});
+
+test('auth: every /api route except ping needs the session token; static files and ping do not', async () => {
+  const noTok = (p, extra = {}) => req('GET', p, { headers: { Authorization: '', ...extra } });
+  assert.strictEqual((await noTok('/api/overview')).status, 401);
+  assert.strictEqual((await noTok('/api/config')).status, 401);
+  assert.strictEqual((await noTok('/api/overview', { Authorization: 'Bearer ' + 'a'.repeat(64) })).status, 401);
+  assert.strictEqual((await noTok('/api/ping')).status, 200);
+  assert.strictEqual((await noTok('/')).status, 200);
+  assert.strictEqual((await get('/api/overview')).status, 200);
+});
+test('auth: cross-site fetch metadata is refused, headers carry resource/opener policy', async () => {
+  const r = await req('GET', '/api/overview', { headers: { Authorization: `Bearer ${app.token}`, 'Sec-Fetch-Site': 'cross-site' } });
+  assert.strictEqual(r.status, 403);
+  const ok = await req('GET', '/api/overview', { headers: { Authorization: `Bearer ${app.token}`, 'Sec-Fetch-Site': 'same-origin' } });
+  assert.strictEqual(ok.status, 200);
+  assert.strictEqual(ok.headers['cross-origin-resource-policy'], 'same-origin');
+  assert.strictEqual(ok.headers['cross-origin-opener-policy'], 'same-origin');
+});
+
+test('config: changes that lower a safety margin need confirmation, are audited, and only then apply', async () => {
+  const before = (await get('/api/config')).json;
+  assert.strictEqual(before.safety.safeMode, true);
+  const refused = await mut('PUT', '/api/config', { safety: { safeMode: false } });
+  assert.strictEqual(refused.status, 409); assert.ok(refused.json.needsConfirmation.length >= 1);
+  assert.strictEqual((await get('/api/config')).json.safety.safeMode, true, 'nothing changed');
+  assert.strictEqual((await mut('PUT', '/api/config', { cleanup: { recycleBin: 'always' } })).status, 409);
+  const ok = await mut('PUT', '/api/config', { safety: { safeMode: false }, _confirmRisky: true });
+  assert.strictEqual(ok.status, 200);
+  const acts = (await get('/api/actions?limit=20')).json;
+  assert.ok(acts.some((a) => a.action === 'config.risky-refused') && acts.some((a) => a.action === 'config.risky-update'));
+  assert.strictEqual((await mut('PUT', '/api/config', { safety: { safeMode: true } })).status, 200, 'turning protection back on never needs confirmation');
+});
+
+test('shutdown: cancel runs the fixed abort command once, is audited, and clears the pending banner', async () => {
+  let calls = 0;
+  const a = createApp(root, { pidFile: false, dist: path.join(root, 'dist'), abortShutdown: async () => { calls++; return { ok: true, text: '' }; } });
+  const p = await new Promise((r) => a.listen_(0, r));
+  const call = (m, u, body) => new Promise((resolve, reject) => { const d = body ? JSON.stringify(body) : undefined; const r = http.request({ host: '127.0.0.1', port: p, path: u, method: m, headers: { Host: `127.0.0.1:${p}`, Origin: `http://127.0.0.1:${p}`, Authorization: `Bearer ${a.token}`, 'X-Guardian': '1', 'Content-Type': 'application/json' } }, (res) => { let t = ''; res.on('data', (c) => { t += c; }); res.on('end', () => resolve({ status: res.statusCode, json: JSON.parse(t) })); }); r.on('error', reject); if (d) r.write(d); r.end(); });
+  try {
+    const r = await call('POST', '/api/shutdown/cancel', {});
+    assert.strictEqual(r.status, 200); assert.strictEqual(r.json.cancelled, true); assert.strictEqual(calls, 1);
+    const acts = (await call('GET', '/api/actions?limit=5')).json;
+    assert.ok(acts.some((x) => x.action === 'shutdown:cancelled' && x.result === 'success'));
+  } finally { a.close(); }
 });

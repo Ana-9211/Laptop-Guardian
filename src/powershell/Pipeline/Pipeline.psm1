@@ -142,8 +142,13 @@ function Invoke-Retention {
     $cut = (Get-Date).AddDays(-$days)
     foreach ($t in 'daily', 'weekly') {
         $root = Join-Path (Get-GuardianPath 'Reports') $t
+        # Only folders named like a report id (2026-10-05 or 2026-W41) are ever candidates; links are never followed.
+        $namePattern = if ($t -eq 'daily') { '^\d{4}-\d{2}-\d{2}$' } else { '^\d{4}-W\d{2}$' }
         foreach ($d in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
+            if ($d.Name -notmatch $namePattern) { continue }
+            if ($d.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
             if ($d.LastWriteTime -lt $cut) {
+                if ((Get-ChildItem -LiteralPath $d.FullName -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue | Select-Object -First 1)) { [void](Write-GuardianEvent -Category system -Action 'retention:skipped' -Target "$t/$($d.Name)" -Result skipped -Severity warning -Reason 'Contains a link; left in place.'); continue }
                 Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
                 [void](Write-GuardianEvent -Category system -Action 'retention:report-deleted' -Target "$t/$($d.Name)" -Reason "Older than retention policy ($days days)")
             }

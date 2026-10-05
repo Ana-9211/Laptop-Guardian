@@ -10,16 +10,22 @@ $root = $PSScriptRoot
 
 
 Write-Host 'Removing scheduled tasks...' -ForegroundColor Cyan
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\src\powershell\Scheduler.ps1" -Action Unregister -Json -TaskFolder $TaskFolder | ConvertFrom-Json | ForEach-Object { Write-Host "  $($_.message)" }
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\src\powershell\Scheduler.ps1" -Action Unregister -Json -TaskFolder $TaskFolder | ConvertFrom-Json | ForEach-Object { Write-Host "  $($_.message)"; if ($_.needsElevation) { $script:tasksLeft = $true } }
+if ($script:tasksLeft) {
+    Write-Host ''
+    Write-Host 'NOT UNINSTALLED: the Daily/Weekly scheduled tasks run with administrator rights and were left in place.' -ForegroundColor Red
+    Write-Host 'Run this script again from an administrator PowerShell window to remove them.' -ForegroundColor Red
+    exit 2
+}
 
 # stop the dashboard bridge if running
-Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$root*src\bridge\server.js*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host "  Stopped dashboard bridge (PID $($_.ProcessId))" }
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf((Join-Path $root 'src\bridge\server.js'), [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host "  Stopped dashboard bridge (PID $($_.ProcessId))" }
 
 foreach ($e in @(@{ L = 'Start Menu'; P = (Join-Path ([Environment]::GetFolderPath('Programs')) 'Laptop Guardian.lnk') }, @{ L = 'Desktop'; P = (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Laptop Guardian.lnk') })) {
     if (-not (Test-Path $e.P)) { continue }
     # only remove shortcuts that point at THIS install
     $lnkArgs = (New-Object -ComObject WScript.Shell).CreateShortcut($e.P).Arguments
-    if ($lnkArgs -like "*$root*") { Remove-Item $e.P -Force; Write-Host "  Removed $($e.L) shortcut" } else { Write-Host "  Left $($e.L) shortcut (belongs to another install)" -ForegroundColor Yellow }
+    if ($lnkArgs -and $lnkArgs.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0) { Remove-Item $e.P -Force; Write-Host "  Removed $($e.L) shortcut" } else { Write-Host "  Left $($e.L) shortcut (belongs to another install)" -ForegroundColor Yellow }
 }
 
 if ($RemoveData) {

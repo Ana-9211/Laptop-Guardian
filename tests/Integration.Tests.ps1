@@ -26,22 +26,23 @@ Describe 'Install -> scan -> dashboard -> uninstall' {
         $env:GUARDIAN_PORT = [string]$port
         $script:bridge = Start-Process node -ArgumentList ('"' + (Join-Path $copy 'src\bridge\server.js') + '"') -WorkingDirectory $copy -WindowStyle Hidden -PassThru
         $up = $false
-        1..20 | ForEach-Object { if (-not $up) { if ((Get-Status "http://127.0.0.1:$port/api/run") -eq 200) { $up = $true } else { Start-Sleep -Milliseconds 500 } } }
+        1..20 | ForEach-Object { if (-not $up) { if ((Get-Status "http://127.0.0.1:$port/api/ping") -eq 200) { $up = $true } else { Start-Sleep -Milliseconds 500 } } }
         $up | Should Be $true
-        $ov = (Invoke-WebRequest "http://127.0.0.1:$port/api/overview" -UseBasicParsing).Content | ConvertFrom-Json
+        $script:auth = @{ Authorization = 'Bearer ' + (Get-Content (Join-Path $copy 'data\state\bridge.json') -Raw | ConvertFrom-Json).token }
+        $ov = (Invoke-WebRequest "http://127.0.0.1:$port/api/overview" -UseBasicParsing -Headers $script:auth).Content | ConvertFrom-Json
         $ov.daily.type | Should Be 'daily'
         $ov.daily.healthScore | Should BeGreaterThan 0
         @($ov.metrics).Count | Should BeGreaterThan 0
-        $procs = (Invoke-WebRequest "http://127.0.0.1:$port/api/processes" -UseBasicParsing).Content | ConvertFrom-Json
+        $procs = (Invoke-WebRequest "http://127.0.0.1:$port/api/processes" -UseBasicParsing -Headers $script:auth).Content | ConvertFrom-Json
         @($procs.processes).Count | Should BeGreaterThan 20
-        $reps = @((Invoke-WebRequest "http://127.0.0.1:$port/api/reports?type=daily" -UseBasicParsing).Content | ConvertFrom-Json)
+        $reps = @((Invoke-WebRequest "http://127.0.0.1:$port/api/reports?type=daily" -UseBasicParsing -Headers $script:auth).Content | ConvertFrom-Json)
         $reps.Count | Should Be 1
-        $html = Invoke-WebRequest "http://127.0.0.1:$port/api/reports/daily/$($reps[0].id)/html" -UseBasicParsing
+        $html = Invoke-WebRequest "http://127.0.0.1:$port/api/reports/daily/$($reps[0].id)/html" -UseBasicParsing -Headers $script:auth
         $html.Content | Should Match 'Laptop Guardian'
         (Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing).Content | Should Match 'id="root"'
     }
     It 'bridge blocks mutating requests without the CSRF header' {
-        $code = try { (Invoke-WebRequest "http://127.0.0.1:$port/api/policy" -Method Post -Body '{}' -ContentType 'application/json' -UseBasicParsing).StatusCode } catch { [int]$_.Exception.Response.StatusCode }
+        $code = try { (Invoke-WebRequest "http://127.0.0.1:$port/api/policy" -Method Post -Headers $script:auth -Body '{}' -ContentType 'application/json' -UseBasicParsing).StatusCode } catch { [int]$_.Exception.Response.StatusCode }
         $code | Should Be 403
     }
     It 'bridge rejects a foreign Host header (DNS-rebinding defence)' {
@@ -51,7 +52,7 @@ Describe 'Install -> scan -> dashboard -> uninstall' {
         [Text.Encoding]::ASCII.GetString($buf, 0, $n) | Should Not Match '^HTTP/1.1 200'
     }
     It 'policy added through the API is honoured by the PowerShell agent (round trip)' {
-        $h = @{ 'X-Guardian' = '1'; Origin = "http://127.0.0.1:$port" }
+        $h = @{ 'X-Guardian' = '1'; Origin = "http://127.0.0.1:$port"; Authorization = $script:auth.Authorization }
         Invoke-WebRequest "http://127.0.0.1:$port/api/policy" -Method Post -Headers $h -ContentType 'application/json' -Body '{"list":"whitelist","name":"mytool","reason":"e2e"}' -UseBasicParsing | Out-Null
         $pol = Get-Content (Join-Path $copy 'config\process-policy.json') -Raw | ConvertFrom-Json
         @($pol.whitelist | Where-Object { $_.name -eq 'mytool' }).Count | Should Be 1

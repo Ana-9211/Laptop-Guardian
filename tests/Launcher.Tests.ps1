@@ -53,7 +53,11 @@ Describe 'Start-GuardianDashboard' {
             (Get-BridgePing -Port $port).pid | Should Be $ping.pid        # same process: no duplicate bridge
             @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like "*$r*server.js*" }).Count | Should Be 1
             (Get-Content "$r\data\state\bridge.json" -Raw | ConvertFrom-Json).pid | Should Be $ping.pid
-            $s = Invoke-RestMethod "http://127.0.0.1:$port/api/status" -UseBasicParsing; $s.bridge.ok | Should Be $true
+            $code = try { (Invoke-WebRequest "http://127.0.0.1:$port/api/status" -UseBasicParsing).StatusCode } catch { [int]$_.Exception.Response.StatusCode }
+            $code | Should Be 401                                         # no session token, no API
+            $tok = Get-BridgeToken -Root $r -Ping $ping; $tok | Should Not BeNullOrEmpty
+            Get-BridgeToken -Root $r -Ping ([pscustomobject]@{ pid = 1 }) | Should BeNullOrEmpty   # a token is only trusted for the bridge that answered
+            $s = Invoke-RestMethod "http://127.0.0.1:$port/api/status" -UseBasicParsing -Headers @{ Authorization = "Bearer $tok" }; $s.bridge.ok | Should Be $true
         } finally { Stop-LauncherBridge $r $port }
     }
     It 'returns promptly when its output is piped (the bridge must not inherit the caller pipes)' {
