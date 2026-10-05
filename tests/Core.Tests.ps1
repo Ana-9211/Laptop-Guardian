@@ -84,7 +84,7 @@ Describe 'Safe command execution' {
     }
     It 'enforces a single instance per lock name' {
         (Enter-GuardianLock -Name 'unit-test') | Should Be $true
-        $j = Start-Job { $m = New-Object System.Threading.Mutex($false, 'Global\LaptopGuardian-unit-test'); $m.WaitOne(0) }
+        $j = Start-Job { $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $m = New-Object System.Threading.Mutex($false, "Global\LaptopGuardian-$sid-unit-test"); $m.WaitOne(0) }
         (Receive-Job -Job $j -Wait) | Should Be $false
         Remove-Job $j
         Exit-GuardianLock -Name 'unit-test'

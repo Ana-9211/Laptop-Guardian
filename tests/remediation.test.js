@@ -2,6 +2,9 @@
 // Remediation planning, confirmation, elevation and findings. A fake PowerShell runner stands in for the real scripts:
 // nothing here stops a process, changes a service, task or firewall, recycles a file, or starts Revo.
 const test = require('node:test');
+// The fixtures describe a user called "u"; the other-profiles rule is measured against the current profile, so make that profile "u".
+process.env.USERPROFILE = 'C:\\Users\\u';
+process.env.SystemDrive = 'C:';
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
@@ -38,6 +41,34 @@ test('protected lists in Node are identical to the PowerShell lists', () => {
   };
   assert.deepStrictEqual([...P.PROCESS_NAMES].sort(), [...new Set(grab('ProtectedProcessNames'))].sort());
   assert.deepStrictEqual([...P.SERVICE_NAMES].sort(), [...new Set(grab('ProtectedServiceNames'))].sort());
+  assert.deepStrictEqual([...P.CORE_WINDOWS_NAMES].sort(), [...new Set(grab('WindowsCoreProcessNames'))].sort());
+  assert.ok(P.CORE_WINDOWS_NAMES.every((n) => P.PROCESS_NAMES.includes(n)), 'every core name is also name-protected');
+});
+
+test('lookalikes of Windows process names outside the Windows folder are labelled suspicious, not protected; dev tools stay name-protected', () => {
+  const win = process.env.SystemRoot;
+  assert.strictEqual(P.checkProcess({ name: 'svchost.exe', pid: 900, path: win + '\\System32\\svchost.exe' }).protected, true);
+  const fake = P.checkProcess({ name: 'svchost.exe', pid: 900, path: 'C:\\Users\\u\\AppData\\Local\\Temp\\svchost.exe' });
+  assert.strictEqual(fake.protected, false); assert.strictEqual(fake.suspicious, true);
+  assert.strictEqual(P.checkProcess({ name: 'svchost.exe', pid: 900, path: '' }).protected, true, 'unreadable path fails closed');
+  assert.strictEqual(P.checkProcess({ name: 'node.exe', pid: 900, path: 'C:\\Users\\u\\tools\\node.exe' }).protected, true, 'node stays name-protected');
+  assert.strictEqual(P.checkProcess({ name: 'claude.exe', pid: 900, path: 'C:\\Users\\u\\bin\\claude.exe' }).protected, true);
+  // C:\WindowsFake is not under C:\Windows
+  assert.strictEqual(P.checkProcess({ name: 'thing.exe', pid: 900, path: win + 'Fake\\thing.exe' }).protected, false);
+});
+
+test('stopping a suspicious lookalike needs the extra acknowledgement', async () => {
+  const lookalike = { name: 'svchost', pid: 4242, path: 'C:\\Users\\u\\AppData\\Local\\Temp\\svchost.exe', startTime: '2026-10-05T10:00:00' };
+  const { eng, done } = engine({ handlers: { 'Actions/Invoke-GuardianAction.ps1': (a) => (a.includes('Validate') ? okValidate({ details: { suspicious: true }, warnings: ['Suspicious: lookalike'] }) : { ok: true, data: { ok: true, verified: true } }) } });
+  try {
+    const p = await eng.plan('process.stop', lookalike);
+    assert.ok(p.requiredAcks.includes('suspicious-lookalike') && p.requiredAcks.includes('unsaved-work'));
+    assert.deepStrictEqual(p.warnings, ['Suspicious: lookalike']);
+    await assert.rejects(eng.execute(p.token, { confirm: true, acknowledged: ['unsaved-work'] }), (e) => e.status === 400 && /suspicious-lookalike/.test(e.message));
+    const p2 = await eng.plan('process.stop', lookalike);
+    const r = await eng.execute(p2.token, { confirm: true, acknowledged: ['unsaved-work', 'suspicious-lookalike'] });
+    assert.strictEqual(r.status, 'done');
+  } finally { done(); }
 });
 
 test('protected path rules refuse system locations, roots, wildcards and Guardian files', () => {
@@ -360,4 +391,13 @@ test('HTTP: fixtures produce findings that all reference allowlisted actions', a
     assert.ok(f.length > 0);
     for (const x of f) { assert.ok(x.what && Array.isArray(x.why) && Array.isArray(x.evidence) && x.risk, x.id); for (const a of x.actions) { assert.ok(R.byId.has(a.actionId)); assert.ok(a.summary && a.consequences && a.undo, a.actionId); } }
   } finally { b.close(); }
+});
+
+test('file paths: other users profiles and the Guardian root itself are protected; the current profile is not', () => {
+  const drive = process.env.SystemDrive || 'C:';
+  const mine = process.env.USERPROFILE;
+  assert.strictEqual(P.checkPath(drive + '\\Users\\SomeoneElse\\Documents\\x.txt').protected, true);
+  assert.strictEqual(P.checkPath(drive + '\\Users').protected, true);
+  assert.strictEqual(P.checkPath(mine + '\\Documents\\x.txt').protected, false);
+  assert.strictEqual(P.checkPath('C:\\Guardian', { guardianRoot: 'C:\\Guardian' }).protected, true, 'the root itself, not only files under it');
 });

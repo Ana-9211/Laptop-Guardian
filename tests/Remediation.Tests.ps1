@@ -70,9 +70,17 @@ Describe 'process.stop' {
     foreach ($n in 'explorer', 'lsass', 'MsMpEng', 'svchost', 'powershell', 'csrss', 'SecurityHealthService', 'node') {
         It "never stops protected process '$n', even when everything else matches" {
             $global:T_Name = $n
-            Mock -ModuleName $M Get-LiveProcessInfo { [pscustomobject]@{ Name = $global:T_Name; Path = "C:\Program Files\X\$($global:T_Name).exe"; StartTime = 't'; CommandLine = '' } }
+            # Windows' own names are protected when they run from the Windows folder; dev tools and security software stay protected by name anywhere.
+            $global:T_Path = if ($n -in (Get-WindowsCoreProcessNames)) { "$env:SystemRoot\System32\$n.exe" } else { "C:\Program Files\X\$n.exe" }
+            Mock -ModuleName $M Get-LiveProcessInfo { [pscustomobject]@{ Name = $global:T_Name; Path = $global:T_Path; StartTime = 't'; CommandLine = '' } }
             $r = Run 'process.stop' @{ pid = 4242; name = $n }; $r.ok | Should Be $false; (First $r) | Should Match 'Protected'
         }
+    }
+    It 'lets a lookalike of a Windows process through validation, flagged suspicious with a warning (the dashboard then demands an extra acknowledgement)' {
+        Mock -ModuleName $M Get-LiveProcessInfo { [pscustomobject]@{ Name = 'svchost'; Path = 'C:\Users\u\AppData\Local\Temp\svchost.exe'; StartTime = 't'; CommandLine = '' } }
+        Mock -ModuleName Security Get-ImageTrust { [pscustomobject]@{ valid = $false; microsoft = $false } }
+        $r = Run 'process.stop' @{ pid = 4242; name = 'svchost' } 'Validate'
+        $r.ok | Should Be $true; $r.details.suspicious | Should Be $true; (@($r.warnings) -join ' ') | Should Match 'Suspicious'
     }
     It 'never stops a binary under the Windows directory' {
         Mock -ModuleName $M Get-LiveProcessInfo { [pscustomobject]@{ Name = 'foo'; Path = "$env:SystemRoot\System32\foo.exe"; StartTime = 't'; CommandLine = '' } }

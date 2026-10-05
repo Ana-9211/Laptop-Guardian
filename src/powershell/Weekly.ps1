@@ -207,7 +207,7 @@ try {
     if ($verified) { try { $rj = Read-JsonFile -Path (Join-Path $dir 'report.json'); if (-not $rj -or ([datetime]$rj.generatedAt) -lt $started.AddSeconds(-5) -or $rj.status -eq 'failed') { $verified = $false } } catch { $verified = $false } }
     if (-not $verified) { [void](Write-GuardianEvent -Category shutdown -Action 'shutdown:verify-reports' -Result failure -Severity error -Reason 'Weekly report files missing; shutdown withheld') }
     Set-RunState -Key 'lastWeekly' -Value ([pscustomobject]@{ startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz'); finishedAt = (Get-IsoNow); status = $finalStatus; reportId = $id; unfinished = @($incomplete) })
-    Set-RunState -Key 'running' -Value $null
+    try { $cur = (Get-RunState).running; if (-not $cur -or $cur.type -eq 'weekly') { Set-RunState -Key 'running' -Value $null } } catch { }
     if ($verified) { $sdResult = Start-GuardianShutdown -Config $config -NoShutdown:($NoShutdown -or -not $Scheduled) } else { $sdResult.reason = 'Report verification failed' }
     # Record the shutdown decision in the already-written report
     if ($verified -and $report) {

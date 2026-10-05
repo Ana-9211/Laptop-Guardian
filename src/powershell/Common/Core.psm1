@@ -8,6 +8,11 @@ $script:RunEvents = New-Object System.Collections.ArrayList
 $script:RunErrors = New-Object System.Collections.ArrayList
 $script:Timings = [ordered]@{}
 
+function Get-SystemPowerShellPath {
+    # Windows PowerShell by absolute path, never whatever "powershell.exe" a PATH entry happens to name (this is what elevated launches use).
+    Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+}
+
 function Get-GuardianRoot {
     if ($env:GUARDIAN_ROOT -and (Test-Path -LiteralPath $env:GUARDIAN_ROOT)) { return (Resolve-Path -LiteralPath $env:GUARDIAN_ROOT).Path }
     # module lives in <root>/src/powershell/Common
@@ -67,19 +72,60 @@ function Read-JsonFile {
     }
 }
 
+function Assert-NoLinkWhenElevated {
+    # An elevated write that follows a junction or symlink planted in a user-writable folder could land anywhere. Refuse instead.
+    param([string]$Dir)
+    if (-not $Dir -or -not (Test-IsAdmin)) { return }
+    $root = Get-GuardianRoot
+    $p = $Dir.TrimEnd([char]92)
+    while ($p -and $p.Length -gt 3 -and $p.StartsWith($root.TrimEnd([char]92), [System.StringComparison]::OrdinalIgnoreCase)) {
+        $i = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        if ($i -and ($i.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Refusing to write through a junction or symbolic link: $p" }
+        $p = Split-Path -Parent $p
+    }
+}
+
+function Invoke-WithFileLock {
+    <# Holds <Path>.lock (created exclusively; the dashboard bridge uses the same protocol) around a read-modify-write of a shared file. Runs anyway if the lock cannot be had in time. #>
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][scriptblock]$ScriptBlock, [int]$TimeoutMs = 6000)
+    $lock = "$Path.lock"; $dir = Split-Path -Parent $lock
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $deadline = (Get-Date).AddMilliseconds($TimeoutMs); $fs = $null
+    while (-not $fs) {
+        try { $fs = [System.IO.File]::Open($lock, 'CreateNew', 'Write', 'None') }
+        catch {
+            try { if (((Get-Date) - (Get-Item -LiteralPath $lock -ErrorAction Stop).LastWriteTime).TotalSeconds -gt 30) { Remove-Item -LiteralPath $lock -Force -ErrorAction Stop } } catch { }
+            if ((Get-Date) -gt $deadline) { break }
+            Start-Sleep -Milliseconds (15 + (Get-Random -Maximum 30))
+        }
+    }
+    try { & $ScriptBlock } finally { if ($fs) { $fs.Dispose(); Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue } }
+}
+
 function Write-JsonFile {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Object, [int]$Depth = 14)
     $dir = Split-Path -Parent $Path
+    Assert-NoLinkWhenElevated -Dir $dir
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $json = ConvertTo-Json -InputObject $Object -Depth $Depth
     $tmp = "$Path.$([guid]::NewGuid().ToString('N').Substring(0,8)).tmp"
     [System.IO.File]::WriteAllText($tmp, $json, $script:Utf8NoBom)
-    Move-Item -LiteralPath $tmp -Destination $Path -Force
+    # Swap the new file in, retrying briefly if another process (the bridge, antivirus) has the old one open.
+    for ($try = 0; $try -lt 8; $try++) {
+        try {
+            if (Test-Path -LiteralPath $Path) { [System.IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [System.IO.File]::Move($tmp, $Path) }
+            return
+        } catch {
+            if ($try -ge 7) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; throw }
+            Start-Sleep -Milliseconds (20 * ($try + 1))
+        }
+    }
 }
 
 function Add-JsonLine {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Object)
     $dir = Split-Path -Parent $Path
+    Assert-NoLinkWhenElevated -Dir $dir
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $line = (ConvertTo-Json -InputObject $Object -Depth 8 -Compress) + "`n"
     # If a previous write was torn (no trailing newline), start on a fresh line so only the torn record is lost
@@ -205,7 +251,7 @@ function Write-GuardianEvent {
     }
     if ($null -ne $Data) { $evt['data'] = $Data }   # structured detail (verification, undo recipe); never secrets
     [void]$script:RunEvents.Add($evt)
-    try { Add-JsonLine -Path (Get-GuardianPath 'Actions') -Object $evt } catch { }
+    try { Add-JsonLine -Path (Get-GuardianPath 'Actions') -Object $evt } catch { Write-Warning "Laptop Guardian could not write the audit trail: $($_.Exception.Message)" }
     try {
         $logFile = Join-Path (Get-GuardianPath 'Logs') ("guardian-{0}.log" -f (Get-Date -Format 'yyyy-MM-dd'))
         $line = "{0} [{1}] {2}/{3} {4} target={5} result={6}{7}" -f $evt.ts, $Severity.ToUpper(), $Category, $Action, $Actor, $Target, $Result, $(if ($ErrorDetails) { " error=$ErrorDetails" } else { '' })
@@ -235,10 +281,13 @@ function Get-RunTimings { $script:Timings }
 function Get-RunState { Read-JsonFile -Path (Get-GuardianPath 'RunState') -Default ([pscustomobject]@{ lastDaily = $null; lastWeekly = $null; running = $null }) }
 function Set-RunState {
     param([string]$Key, $Value)
-    $s = Get-RunState
-    $h = [ordered]@{ lastDaily = $s.lastDaily; lastWeekly = $s.lastWeekly; running = $s.running }
-    $h[$Key] = $Value
-    Write-JsonFile -Path (Get-GuardianPath 'RunState') -Object $h
+    $path = Get-GuardianPath 'RunState'
+    Invoke-WithFileLock -Path $path -ScriptBlock {
+        $s = Get-RunState
+        $h = [ordered]@{ lastDaily = $s.lastDaily; lastWeekly = $s.lastWeekly; running = $s.running }
+        $h[$Key] = $Value
+        Write-JsonFile -Path $path -Object $h
+    }
 }
 
 # ---------- Safe external command execution ----------
@@ -290,7 +339,9 @@ function Enter-GuardianLock {
     # Single-instance guard per run type. Returns $true if acquired.
     param([Parameter(Mandatory)][string]$Name)
     try {
-        $m = New-Object System.Threading.Mutex($false, "Global\LaptopGuardian-$Name")
+        # The user's SID is part of the name so another account cannot pre-create the mutex under a guessable name and block the run.
+        $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $m = New-Object System.Threading.Mutex($false, "Global\LaptopGuardian-$sid-$Name")
         if ($m.WaitOne(0)) { $script:Locks[$Name] = $m; return $true }
         $m.Dispose(); return $false
     } catch [System.Threading.AbandonedMutexException] { $script:Locks[$Name] = $m; return $true } catch { return $false }

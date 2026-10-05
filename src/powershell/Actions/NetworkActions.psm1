@@ -175,8 +175,8 @@ function Invoke-FirewallCreate {
     $okAction = if ($Kind -like 'allow*') { 'Allow' } else { 'Block' }
     if (-not $r -or -not (Test-GuardianOwned $r) -or [string]$r.Enabled -ne 'True' -or [string]$r.Action -ne $okAction) { return New-RemResult -Ok $false -Errors @('The rule was not found in Windows Firewall after creation, or it has the wrong settings.') }
     $reg = @(Read-RuleRegistry) + @([ordered]@{ name = $name; kind = $Kind; params = $P; createdAt = (Get-IsoNow); expiresAt = $expires; duration = $dur })
-    try { Save-RuleRegistry -Rules $reg } catch { }
-    return New-RemResult -Ok $true -Verified $true -Message "Firewall rule $name created and verified in the Laptop Guardian group ($(if ($expires) { "review after $expires" } else { 'no expiry' }))." -Details ([ordered]@{ ruleName = $name; expiresAt = $expires }) -Undo ([ordered]@{ action = 'firewall.remove-rule'; params = [ordered]@{ name = $name } })
+    $regWarn = @(); try { Save-RuleRegistry -Rules $reg } catch { $regWarn = @("The rule was created, but Guardian could not record its review reminder: $($_.Exception.Message)") }
+    return New-RemResult -Ok $true -Verified $true -Message "Firewall rule $name created and verified in the Laptop Guardian group ($(if ($expires) { "review after $expires" } else { 'no expiry' }))." -Warnings $regWarn -Details ([ordered]@{ ruleName = $name; expiresAt = $expires }) -Undo ([ordered]@{ action = 'firewall.remove-rule'; params = [ordered]@{ name = $name } })
 }
 
 # ---------- firewall: manage existing Guardian rules ----------
@@ -201,9 +201,9 @@ function Invoke-FirewallManage {
     $r = Get-FwRuleByName -Name $name
     $ok = switch ($Op) { 'remove' { -not $r } 'enable' { $r -and [string]$r.Enabled -eq 'True' } 'disable' { $r -and [string]$r.Enabled -ne 'True' } }
     if (-not $ok) { return New-RemResult -Ok $false -Errors @('Windows Firewall did not report the new state.') }
-    if ($Op -eq 'remove') { try { Save-RuleRegistry -Rules @(Read-RuleRegistry | Where-Object { $_.name -ne $name }) } catch { } }
+    $remWarn = @(); if ($Op -eq 'remove') { try { Save-RuleRegistry -Rules @(Read-RuleRegistry | Where-Object { $_.name -ne $name }) } catch { $remWarn = @("The rule was removed, but Guardian could not update its own list: $($_.Exception.Message)") } }
     $undo = switch ($Op) { 'enable' { [ordered]@{ action = 'firewall.disable-rule'; params = [ordered]@{ name = $name } } } 'disable' { [ordered]@{ action = 'firewall.enable-rule'; params = [ordered]@{ name = $name } } } default { $null } }
-    return New-RemResult -Ok $true -Verified $true -Message "Rule $name $(switch ($Op) { 'remove' { 'removed' } 'enable' { 'enabled' } 'disable' { 'disabled' } })." -Undo $undo
+    return New-RemResult -Ok $true -Verified $true -Message "Rule $name $(switch ($Op) { 'remove' { 'removed' } 'enable' { 'enabled' } 'disable' { 'disabled' } })." -Warnings $remWarn -Undo $undo
 }
 
 # ---------- DNS: hosts-file block ----------
@@ -310,7 +310,25 @@ function Invoke-DnsRollback {
 
 # ---------- deep mode: Windows DNS Client operational log (history by process, no packet data) ----------
 function Get-DnsLogState { try { $l = Get-WinEvent -ListLog 'Microsoft-Windows-DNS-Client/Operational' -ErrorAction Stop; return [bool]$l.IsEnabled } catch { return $null } }
-function Set-DnsLogState { param([bool]$Enabled) & wevtutil.exe sl 'Microsoft-Windows-DNS-Client/Operational' "/e:$(if ($Enabled) { 'true' } else { 'false' })" | Out-Null; if ($LASTEXITCODE -ne 0) { throw "wevtutil exited with $LASTEXITCODE" } }
+function Set-DnsLogState {
+    # Turning the log on also caps its size (so it cannot grow large), remembering the old size; turning it off restores that size.
+    param([bool]$Enabled)
+    $wev = Join-Path $env:SystemRoot 'System32\wevtutil.exe'; $log = 'Microsoft-Windows-DNS-Client/Operational'
+    $prev = Join-Path (Get-GuardianRoot) 'data\network\dns-log-previous.json'
+    if ($Enabled) {
+        try {
+            $l = Get-WinEvent -ListLog $log -ErrorAction Stop
+            if ($l.MaximumSizeInBytes -gt 8MB) {
+                Write-JsonFile -Path $prev -Object @{ maxSizeBytes = [int64]$l.MaximumSizeInBytes }
+                & $wev sl $log '/ms:8388608' | Out-Null; if ($LASTEXITCODE -ne 0) { throw "wevtutil /ms exited with $LASTEXITCODE" }
+            }
+        } catch { throw "Could not cap the DNS Client log size: $($_.Exception.Message)" }
+    }
+    & $wev sl $log "/e:$(if ($Enabled) { 'true' } else { 'false' })" | Out-Null; if ($LASTEXITCODE -ne 0) { throw "wevtutil exited with $LASTEXITCODE" }
+    if (-not $Enabled -and (Test-Path -LiteralPath $prev)) {
+        try { $old = [int64](Read-JsonFile -Path $prev -Default $null).maxSizeBytes; if ($old -gt 0) { & $wev sl $log "/ms:$old" | Out-Null }; Remove-Item -LiteralPath $prev -Force -ErrorAction SilentlyContinue } catch { }
+    }
+}
 function Test-DnsLogChange {
     param([bool]$Enable)
     $s = Get-DnsLogState

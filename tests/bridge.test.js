@@ -231,3 +231,17 @@ test('shutdown: cancel runs the fixed abort command once, is audited, and clears
     assert.ok(acts.some((x) => x.action === 'shutdown:cancelled' && x.result === 'success'));
   } finally { a.close(); }
 });
+
+test('locking: a shared file lock serialises writers, a stale lock is broken, and a held lock never freezes the caller', () => {
+  const f = path.join(root, 'lockdemo', 'x.json');
+  let inner = 0;
+  U.withFileLock(f, () => { inner++; assert.ok(fs.existsSync(`${f}.lock`)); });
+  assert.strictEqual(inner, 1); assert.ok(!fs.existsSync(`${f}.lock`), 'released');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(`${f}.lock`, ''); const old = new Date(Date.now() - 60000); fs.utimesSync(`${f}.lock`, old, old);
+  U.withFileLock(f, () => { inner++; }); assert.strictEqual(inner, 2, 'stale lock broken');
+  fs.writeFileSync(`${f}.lock`, '');
+  const t0 = Date.now(); U.withFileLock(f, () => { inner++; }, 300); assert.strictEqual(inner, 3, 'runs even when the lock is held');
+  assert.ok(Date.now() - t0 >= 250 && Date.now() - t0 < 3000);
+  fs.unlinkSync(`${f}.lock`);
+});

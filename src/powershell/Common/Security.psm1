@@ -13,7 +13,27 @@ $script:ProtectedProcessNames = @(
 
 $script:ProtectedServiceNames = @('wdfilter', 'windefend', 'wscsvc', 'mpssvc', 'bfe', 'rpcss', 'dcomlaunch', 'eventlog', 'lsm', 'samss', 'wuauserv', 'trustedinstaller', 'winmgmt', 'sppsvc', 'cryptsvc', 'dnscache', 'dhcp', 'netlogon', 'schedule', 'profsvc', 'power', 'plugplay', 'sens', 'themes', 'audiosrv', 'spooler', 'securityhealthservice', 'sense', 'wlidsvc')
 
+# Windows' own process names. A process using one of these names is only treated as the real thing when it runs from the Windows
+# folder or carries a valid Microsoft signature; a copy anywhere else is a lookalike (see Test-ProcessKillAllowed). Every name here is also in
+# ProtectedProcessNames above, so the name-based protection is unchanged for genuine ones.
+$script:WindowsCoreProcessNames = @('smss', 'csrss', 'wininit', 'winlogon', 'services', 'lsass', 'lsaiso', 'svchost', 'dwm', 'fontdrvhost', 'explorer', 'sihost', 'taskhostw', 'ctfmon', 'runtimebroker', 'shellexperiencehost', 'startmenuexperiencehost', 'searchhost', 'textinputhost', 'applicationframehost', 'conhost', 'dllhost', 'wudfhost', 'spoolsv', 'audiodg', 'logonui', 'userinit', 'wmiprvse', 'dashost', 'lsm') | ForEach-Object { $_.ToLowerInvariant() }
+
 function Get-ProtectedProcessNames { $script:ProtectedProcessNames }
+function Get-WindowsCoreProcessNames { $script:WindowsCoreProcessNames }
+function Test-UnderSystemRoot {
+    # With the trailing backslash: C:\WindowsFake\x.exe is NOT under C:\Windows.
+    param([string]$Path)
+    if (-not $Path -or -not $env:SystemRoot) { return $false }
+    return $Path.StartsWith($env:SystemRoot.TrimEnd([char]92) + [char]92, [System.StringComparison]::OrdinalIgnoreCase)
+}
+function Get-ImageTrust {
+    # Thin wrapper (mocked in tests): is the file's signature valid, and is it Microsoft's?
+    param([string]$Path)
+    try {
+        $s = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+        return [pscustomobject]@{ valid = ([string]$s.Status -eq 'Valid'); microsoft = [bool]($s.SignerCertificate -and $s.SignerCertificate.Subject -match 'O=Microsoft Corporation') }
+    } catch { return [pscustomobject]@{ valid = $false; microsoft = $false } }
+}
 function Get-ProtectedServiceNames { $script:ProtectedServiceNames }
 
 function Get-ProtectedPathPrefixes {
@@ -24,10 +44,36 @@ function Get-ProtectedPathPrefixes {
     return @($list | Select-Object -Unique)
 }
 
+function Get-LongPathName {
+    <# Expands 8.3 short names (PROGRA~1) so a prefix check cannot be dodged by spelling a protected folder the short way. Resolves the longest part that exists. #>
+    param([string]$Path)
+    try {
+        if (-not ('Guardian.NativePath' -as [type])) {
+            Add-Type -Namespace Guardian -Name NativePath -UsingNamespace System.Text -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern uint GetLongPathName(string shortPath, StringBuilder longPath, uint size);'
+        }
+        $existing = $Path; $tail = ''
+        while ($existing -and -not (Test-Path -LiteralPath $existing)) {
+            $parent = Split-Path -Parent $existing
+            if (-not $parent -or $parent -eq $existing) { return $Path }
+            $tail = '\' + (Split-Path -Leaf $existing) + $tail; $existing = $parent
+        }
+        $sb = New-Object System.Text.StringBuilder 1024
+        $n = [Guardian.NativePath]::GetLongPathName($existing, $sb, 1024)
+        if ($n -gt 0 -and $n -lt 1024) { return $sb.ToString().TrimEnd('\') + $tail }
+    } catch { }
+    return $Path
+}
+
 function Test-ProtectedPath {
     param([string]$Path, [string[]]$ExtraProtected = @())
     if ([string]::IsNullOrWhiteSpace($Path)) { return $true }
-    try { $full = [System.IO.Path]::GetFullPath($Path).TrimEnd('\') } catch { return $true }
+    try { $full = Get-LongPathName ([System.IO.Path]::GetFullPath($Path).TrimEnd('\')) } catch { return $true }
+    # Other people's profiles: only the current user's own folders may be touched under C:\Users.
+    if ($env:SystemDrive -and $env:USERPROFILE) {
+        $usersRoot = (Join-Path $env:SystemDrive 'Users').TrimEnd('\'); $mine = $env:USERPROFILE.TrimEnd('\')
+        if ($full -ieq $usersRoot) { return $true }
+        if ($full.StartsWith($usersRoot + '\', [System.StringComparison]::OrdinalIgnoreCase) -and -not ($full -ieq $mine -or $full.StartsWith($mine + '\', [System.StringComparison]::OrdinalIgnoreCase))) { return $true }
+    }
     # Drive root or user profile root
     if ($full -match '^[A-Za-z]:$') { return $true }
     if ($env:USERPROFILE -and ($full -ieq $env:USERPROFILE.TrimEnd('\'))) { return $true }
@@ -42,13 +88,21 @@ function Test-ProcessKillAllowed {
     <# Returns @{Allowed;Reason}. Never allows protected names, Windows-directory binaries, or Guardian's own process chain. #>
     param([string]$Name, [string]$Path, [int]$ProcessId)
     $n = ($Name -replace '\.exe$', '').ToLowerInvariant()
-    if ($ProcessId -le 4) { return [pscustomobject]@{ Allowed = $false; Reason = 'PID is a reserved system PID' } }
-    if ($ProcessId -eq $PID) { return [pscustomobject]@{ Allowed = $false; Reason = 'Cannot terminate the Guardian process itself' } }
-    if ($script:ProtectedProcessNames -contains $n) { return [pscustomobject]@{ Allowed = $false; Reason = "'$n' is on the protected process list" } }
-    if ($Path -and $env:SystemRoot -and $Path.StartsWith($env:SystemRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        return [pscustomobject]@{ Allowed = $false; Reason = 'Executable lives under the Windows directory' }
+    if ($ProcessId -le 4) { return [pscustomobject]@{ Allowed = $false; Suspicious = $false; Reason = 'PID is a reserved system PID' } }
+    if ($ProcessId -eq $PID) { return [pscustomobject]@{ Allowed = $false; Suspicious = $false; Reason = 'Cannot terminate the Guardian process itself' } }
+    # A Windows system name running from somewhere else, without a valid Microsoft signature, is a lookalike: possibly malware hiding
+    # behind a trusted name. It is allowed to be stopped, but only with an extra acknowledgement and never automatically.
+    if ($script:WindowsCoreProcessNames -contains $n -and $Path -and -not (Test-UnderSystemRoot $Path)) {
+        $trust = Get-ImageTrust -Path $Path
+        if (-not ($trust.valid -and $trust.microsoft)) {
+            return [pscustomobject]@{ Allowed = $true; Suspicious = $true; Reason = "'$n' is a Windows system name, but this copy is not in the Windows folder and is not signed by Microsoft" }
+        }
     }
-    return [pscustomobject]@{ Allowed = $true; Reason = 'ok' }
+    if ($script:ProtectedProcessNames -contains $n) { return [pscustomobject]@{ Allowed = $false; Suspicious = $false; Reason = "'$n' is on the protected process list" } }
+    if (Test-UnderSystemRoot $Path) {
+        return [pscustomobject]@{ Allowed = $false; Suspicious = $false; Reason = 'Executable lives under the Windows directory' }
+    }
+    return [pscustomobject]@{ Allowed = $true; Suspicious = $false; Reason = 'ok' }
 }
 
 # ---------- Command allowlist (display-only commands shown on the dashboard; never executed by Guardian from strings) ----------

@@ -21,7 +21,7 @@ if ($spec.admin -eq $false) { Out-Json @{ ok = $false; requested = $false; messa
 $entry = Join-Path $PSScriptRoot 'Invoke-GuardianAction.ps1'
 $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$entry`"", '-Action', $Action, '-Mode', 'Execute', '-ParamsB64', $ParamsB64, '-Ticket', $Ticket)
 try {
-    Start-Process -FilePath (Get-Command powershell.exe).Source -ArgumentList $argList -Verb RunAs -WindowStyle Hidden | Out-Null
+    Start-Process -FilePath (Get-SystemPowerShellPath) -ArgumentList $argList -Verb RunAs -WindowStyle Hidden | Out-Null
     [void](Write-GuardianEvent -Category remediation -Action "remediation:elevation-requested" -Target $Action -Actor user -Reason 'UAC prompt shown for one allowlisted action' -Data ([ordered]@{ ticket = $Ticket }))
     Out-Json @{ ok = $true; requested = $true; message = 'Windows is asking for administrator permission. Approve it to continue.' }
 } catch {

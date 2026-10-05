@@ -48,7 +48,7 @@ foreach ($d in 'config', 'data\history', 'data\recommendations', 'data\actions',
 }
 Ok 'data/, reports/, logs/, config/ ready'
 # restrict secrets folder to current user
-try { & icacls.exe (Join-Path $root 'data\secrets') /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" 2>&1 | Out-Null; Ok 'data\secrets restricted to current user' } catch { Warn 'Could not tighten ACL on data\secrets' }
+try { $mySid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value; & "$env:SystemRoot\System32\icacls.exe" (Join-Path $root 'data\secrets') /inheritance:r /grant:r "*${mySid}:(OI)(CI)F" 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw "icacls exit $LASTEXITCODE" }; Ok 'data\secrets restricted to current user' } catch { Warn 'Could not tighten ACL on data\secrets' }
 
 Step 3 'Writing default configuration (existing files are preserved)'
 . "$root\src\powershell\Common\Load.ps1"

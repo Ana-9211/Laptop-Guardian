@@ -293,7 +293,7 @@ function New-GuardianShortcut {
     $icon = Join-Path $Root 'src\assets\guardian.ico'
     $sh = New-Object -ComObject WScript.Shell
     $lnk = $sh.CreateShortcut($Path)
-    $lnk.TargetPath = (Get-Command powershell.exe).Source
+    $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $Root 'src\powershell\Start-Dashboard.ps1')`" -Gui"
     $lnk.WorkingDirectory = $Root
     $lnk.WindowStyle = 7

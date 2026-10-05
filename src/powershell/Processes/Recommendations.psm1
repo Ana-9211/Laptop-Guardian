@@ -149,6 +149,13 @@ function Save-RecommendationStore {
 }
 
 function Update-RecommendationStore {
+    param($Fresh, [string[]]$SweepKinds = @('process'))
+    # The bridge also rewrites this file (dismiss/resolve), so the read-merge-write runs under the shared lock.
+    $f = $Fresh; $k = $SweepKinds
+    return (Invoke-WithFileLock -Path (Get-GuardianPath 'Recommendations') -ScriptBlock { Update-RecommendationStoreLocked -Fresh $f -SweepKinds $k })
+}
+
+function Update-RecommendationStoreLocked {
     <# Merge fresh recs into the store. Preserves user status, tracks recurrence, auto-resolves recs not seen for >3 days. Returns merged current items. #>
     param($Fresh, [string[]]$SweepKinds = @('process'))
     $store = @(Get-RecommendationStore)

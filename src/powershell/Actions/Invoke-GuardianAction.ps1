@@ -76,7 +76,10 @@ if ($Ticket) {
         $dir = Join-Path (Split-Path (Get-GuardianPath 'RunState')) 'action-results'
         if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         Write-JsonFile -Path (Join-Path $dir "$Ticket.json") -Object $result
-    } catch { }
+    } catch {
+        # Without this file the dashboard cannot learn the outcome, so say so in the audit trail instead of going silent.
+        [void](Write-GuardianEvent -Category remediation -Action "remediation:result-not-saved" -Target $Action -Result failure -Severity warning -ErrorDetails $_.Exception.Message)
+    }
     if ($runningMarker) { Remove-Item -LiteralPath $runningMarker -Force -ErrorAction SilentlyContinue }
 }
 $result | ConvertTo-Json -Depth 6 -Compress

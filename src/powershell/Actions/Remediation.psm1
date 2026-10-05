@@ -168,7 +168,9 @@ function Test-ProcessStop {
         return New-RemResult -Ok $false -Errors @('Protected: this process belongs to Laptop Guardian itself.')
     }
     $key = Get-StringKey @($pid0, $live.Name, $live.Path, $live.StartTime)
-    return New-RemResult -Ok $true -IdentityKey $key -Details ([ordered]@{ pid = $pid0; name = $live.Name; path = $live.Path; startedUtc = $live.StartTime })
+    $susp = [bool]$chk.Suspicious
+    $warn = if ($susp) { @("Suspicious: $($chk.Reason). Stopping it is allowed, but only after you acknowledge that.") } else { @() }
+    return New-RemResult -Ok $true -IdentityKey $key -Warnings $warn -Details ([ordered]@{ pid = $pid0; name = $live.Name; path = $live.Path; startedUtc = $live.StartTime; suspicious = $susp })
 }
 function Invoke-ProcessStop {
     param([hashtable]$P, $Validated)
@@ -283,7 +285,8 @@ function Test-FileRecycle {
     if ($path -match '[*?]') { return New-RemResult -Ok $false -Errors @('Wildcards are never accepted.') }
     if (Test-ProtectedPath -Path $path -ExtraProtected @($cfg.storage.protectedDirs)) { return New-RemResult -Ok $false -Errors @('Protected path: Windows, Program Files, ProgramData, your profile root, Guardian data and your protected folders are never touched.') }
     $root = Get-GuardianRootPath
-    if ($root -and ([IO.Path]::GetFullPath($path).StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase))) { return New-RemResult -Ok $false -Errors @('Protected path: Laptop Guardian''s own files are never recycled.') }
+    $fullPath = Get-LongPathName ([IO.Path]::GetFullPath($path))
+    if ($root -and ($fullPath -ieq $root.TrimEnd('\') -or $fullPath.StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase))) { return New-RemResult -Ok $false -Errors @('Protected path: Laptop Guardian''s own files are never recycled.') }
     $files = Read-JsonFile -Path (Get-GuardianPath 'LatestFiles') -Default $null
     $cand = $null
     if ($files) { $cand = @($files.candidates | Where-Object { $_.path -ieq $path } | Select-Object -First 1)[0] }
