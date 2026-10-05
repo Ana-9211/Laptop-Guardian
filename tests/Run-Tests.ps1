@@ -4,13 +4,14 @@
 param([switch]$Integration, [string]$Filter = '*', [switch]$SkipNode)
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
-Import-Module Pester -ErrorAction Stop
+# The suites use Pester 3 syntax (Should Be, Invoke-Pester -Script). Newer Pester majors are installed side by side on some machines, so ask for 3.x.
+Import-Module Pester -MaximumVersion 3.99.99 -ErrorAction Stop
 $files = @(Get-ChildItem $here -Filter "$Filter.Tests.ps1" | Where-Object { $Integration -or $_.Name -ne 'Integration.Tests.ps1' })
 $failed = 0
 foreach ($f in $files) {
     Write-Host "`n=== $($f.Name) ===" -ForegroundColor Cyan
     # Every file runs in its own PowerShell process: the suites import the modules from different temp roots, and Pester 3 cannot mock a module that is loaded twice in one session.
-    $cmd = "Import-Module Pester; `$r = Invoke-Pester -Script '$($f.FullName)' -PassThru; exit [int]`$r.FailedCount"
+    $cmd = "Import-Module Pester -MaximumVersion 3.99.99; `$r = Invoke-Pester -Script '$($f.FullName)' -PassThru; exit [int]`$r.FailedCount"
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $cmd
     $n = $LASTEXITCODE
     $failed += $n

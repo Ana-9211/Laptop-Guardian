@@ -170,7 +170,7 @@ Tasks run **only while you are logged on** (the screen may be locked). That is r
 ## Dashboard
 
 Start: `.\src\powershell\Start-Dashboard.ps1` (Start Menu shortcut, or automatically at logon via the *Dashboard Bridge* task).
-Development: `cd src\dashboard; npm run dev` (proxies `/api` to the bridge; set `GUARDIAN_DEV_HOST=127.0.0.1:5173` for the bridge).
+Development: `cd src\dashboard; npm run dev` (proxies `/api` to the bridge; start the bridge with `GUARDIAN_DEV_HOST=127.0.0.1:5173`). Open `http://127.0.0.1:5173/#guardian-token=<token>` once, where the token is the `token` value in `data/state/bridge.json`; every API call needs it.
 
 Pages: **Overview** (health score, security, storage, RAM, CPU, battery, last/next scan, three trend charts with 7/30/90/all ranges, recent recommendations, action timeline, errors, security status, weekly AI briefing) · **Daily / Weekly** (current report, history, compare) · **Processes** (sortable table, filters for flagged / persistent / high-resource / recommended / blacklisted / whitelisted, click for the detail drawer with identity, resources, parent, startup, service, tasks, AI analysis, risk and confidence, exact stop and prevent-restart commands, consequences, action history) · **Files & Storage** · **Health** (CPU, RAM, disk, battery, Windows, Defender, firewall, network) · **Reports** (open, search, filter, compare, export, delete) · **Logs** · **Recommendations** · **Blacklist** · **Whitelist** · **Settings**, plus **Action Center** (guided fixes) and **Network Guard** (see below): 14 pages in all. Dark, light and automatic (follow Windows) themes persist.
 
@@ -263,18 +263,23 @@ Every fix follows one flow: **plan** (Guardian re-checks the live target and sho
 ## Testing
 
 ```powershell
-.\tests\Run-Tests.ps1                 # Pester (Pester 3.4+) + node --test bridge tests
+.\tests\Run-Tests.ps1                 # Pester 3.x, one file per PowerShell process, + node --test bridge tests
 .\tests\Run-Tests.ps1 -Integration    # adds install → real scan → bridge → uninstall end-to-end in a temp copy (~3 min)
 ```
 
 Development checks (Node 22.18+; run `npm install` once at the repository root):
 
 ```powershell
-npm run check          # TypeScript (strict), ESLint incl. react-hooks, ASCII-only dashboard source, Node tests
+npm run check          # TypeScript (strict), ESLint incl. react-hooks, ASCII-only dashboard/bridge/PowerShell source, Node tests
+npm run lint:ps        # PSScriptAnalyzer with PSScriptAnalyzerSettings.psd1 (needs the PSScriptAnalyzer module)
+npm run test:ps        # the Pester suites
+npm run audit:prod     # npm audit for runtime dependencies only
 npm run build          # production dashboard build
 npm run test:browser   # drives the built dashboard in Edge: every page, dark/light, 390 px, refresh/offline/scan states
 node tests/browser/smoke.mjs --real   # same, read-only against this installation's real data
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`, windows-latest) runs the same checks on Node 22 and 24, plus PSScriptAnalyzer and the Pester suites. The suites are written for Pester 3.x; a migration to Pester 5 syntax is a separate piece of work.
 
 Tests use fixtures, fake PowerShell runners and isolated temp roots; none changes real tasks, shortcuts, reports or files.
 

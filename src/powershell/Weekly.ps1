@@ -39,7 +39,7 @@ function Invoke-Phase {
     [void](Write-GuardianEvent -Category scan -Action "weekly:phase-finished:$Name" -Result $(if ($p.status -eq 'complete') { 'success' } elseif ($p.status -eq 'timeout') { 'timeout' } elseif ($p.status -in 'skipped', 'incomplete') { 'skipped' } else { 'failure' }) -Severity $(if ($p.status -in 'incomplete', 'timeout') { 'warning' } else { 'info' }) -Reason $p.detail)
 }
 
-$ctx = $null; $fileData = $null; $onBattery = $false; $incomplete = New-Object System.Collections.ArrayList; $briefing = $null; $patterns = @()
+$ctx = $null; $fileData = $null; $onBattery = $false; $incomplete = New-Object System.Collections.ArrayList; $patterns = @()
 try {
     Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; mode = $runMode; shutdownPossible = (-not $NoShutdown -and $Scheduled.IsPresent); pid = $PID; phase = 'preflight'; startedAt = (Get-IsoNow) })
     [void](Write-GuardianEvent -Category scan -Action 'weekly:started' -Result started -Reason "deadline=$($deadline.ToString('HH:mm')) safeMode=$($config.safety.safeMode) admin=$(Test-IsAdmin)")

@@ -11,6 +11,8 @@
     "check:ascii": "node scripts/check-ascii.js",
     "test:node": "node --test tests/bridge.test.js tests/status.test.js tests/schedule.test.js tests/state.test.js tests/remediation.test.js tests/network.test.js tests/ps-runner.test.js",
     "test:ps": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/Run-Tests.ps1",
+    "lint:ps": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-ps.ps1",
+    "audit:prod": "npm audit --omit=dev && npm --prefix src/dashboard audit --omit=dev",
     "test:browser": "node tests/browser/smoke.mjs",
     "check": "npm run typecheck && npm run lint && npm run check:ascii && npm run test:node"
   },

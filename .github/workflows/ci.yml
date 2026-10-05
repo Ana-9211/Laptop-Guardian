@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Node checks (Node ${{ matrix.node }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src/dashboard/package-lock.json
+      - run: npm ci
+      - run: npm --prefix src/dashboard ci
+      # typecheck, eslint, ASCII-only source, bridge and status tests
+      - run: npm run check
+      - name: Dependency audit (runtime dependencies only)
+        run: npm run audit:prod
+      - name: Build the dashboard
+        run: npm run build
+
+  powershell:
+    name: PowerShell (Pester and PSScriptAnalyzer)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The Pester suites drive the bridge in a few places.
+      - run: npm ci
+      - run: npm --prefix src/dashboard ci
+      - run: npm run build
+      - name: PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -SkipPublisherCheck
+          ./scripts/lint-ps.ps1
+      - name: Pester (one file per process)
+        shell: powershell
+        # The suites are written for Pester 3.x, which ships with the runner image next to newer majors.
+        run: ./tests/Run-Tests.ps1 -SkipNode

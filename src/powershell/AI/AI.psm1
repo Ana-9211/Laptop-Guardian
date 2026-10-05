@@ -221,12 +221,12 @@ function Test-BriefingResponse {
     if ($null -eq $Raw -or -not ((Get-PropNames $Raw) -contains 'briefing')) { return $null }
     $patterns = @(); foreach ($p in @($Raw.patterns | Select-Object -First 5)) {
         if ($null -eq $p -or -not ((Get-PropNames $p) -contains 'title')) { continue }
-        $ev = @(); foreach ($e in @($p.evidence)) { if ($e) { $ev += (Clean-AiText $e 250) } }
+        $ev = @(); foreach ($e in @($p.evidence)) { if ($e) { $ev += (ConvertTo-CleanAiText $e 250) } }
         if ($ev.Count -eq 0) { continue }    # patterns without evidence are discarded
-        $patterns += [pscustomobject]@{ title = (Clean-AiText $p.title 120); detail = (Clean-AiText $p.detail 500); evidence = @($ev | Select-Object -First 5) }
+        $patterns += [pscustomobject]@{ title = (ConvertTo-CleanAiText $p.title 120); detail = (ConvertTo-CleanAiText $p.detail 500); evidence = @($ev | Select-Object -First 5) }
     }
-    $recs = @(); foreach ($x in @($Raw.recommendations | Select-Object -First 5)) { $t = Clean-AiText $x 300; if ($t -and $t -notmatch '(?i)(Remove-Item|rm -rf|format |del /|Stop-Computer|shutdown|Invoke-Expression|iex )') { $recs += $t } }
-    [pscustomobject]@{ briefing = (Clean-AiText $Raw.briefing 900); patterns = $patterns; recommendations = $recs }
+    $recs = @(); foreach ($x in @($Raw.recommendations | Select-Object -First 5)) { $t = ConvertTo-CleanAiText $x 300; if ($t -and $t -notmatch '(?i)(Remove-Item|rm -rf|format |del /|Stop-Computer|shutdown|Invoke-Expression|iex )') { $recs += $t } }
+    [pscustomobject]@{ briefing = (ConvertTo-CleanAiText $Raw.briefing 900); patterns = $patterns; recommendations = $recs }
 }
 
 function Invoke-AiWeeklyBriefing {

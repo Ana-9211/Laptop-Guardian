@@ -109,7 +109,6 @@ function Invoke-BlacklistEnforcement {
     }
     if ($changed) {
         # Re-read under the lock and only update the counters, so entries the user edited in the dashboard meanwhile are not overwritten.
-        $terminated = @($results | Where-Object { $_.result -eq 'terminated' })
         Invoke-WithFileLock -Path (Get-GuardianPath 'ProcessPolicy') -ScriptBlock {
             $fresh = Get-ProcessPolicy
             foreach ($e in @($fresh.blacklist)) { $mine = @($pol.blacklist | Where-Object { $_.id -eq $e.id }) | Select-Object -First 1; if ($mine -and $mine.PSObject.Properties['terminatedCount'] -and $e.PSObject.Properties['terminatedCount']) { $e.terminatedCount = $mine.terminatedCount; if ($mine.PSObject.Properties['lastTerminatedAt']) { if ($e.PSObject.Properties['lastTerminatedAt']) { $e.lastTerminatedAt = $mine.lastTerminatedAt } else { $e | Add-Member -NotePropertyName lastTerminatedAt -NotePropertyValue $mine.lastTerminatedAt } } } }

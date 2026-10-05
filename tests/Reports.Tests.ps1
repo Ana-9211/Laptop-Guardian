@@ -104,4 +104,12 @@ Describe 'System recommendations' {
     }
     It 'produces nothing for a healthy system' { @(New-SystemRecommendations -Sections (New-FakeCtx).Sections -Config $cfg).Count | Should Be 0 }
 }
+Describe 'Metric errorCount' {
+    It 'counts collector errors plus timed-out or failed phases, without counting one problem twice' {
+        $rep = [pscustomobject]@{ incomplete = @('Defender full scan: timeout', 'Storage scan truncated by time/entry limit'); weekly = [pscustomobject]@{ phases = @([pscustomobject]@{ status = 'timeout' }, [pscustomobject]@{ status = 'failed' }, [pscustomobject]@{ status = 'complete' }, [pscustomobject]@{ status = 'incomplete' }) } }
+        Get-RunProblemCount -Report $rep -Errors @('boom') | Should Be 3          # 1 error + max(2 phases, 1 note)
+        Get-RunProblemCount -Report ([pscustomobject]@{ incomplete = @(); weekly = $null }) -Errors @() | Should Be 0
+        Get-RunProblemCount -Report ([pscustomobject]@{ incomplete = @('Run aborted: x', 'Defender quick scan: failed') }) -Errors @() | Should Be 2
+    }
+}
 Remove-TestRoot $root
