@@ -3,7 +3,7 @@ import { api, ApiError, useQuery } from '../api';
 import type { FileCandidate, FilesData, Metric } from '../types';
 import { Badge, Card, Col, DataTable, Empty, ErrorState, KV, PageHead, RiskBadge, SkeletonCards, Stat, Tabs, useConfirm, useToast, Icon } from '../components/ui';
 import { LineChart, RangeSelect, Range, filterRange, SERIES_COLORS } from '../components/Chart';
-import { fmtDate, fmtMB } from '../format';
+import { fmtDate, fmtMB, NA } from '../format';
 
 type Tab = 'overview' | 'large' | 'duplicates' | 'recommended' | 'ignored' | 'trends';
 const CLS_TONE: Record<string, string> = { KEEP: 'ok', REVIEW: 'info', LIKELY_UNNECESSARY: 'warn', HIGH_RISK: 'crit', UNKNOWN: '' };
@@ -68,11 +68,11 @@ export default function Files() {
             <>
               <div className="grid g4">
                 {(d.drives || []).map((dr) => <Stat key={dr.drive} label={`${dr.drive} ${dr.type || ''}`} value={dr.freeGB.toFixed(0)} unit=" GB free" sub={`of ${dr.totalGB.toFixed(0)} GB`} bar={100 - (dr.freeGB / dr.totalGB) * 100} tone={dr.freeGB / dr.totalGB < 0.08 ? 'crit' : dr.freeGB / dr.totalGB < 0.15 ? 'warn' : 'ok'} />)}
-                <Stat label="Downloads" value={d.downloads?.sizeGB?.toFixed(1) ?? '—'} unit=" GB" sub={`${d.downloads?.count ?? 0} files · ${d.downloads?.oldCount ?? 0} older than a year`} />
+                <Stat label="Downloads" value={d.downloads?.sizeGB?.toFixed(1) ?? NA} unit=" GB" sub={`${d.downloads?.count ?? 0} files - ${d.downloads?.oldCount ?? 0} older than a year`} />
                 <Stat label="Worth reviewing" value={active.length} sub={`${fmtMB(reclaim)} potentially reclaimable`} />
                 <Stat label="Duplicate groups" value={d.duplicates?.length ?? 0} sub="Identical content by hash" />
               </div>
-              <Card title="Classifications"><div className="row">{['KEEP', 'REVIEW', 'LIKELY_UNNECESSARY', 'HIGH_RISK', 'UNKNOWN'].map((c) => <Badge key={c} tone={CLS_TONE[c]}>{c.replace('_', ' ')} · {active.filter((x) => x.classification === c).length}</Badge>)}</div>
+              <Card title="Classifications"><div className="row">{['KEEP', 'REVIEW', 'LIKELY_UNNECESSARY', 'HIGH_RISK', 'UNKNOWN'].map((c) => <Badge key={c} tone={CLS_TONE[c]}>{c.replace('_', ' ')} - {active.filter((x) => x.classification === c).length}</Badge>)}</div>
                 <p className="small muted" style={{ marginTop: 8 }}>When Guardian is unsure it chooses REVIEW. Personal documents are classified KEEP and are never suggested for removal.</p></Card>
             </>
           )}

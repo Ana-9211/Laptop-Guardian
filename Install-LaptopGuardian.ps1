@@ -1,15 +1,17 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS  Installs Laptop Guardian: directories, default config, dashboard build, scheduled tasks, safe smoke test.
 .PARAMETER Elevate     Relaunch elevated (UAC) so tasks run with highest privileges (needed for SFC / DISM / Repair-Volume).
 .PARAMETER SkipTasks   Do not register scheduled tasks.
 .PARAMETER SkipBuild   Do not (re)build the dashboard.
 .PARAMETER SkipSmokeTest  Do not run the safe test scan.
+.PARAMETER SkipShortcuts  Create no shortcuts at all (used by automated tests).
+.PARAMETER NoDesktopShortcut  Create only the Start Menu shortcut (a Desktop shortcut is created by default).
 .PARAMETER RunTests    Also run the unit test suite.
 .NOTES     Safe by default: config ships with safeMode=true (observe + recommend only; no process kills, no cleanup deletions).
 #>
 [CmdletBinding()]
-param([switch]$Elevate, [switch]$SkipTasks, [switch]$SkipBuild, [switch]$SkipSmokeTest, [switch]$RunTests, [string]$TaskFolder = '\LaptopGuardian\')
+param([switch]$Elevate, [switch]$SkipTasks, [switch]$SkipBuild, [switch]$SkipSmokeTest, [switch]$RunTests, [switch]$NoDesktopShortcut, [switch]$SkipShortcuts, [string]$TaskFolder = '\LaptopGuardian\')
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -20,7 +22,7 @@ function Warn($msg) { Write-Host "       !!  $msg" -ForegroundColor Yellow }
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($Elevate -and -not $isAdmin) {
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
-    foreach ($k in 'SkipTasks', 'SkipBuild', 'SkipSmokeTest', 'RunTests') { if ($PSBoundParameters.ContainsKey($k)) { $argList += "-$k" } }
+    foreach ($k in 'SkipTasks', 'SkipBuild', 'SkipSmokeTest', 'RunTests', 'NoDesktopShortcut', 'SkipShortcuts') { if ($PSBoundParameters.ContainsKey($k)) { $argList += "-$k" } }
     Start-Process powershell.exe -ArgumentList $argList -Verb RunAs -Wait
     return
 }
@@ -87,7 +89,7 @@ else {
 }
 
 Step 6 'Configuring privileges'
-if ($isAdmin) { Ok 'Daily/Weekly tasks: RunLevel Highest. Dashboard bridge: Limited (least privilege).' } else { Warn 'Tasks registered with RunLevel Limited.' }
+if ($SkipTasks) { Warn 'Skipped (-SkipTasks)' } elseif ($isAdmin) { Ok 'Daily/Weekly tasks: RunLevel Highest. Dashboard bridge: Limited (least privilege).' } else { Warn 'Tasks registered with RunLevel Limited.' }
 
 Step 7 'Verifying task registration'
 if (-not $SkipTasks) {
@@ -110,12 +112,20 @@ Step 9 'Unit tests'
 if ($RunTests) { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\tests\Run-Tests.ps1"; if ($LASTEXITCODE -ne 0) { Warn 'Some tests failed' } } else { Ok 'Skipped (use -RunTests)' }
 
 Step 10 'Start Menu shortcut + dashboard location'
-try {
-    $sm = Join-Path ([Environment]::GetFolderPath('Programs')) 'Laptop Guardian.lnk'
-    $sh = New-Object -ComObject WScript.Shell; $lnk = $sh.CreateShortcut($sm)
-    $lnk.TargetPath = (Get-Command powershell.exe).Source; $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$root\src\powershell\Start-Dashboard.ps1`""
-    $lnk.WorkingDirectory = $root; $lnk.Description = 'Open the Laptop Guardian dashboard'; $lnk.Save(); Ok 'Start Menu shortcut created'
-} catch { Warn 'Shortcut not created' }
+if ($SkipShortcuts) { Warn 'Shortcuts skipped (-SkipShortcuts)' } else { try {
+    Import-Module "$root\src\powershell\Launcher\Launcher.psm1" -Force
+    if (-not (Test-Path "$root\src\assets\guardian.ico")) { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\src\powershell\Tools\New-GuardianIcon.ps1" | Out-Null }
+    $sc = Get-GuardianShortcutPaths
+    $targets = @(@{ Label = 'Start Menu'; Path = $sc.StartMenu })
+    if (-not $NoDesktopShortcut) { $targets += @{ Label = 'Desktop'; Path = $sc.Desktop } }
+    foreach ($t in $targets) {
+        [void](New-GuardianShortcut -Path $t.Path -Root $root)
+        $chk = Test-GuardianShortcut -Path $t.Path -Root $root
+        if ($chk.ok) { Ok "$($t.Label) shortcut verified: $($t.Path)" } else { Warn "$($t.Label) shortcut problem: $($chk.reason)" }
+    }
+    if ($NoDesktopShortcut) { Ok 'Desktop shortcut skipped (-NoDesktopShortcut)' }
+} catch { Warn "Shortcut not created: $($_.Exception.Message)" } }
+Write-Host '       Launch any time: Start Menu > "Laptop Guardian", the Desktop icon, or Open-LaptopGuardian.cmd' -ForegroundColor Gray
 $cfg = Get-GuardianConfig
 Write-Host "`nInstalled. Dashboard: http://127.0.0.1:$($cfg.bridge.port)/  (start with: .\src\powershell\Start-Dashboard.ps1)" -ForegroundColor Green
 Write-Host 'Daily 19:00 | Weekly Saturday 02:00 (shutdown 05:00). Safe Mode is ON: Guardian only observes and recommends until you turn it off in Settings.' -ForegroundColor Green

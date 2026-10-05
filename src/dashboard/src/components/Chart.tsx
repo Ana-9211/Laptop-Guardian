@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fmtDay, fmtFull } from '../format';
+import { fmtDay, fmtFull, NA } from '../format';
 import { Seg } from './ui';
 
 export type Range = 7 | 30 | 90 | 0; // 0 = all
@@ -53,7 +53,7 @@ export function LineChart({ x, series, height = 200, unit = '', min, max, digits
   const n = x.length;
   const px = (i: number) => m.l + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
   const py = (v: number) => m.t + ih - ((v - lo) / (hi - lo || 1)) * ih;
-  const f = (v: number | null | undefined) => (v == null ? '—' : `${v.toLocaleString(undefined, { maximumFractionDigits: digits })}${unit}`);
+  const f = (v: number | null | undefined) => (v == null ? NA : `${v.toLocaleString(undefined, { maximumFractionDigits: digits })}${unit}`);
 
   const paths = series.map((s) => {
     let d = ''; let pen = false; const pts: [number, number][] = [];
@@ -148,7 +148,7 @@ export function ScoreRing({ score }: { score?: number }) {
   return (
     <div className="score" role="img" aria-label={`Health score ${score ?? 'unknown'} out of 100`}>
       <svg width="56" height="56" viewBox="0 0 56 56"><circle cx="28" cy="28" r={r} fill="none" stroke="var(--sunken)" strokeWidth="5" /><circle cx="28" cy="28" r={r} fill="none" stroke={tone} strokeWidth="5" strokeLinecap="round" strokeDasharray={`${(s / 100) * c} ${c}`} transform="rotate(-90 28 28)" /></svg>
-      <b>{score ?? '—'}</b>
+      <b>{score ?? NA}</b>
     </div>
   );
 }

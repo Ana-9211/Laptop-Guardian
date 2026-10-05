@@ -3,8 +3,8 @@ import { api, ApiError, useQuery } from '../api';
 import type { Any, Report, ReportRow } from '../types';
 import { Badge, Card, Drawer, Empty, ErrorState, PageHead, SearchBox, Seg, Skeleton, SkeletonCards, Tabs, useConfirm, useToast, Icon } from '../components/ui';
 import { ReportView } from '../components/ReportView';
-import { fmtFull, scoreTone } from '../format';
-import { go, useHash } from '../App';
+import { fmtFull, scoreTone, NA } from '../format';
+import { go, useHash } from '../router';
 
 type Type = 'all' | 'daily' | 'weekly';
 const key = (r: { type: string; id: string }) => `${r.type}/${r.id}`;
@@ -36,7 +36,7 @@ function Compare({ a, b, onClose }: { a: ReportRow; b: ReportRow; onClose: () =>
       {!qa.data || !qb.data ? <Skeleton h={160} /> : (
         <Card flush><table className="t"><thead><tr><th>Metric</th><th className="r">{a.id}</th><th className="r">{b.id}</th><th className="r">Change</th></tr></thead>
           <tbody>{rows.map(([label, f]) => { const x = f(qa.data!); const y = f(qb.data!); const d = typeof x === 'number' && typeof y === 'number' ? y - x : null; const worse = d != null && d !== 0 && (label.startsWith('Disk') || label.startsWith('Health') ? d < 0 : d > 0);
-            return <tr key={label}><td>{label}</td><td className="r num">{x ?? '—'}</td><td className="r num">{y ?? '—'}</td><td className={`r num ${d ? (worse ? 'diff-up' : 'diff-down') : ''}`}>{d == null ? '' : `${d > 0 ? '+' : ''}${Math.round(d * 10) / 10}`}</td></tr>; })}</tbody></table></Card>
+            return <tr key={label}><td>{label}</td><td className="r num">{x ?? NA}</td><td className="r num">{y ?? NA}</td><td className={`r num ${d ? (worse ? 'diff-up' : 'diff-down') : ''}`}>{d == null ? '' : `${d > 0 ? '+' : ''}${Math.round(d * 10) / 10}`}</td></tr>; })}</tbody></table></Card>
       )}
       <div className="small muted">Red marks a change in the unhealthy direction, green the healthy direction.</div>
     </Drawer>
@@ -54,7 +54,7 @@ export default function Reports() {
   const [open, setOpen] = useState<ReportRow | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [cmp, setCmp] = useState(false);
-  const rowsAll = q.data || [];
+  const rowsAll = useMemo(() => q.data ?? [], [q.data]);
 
   useEffect(() => {
     const t = params.get('type'); const id = params.get('id');
@@ -67,7 +67,7 @@ export default function Reports() {
 
   const del = (r: ReportRow) => confirm({
     title: `Delete ${r.type} report ${r.id}?`, confirmLabel: 'Delete report', danger: true,
-    body: <>This permanently removes the report’s data and rendered HTML from disk. Metrics and the action log are kept. No automatic retention is applied; this only happens because you asked.</>,
+    body: <>This permanently removes the data and rendered HTML from disk. Metrics and the action log are kept. No automatic retention is applied; this only happens because you asked.</>,
     onConfirm: async () => { try { await api.del(`/api/reports/${r.type}/${r.id}`); toast('ok', 'Report deleted.'); setPicked((p) => p.filter((x) => x !== key(r))); q.reload(); } catch (e) { toast('error', (e as ApiError).message); } },
   });
 
@@ -92,7 +92,7 @@ export default function Reports() {
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${r.id} for comparison`} checked={picked.includes(key(r))} onChange={() => togglePick(r)} /></td>
                     <td><Badge tone={r.type === 'weekly' ? 'info' : ''}>{r.type}</Badge> <b>{r.id}</b></td>
                     <td className="small t2">{fmtFull(r.generatedAt)}</td>
-                    <td className="r"><Badge tone={scoreTone(r.healthScore)}>{r.healthScore ?? '—'}</Badge></td>
+                    <td className="r"><Badge tone={scoreTone(r.healthScore)}>{r.healthScore ?? NA}</Badge></td>
                     <td><Badge tone={r.status === 'complete' ? 'ok' : 'warn'} dot>{r.status}</Badge></td>
                     <td className="t2 trunc" style={{ maxWidth: 360 }}>{r.summary?.headline}</td>
                     <td className="r num small muted">{r.sizeKB} KB</td>

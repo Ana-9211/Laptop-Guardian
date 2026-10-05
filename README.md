@@ -31,6 +31,37 @@ cd C:\Users\Anagha\Documents\LaptopGuardian
 
 Dashboard: **http://127.0.0.1:7878/**
 
+### One-click launch
+
+The installer creates and verifies two shortcuts named **Laptop Guardian**: one in the Start Menu and one on the Desktop (`-NoDesktopShortcut` skips the Desktop one; `-SkipShortcuts` skips both). Either one, or `Open-LaptopGuardian.cmd` in the project folder, or `.\src\powershell\Start-Dashboard.ps1`, does the same thing:
+
+1. Checks whether a Laptop Guardian bridge already answers on `127.0.0.1:7878` (`/api/ping` identifies it, so another program on the port is never mistaken for it).
+2. If not, starts the bridge hidden and waits up to 20 s until it responds. A leftover `data\state\bridge.json` from a crash is cleared; an unresponsive or **outdated** bridge of this install (its code is newer than the running process) is replaced. Only `node.exe` processes running this install's `src\bridge\server.js` are ever stopped.
+3. Opens the dashboard in a clean **app window** (Microsoft Edge, else Google Chrome, `--app` mode with its own profile in `data\state\app-profile`, so it has no tabs or address bar and keeps its own theme setting). If an app window is already open it is brought to the front instead of opening a second one. If neither browser is found it falls back to your default browser.
+4. A launch never creates a second bridge or a second window, even if you double-click twice; launches are serialised with a named mutex.
+
+When something is missing you get a message box (from the shortcuts) or a red console line (from the terminal) that says what to do: Node.js missing or older than 18, dashboard not built (`Install-LaptopGuardian.ps1`, or `cd src\dashboard; npm ci; npm run build`), port held by another program, or the bridge failing to start (with the last line of `logs\bridge-err.log`). Everything is also written to `logs\launcher.log`. Diagnose without starting anything: `.\src\powershell\Start-Dashboard.ps1 -Check`.
+
+### Refresh status and live status
+
+The header has a **Refresh status** button (keyboard: **R**, never while typing in a field or with a dialog open; **Ctrl+R** stays the browser's own reload). It re-reads Task Scheduler, the current run state, report availability, the action log summary, the process/file snapshots and AI status, and reloads every data panel that is on screen **in place**: your page, filters, sort order, search text, drawers and dialogs are kept. Only one refresh runs at a time (extra clicks are ignored), the button shows a spinner, the header shows when data was last refreshed, and a toast reports success or the exact failure.
+
+Without clicking anything the dashboard polls the cheap `/api/status` endpoint every 10 s (every 4 s while a scan runs, every 10 s while the bridge is offline, paused while the window is hidden). When a scan starts you see a banner with its phase, elapsed time and the latest logged action; when it ends the banner turns into "scan finished" with links to the report and log, and polling slows down again.
+
+The strip under the header always shows: bridge connected/offline, Safe Mode, scan running or idle, Task Scheduler health, next daily and weekly run, and the weekly shutdown time (or a **pending shutdown** with the `shutdown /a` cancel command). The Overview page adds **What needs attention** (prioritised: security, then storage, then high-risk recommendations, then scheduled-maintenance problems, then housekeeping) and **Background maintenance**, which explains each task in plain language:
+
+| Task Scheduler result | Meaning in the dashboard |
+|---|---|
+| `0x41303` "has not yet run" | **Normal** for a newly registered task: "Waiting for first run" (info, not a problem) |
+| `0x0` | Last run succeeded |
+| `0x41301` | Running now |
+| `0x41306` | Stopped before it finished (warning) |
+| anything else | Failed, with the code and a readable cause where known (critical) |
+| task not registered / disabled | Warning, unless you switched that schedule off in Settings |
+| trigger time or weekday differs from Settings, weekly task registered without `-Scheduled`, or running without administrator rights | Listed as an issue under the task |
+
+**Manual vs scheduled weekly runs.** A weekly audit started from the dashboard or by hand is labelled *Manual run · no shutdown* and can never shut the laptop down. Only the task registered by the installer (`Weekly.ps1 -Scheduled`) may schedule the 05:00 shutdown, and the banner says so while it runs.
+
 The installer: validates prerequisites, creates `data/ reports/ logs/ config/`, writes default config (existing config is never overwritten), builds the dashboard, registers the scheduled tasks (`\LaptopGuardian\Daily Audit`, `Weekly Deep Analysis`, `Dashboard Bridge`), verifies registration, runs a safe observe-only test scan, creates a Start Menu shortcut and prints the dashboard URL. Flags: `-SkipTasks -SkipBuild -SkipSmokeTest -RunTests -Elevate`.
 
 **First-install steps (verified on Windows 11, PowerShell 5.1, Node 24):**
@@ -123,6 +154,8 @@ Windows Task Scheduler is used; no PowerShell process stays alive. Times come fr
 | `\LaptopGuardian\Weekly Deep Analysis` | Saturday 02:00 | `WakeToRun`; 5 h limit; shutdown target 05:00 |
 | `\LaptopGuardian\Dashboard Bridge` | at logon | least-privilege, 127.0.0.1 only |
 
+**Elevated tasks are never downgraded.** Daily and Weekly run with administrator rights when registered from an elevated shell. Saving Settings from the dashboard (a standard process) only touches Task Scheduler when the schedule itself changed, and never replaces or removes an elevated task: it reports that administrator permission is needed instead. The Overview and Settings pages then offer **Fix with administrator permission**, which shows exactly what will change, asks Windows for permission (UAC), and runs only Guardian's own `Scheduler.ps1 -Action Register`. Declining changes nothing. Task definitions are checked for the `-Scheduled` marker (without it, runs count as manual and the weekly run can never shut down), the start time and day, and the script path.
+
 Tasks run **only while you are logged on** (the screen may be locked). That is required so the DPAPI-protected Gemini key can be decrypted. Leave the laptop plugged in, asleep or locked on Friday night. "Wake to run" also needs wake timers enabled in your power plan.
 
 **Weekly phases:** (1) preflight: AC power, free space, previous-run status, reports writable, Gemini configured; (2) deep analysis, each step bounded by the remaining time budget (ends at shutdown time minus 12 min): collection, Defender full scan, SFC/DISM/component-store, disk reliability + `Repair-Volume -Scan`, scheduled tasks, storage/duplicates; (3) AI patterns and briefing; (4) weekly report; (5) shutdown preparation: report files verified on disk, run state saved, unfinished operations recorded, lock released, then `shutdown.exe /s /t <seconds until 05:00>` (or 60 s if that time has passed). Windows performs the shutdown; Guardian never kills processes. If anything didn't finish it is listed under *incomplete* in the report. If the report cannot be verified, shutdown is withheld.
@@ -194,6 +227,17 @@ Pages: **Overview** (health score, security, storage, RAM, CPU, battery, last/ne
 .\tests\Run-Tests.ps1 -Integration    # adds install → real scan → bridge → uninstall end-to-end in a temp copy (~3 min)
 ```
 
+Development checks (Node 22.18+; run `npm install` once at the repository root):
+
+```powershell
+npm run check          # TypeScript (strict), ESLint incl. react-hooks, ASCII-only dashboard source, Node tests
+npm run build          # production dashboard build
+npm run test:browser   # drives the built dashboard in Edge: all 12 pages, dark/light, 390 px, refresh/offline/scan states
+node tests/browser/smoke.mjs --real   # same, read-only against this installation's real data
+```
+
+Tests use fixtures, fake PowerShell runners and isolated temp roots; none changes real tasks, shortcuts, reports or files.
+
 Covers configuration, process detection and flagging, persistence mapping, policy/blacklist/whitelist and enforcement (including PID reuse, protected processes, safe mode), recommendation engine and store, file classification and walker robustness (vanishing files, junctions, locked files), duplicates, cleanup safety, report/metric generation and JSON schemas, HTML escaping, AI validation against a mock Gemini (malformed, bad enum, missing fields, dangerous commands, HTTP 500, no network, no key, budget), command allowlist, scheduling (19:00 daily, Saturday 02:00 weekly, edits applied), shutdown policy, failure injection (Defender/DISM/SFC failures and timeouts, event-log denied, firewall/network failures), interrupted runs, bridge security and API.
 
 ## Troubleshooting
@@ -201,6 +245,13 @@ Covers configuration, process detection and flagging, persistence mapping, polic
 | Symptom | Fix |
 |---|---|
 | Dashboard won't open | `.\src\powershell\Start-Dashboard.ps1`; check Node ≥ 18 (`node -v`); port in use → change `bridge.port` in config.json |
+| Shortcut shows "Node.js was not found" | Install Node.js 18+ (LTS) from nodejs.org and open Laptop Guardian again. Check with `.\src\powershell\Start-Dashboard.ps1 -Check` |
+| "Port 7878 is in use by another program" | Close that program, or set `bridge.port` in `config\config.json` (1024-65535) and re-run the installer so the shortcuts and tasks agree |
+| Window opens in a normal browser tab, not an app window | Neither Edge nor Chrome was found; install one, or ignore: it works the same |
+| Dashboard shows "Bridge offline" | Click the shortcut again (it restarts the bridge). Details: `logs\launcher.log`, `logs\bridge-err.log` |
+| Dashboard looks old after updating Laptop Guardian | Open it from a shortcut: a bridge older than its code is restarted automatically. Hard refresh with Ctrl+Shift+R if the page itself is cached |
+| A "Waiting for first run" task | Normal until its first trigger (`0x41303`) |
+| "A previous run did not finish" banner | The machine shut down or the run was killed mid-scan; the next run recovers by itself |
 | "Dashboard not built" | `cd src\dashboard; npm ci; npm run build` (or re-run the installer) |
 | SFC/DISM show `requires-admin` | Re-run installer with `-Elevate` (tasks run *Highest*) |
 | Weekly run never started | Laptop must be logged in (locked is fine); enable wake timers; check *Task Scheduler → Task Scheduler Library → LaptopGuardian* history |

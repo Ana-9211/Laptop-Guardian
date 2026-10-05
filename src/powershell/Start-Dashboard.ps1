@@ -1,17 +1,23 @@
 #requires -Version 5.1
-<# Starts the local dashboard bridge (127.0.0.1 only) if it is not already running, then opens the browser. #>
-[CmdletBinding()] param([switch]$NoBrowser)
-$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$cfgPath = Join-Path $root 'config\config.json'
-$port = 7878
-try { if (Test-Path $cfgPath) { $port = [int](Get-Content $cfgPath -Raw | ConvertFrom-Json).bridge.port } } catch { }
-$url = "http://127.0.0.1:$port/"
-function Test-Up { try { $null = Invoke-WebRequest -Uri "${url}api/run" -UseBasicParsing -TimeoutSec 2; $true } catch { $false } }
-if (-not (Test-Up)) {
-    $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
-    if (-not $node) { Write-Error 'Node.js not found. Install Node 18+ from https://nodejs.org'; exit 1 }
-    if (-not (Test-Path (Join-Path $root 'src\dashboard\dist\index.html'))) { Write-Error 'Dashboard not built. Run Install-LaptopGuardian.ps1 (or: cd src\dashboard; npm install; npm run build).'; exit 1 }
-    Start-Process -FilePath $node -ArgumentList "`"$(Join-Path $root 'src\bridge\server.js')`"" -WorkingDirectory $root -WindowStyle Hidden
-    for ($i = 0; $i -lt 20 -and -not (Test-Up); $i++) { Start-Sleep -Milliseconds 500 }
+<#
+.SYNOPSIS  One-click launcher: starts the local dashboard bridge (127.0.0.1 only) if needed and opens it in an app-style window.
+.PARAMETER NoBrowser  Start/verify the bridge but do not open a window.
+.PARAMETER Gui        Report failures in a message box (used by the Start Menu / Desktop shortcuts, which have no console).
+.PARAMETER Check      Only print a diagnostic summary (Node, build, bridge, port, browser); start nothing.
+.PARAMETER Json       Print the result as JSON.
+#>
+[CmdletBinding()]
+param([switch]$NoBrowser, [switch]$Gui, [switch]$Check, [switch]$Json)
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'Launcher\Launcher.psm1') -Force
+$root = Get-GuardianRoot
+try {
+    if ($Check) { $r = Get-LaunchDiagnostics -Root $root; if ($Json) { $r | ConvertTo-Json -Depth 3 } else { $r | Format-List | Out-String | Write-Host }; exit 0 }
+    $r = Start-GuardianDashboard -Root $root -NoBrowser:$NoBrowser -Gui:$Gui
+    if ($Json) { $r | ConvertTo-Json -Depth 3 }
+    elseif ($r.ok) { Write-Host "Laptop Guardian dashboard: $($r.url)  (bridge $($r.bridge), window $($r.window))" }
+    exit $(if ($r.ok) { 0 } else { 1 })
+} catch {
+    Show-LauncherError -Root $root -Message "Unexpected launcher error: $($_.Exception.Message)" -Gui:$Gui
+    exit 1
 }
-if (Test-Up) { Write-Host "Laptop Guardian dashboard: $url"; if (-not $NoBrowser) { Start-Process $url } } else { Write-Error 'Dashboard bridge did not start.'; exit 1 }

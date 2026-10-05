@@ -1,9 +1,10 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { Cmd } from '../types';
-import { riskTone } from '../format';
+import { riskTone, NA } from '../format';
+import { MAX_TOASTS, TOAST_MS } from '../config';
 
 /* ---------- icons ---------- */
-const P: Record<string, string> = {
+const P = {
   overview: 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10',
   daily: 'M7 3v3M17 3v3M4 8h16M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zM8 13h3',
   weekly: 'M7 3v3M17 3v3M4 8h16M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zM8 12h8M8 16h5',
@@ -36,11 +37,18 @@ const P: Record<string, string> = {
   inbox: 'M3 13l3-8h12l3 8v6H3zM3 13h5l1 3h6l1-3h5',
   lock: 'M6 11h12v9H6zM8 11V8a4 4 0 118 0v3',
   compare: 'M8 4v16M16 4v16M4 8l4-4 4 4M12 16l4 4 4-4',
-};
-export function Icon({ name, size = 16 }: { name: string; size?: number }) {
+  sortBoth: 'M8 9l4-4 4 4M8 15l4 4 4-4',
+  sortUp: 'M7 14l5-5 5 5',
+  sortDown: 'M7 10l5 5 5-5',
+  offline: 'M3 3l18 18M8.5 8.6A9 9 0 003 12M16 11.2A9 9 0 0121 12M5 15a7 7 0 013-1.9M12 19h.01M10 16.2a4 4 0 014 0',
+  elevate: 'M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6zM12 8v5M12 16h.01',
+  clock: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2',
+} as const;
+export type IconName = keyof typeof P;
+export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d={P[name] || P.info} />
+      <path d={P[name]} />
     </svg>
   );
 }
@@ -49,6 +57,8 @@ export function Icon({ name, size = 16 }: { name: string; size?: number }) {
 export function Badge({ tone = '', children, dot, title }: { tone?: string; children: ReactNode; dot?: boolean; title?: string }) {
   return <span className={`badge ${tone}`} title={title}>{dot && <i />}{children}</span>;
 }
+/** Dot separator drawn with CSS so it renders identically everywhere (no font-dependent glyphs). */
+export const Sep = () => <span className="sep" aria-hidden="true" />;
 export const RiskBadge = ({ risk }: { risk?: string }) => <Badge tone={riskTone(risk)} dot>{risk || 'UNKNOWN'}</Badge>;
 
 export function Card({ title, actions, children, flush, className = '' }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; flush?: boolean; className?: string }) {
@@ -120,7 +130,7 @@ export function Skeleton({ h = 14, w = '100%' }: { h?: number; w?: number | stri
 export function SkeletonCards({ n = 4, h = 96 }: { n?: number; h?: number }) {
   return <div className="grid g4" role="status" aria-label="Loading">{Array.from({ length: n }, (_, i) => <div key={i} className="card" style={{ padding: 14 }}><Skeleton h={12} w="40%" /><div style={{ height: 10 }} /><Skeleton h={h - 50} w="60%" /></div>)}</div>;
 }
-export function Empty({ icon = 'inbox', title, children }: { icon?: string; title: string; children?: ReactNode }) {
+export function Empty({ icon = 'inbox', title, children }: { icon?: IconName; title: string; children?: ReactNode }) {
   return <div className="empty"><Icon name={icon} size={28} /><b>{title}</b>{children && <div style={{ maxWidth: 420 }}>{children}</div>}</div>;
 }
 export function ErrorState({ error, onRetry }: { error: { message: string; status?: number }; onRetry?: () => void }) {
@@ -154,10 +164,13 @@ export const useToast = () => useContext(ToastCtx);
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const n = useRef(0);
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => { const t = timers.current; return () => { t.forEach(clearTimeout); }; }, []);
   const push = useCallback((tone: ToastItem['tone'], text: string) => {
     const id = ++n.current;
-    setItems((x) => [...x.slice(-3), { id, tone, text }]);
-    setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), tone === 'error' ? 8000 : 4500);
+    setItems((x) => [...x.slice(-(MAX_TOASTS - 1)), { id, tone, text }]);
+    const timer = setTimeout(() => { timers.current.delete(timer); setItems((x) => x.filter((t) => t.id !== id)); }, tone === 'error' ? TOAST_MS.error : TOAST_MS.default);
+    timers.current.add(timer);
   }, []);
   return (
     <ToastCtx.Provider value={push}>
@@ -234,7 +247,7 @@ export function ConfirmDialog({ opts, onClose }: { opts: ConfirmOpts; onClose: (
         <div className="card-body"><h2 id={tid}>{opts.title}</h2><div className="t2">{opts.body}</div></div>
         <div className="dialog-foot">
           <button className="btn" onClick={onClose} data-autofocus>Cancel</button>
-          <button className={`btn ${opts.danger ? 'danger solid' : 'primary'}`} disabled={busy} onClick={go}>{busy ? 'Working…' : opts.confirmLabel}</button>
+          <button className={`btn ${opts.danger ? 'danger solid' : 'primary'}`} disabled={busy} onClick={go}>{busy ? 'Working...' : opts.confirmLabel}</button>
         </div>
       </div>
     </>
@@ -291,7 +304,7 @@ export function CommandBlock({ title, cmd }: { title: string; cmd: Cmd }) {
         <CopyButton text={cmd.command} />
       </div>
       <pre><code>{highlight(cmd.command)}</code></pre>
-      <div className="why">{cmd.explains} <span className="muted">Displayed only — Laptop Guardian never runs this for you.</span></div>
+      <div className="why">{cmd.explains} <span className="muted">Displayed only. Laptop Guardian never runs this for you.</span></div>
     </div>
   );
 }
@@ -319,7 +332,7 @@ export function Stat({ label, value, unit, sub, tone, bar, spark, tip }: { label
 }
 
 export function KV({ items }: { items: [string, ReactNode][] }) {
-  return <dl className="kv" style={{ margin: 0 }}>{items.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v ?? '—'}</dd></div>)}</dl>;
+  return <dl className="kv" style={{ margin: 0 }}>{items.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v ?? NA}</dd></div>)}</dl>;
 }
 
 /* ---------- sortable table ---------- */
@@ -334,7 +347,7 @@ export function DataTable<T>({ cols, rows, rowKey, onRow, selected, initialSort,
       <table className={`t ${stickyLast ? 'stick' : ''}`} aria-label={label}>
         <thead><tr>{cols.map((c) => (
           <th key={c.key} className={c.align === 'r' ? 'r' : ''} style={{ width: c.width }} aria-sort={sort?.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
-            {c.sort ? <button onClick={() => setSort(sort?.key === c.key ? { key: c.key, dir: (sort.dir * -1) as 1 | -1 } : { key: c.key, dir: 1 })}>{c.label}<span aria-hidden="true" style={{ opacity: sort?.key === c.key ? 1 : .3 }}>{sort?.key === c.key ? (sort.dir === 1 ? '↑' : '↓') : '↕'}</span></button> : c.label}
+            {c.sort ? <button onClick={() => setSort(sort?.key === c.key ? { key: c.key, dir: (sort.dir * -1) as 1 | -1 } : { key: c.key, dir: 1 })}>{c.label}<span aria-hidden="true" className="sort-ic" data-active={sort?.key === c.key}><Icon name={sort?.key === c.key ? (sort.dir === 1 ? 'sortUp' : 'sortDown') : 'sortBoth'} size={12} /></span></button> : c.label}
           </th>))}</tr></thead>
         <tbody>
           {sorted.map((r) => {

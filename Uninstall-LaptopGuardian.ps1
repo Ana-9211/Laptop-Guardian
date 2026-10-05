@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS  Removes Laptop Guardian scheduled tasks and shortcuts. Reports/data are preserved unless -RemoveData is given.
 .PARAMETER RemoveData  Also delete data\, reports\, logs\ and config\ (including stored Gemini key). Irreversible.
@@ -15,8 +15,12 @@ Write-Host 'Removing scheduled tasks...' -ForegroundColor Cyan
 # stop the dashboard bridge if running
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$root*src\bridge\server.js*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host "  Stopped dashboard bridge (PID $($_.ProcessId))" }
 
-$sm = Join-Path ([Environment]::GetFolderPath('Programs')) 'Laptop Guardian.lnk'
-if (Test-Path $sm) { Remove-Item $sm -Force; Write-Host '  Removed Start Menu shortcut' }
+foreach ($e in @(@{ L = 'Start Menu'; P = (Join-Path ([Environment]::GetFolderPath('Programs')) 'Laptop Guardian.lnk') }, @{ L = 'Desktop'; P = (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Laptop Guardian.lnk') })) {
+    if (-not (Test-Path $e.P)) { continue }
+    # only remove shortcuts that point at THIS install
+    $lnkArgs = (New-Object -ComObject WScript.Shell).CreateShortcut($e.P).Arguments
+    if ($lnkArgs -like "*$root*") { Remove-Item $e.P -Force; Write-Host "  Removed $($e.L) shortcut" } else { Write-Host "  Left $($e.L) shortcut (belongs to another install)" -ForegroundColor Yellow }
+}
 
 if ($RemoveData) {
     if ($PSCmdlet.ShouldProcess("$root (data, reports, logs, config)", 'Permanently delete')) {

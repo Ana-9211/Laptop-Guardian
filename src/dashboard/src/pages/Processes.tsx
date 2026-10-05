@@ -3,8 +3,8 @@ import { useQuery } from '../api';
 import type { Policy, Process, Recommendation } from '../types';
 import { Badge, Card, Col, DataTable, Empty, ErrorState, PageHead, RiskBadge, SearchBox, SkeletonCards, Tabs, Tip } from '../components/ui';
 import { ProcessDrawer } from '../components/ProcessDrawer';
-import { fmtMB, pct, fmtDate } from '../format';
-import { go, useHash } from '../App';
+import { fmtMB, pct, fmtDate, NA } from '../format';
+import { go, useHash } from '../router';
 
 type Tab = 'all' | 'flagged' | 'persistent' | 'high' | 'recommended' | 'blacklisted' | 'whitelisted';
 
@@ -17,7 +17,7 @@ export default function Processes() {
   const [sel, setSel] = useState<Process | null>(null);
   const reload = () => { procs.reload(); recs.reload(); };
 
-  const list = procs.data?.processes || [];
+  const list = useMemo(() => procs.data?.processes ?? [], [procs.data]);
   const recById = useMemo(() => new Map((recs.data?.items || []).map((r) => [r.id, r])), [recs.data]);
 
   // Deep link: #/processes?rec=<id> or ?name=<name>
@@ -52,17 +52,17 @@ export default function Processes() {
   }, [list, tab, q]);
 
   const cols: Col<Process>[] = [
-    { key: 'name', label: 'Process', sort: (p) => p.name.toLowerCase(), render: (p) => <span className="row tight" style={{ flexWrap: 'nowrap' }}><b>{p.name}</b>{(p.instances || 1) > 1 && <Tip text={`${p.instances} running instances`}><span className="muted num small">×{p.instances}</span></Tip>}</span> },
+    { key: 'name', label: 'Process', sort: (p) => p.name.toLowerCase(), render: (p) => <span className="row tight" style={{ flexWrap: 'nowrap' }}><b>{p.name}</b>{(p.instances || 1) > 1 && <Tip text={`${p.instances} running instances`}><span className="muted num small">x{p.instances}</span></Tip>}</span> },
     { key: 'pid', label: 'PID', sort: (p) => p.pid, render: (p) => <span className="num muted">{p.pid}</span>, align: 'r' },
     { key: 'cpu', label: 'CPU', sort: (p) => p.cpuPct, render: (p) => <span className="num">{pct(p.cpuPct, 1)}</span>, align: 'r' },
     { key: 'ram', label: 'RAM', sort: (p) => p.memoryMB, render: (p) => <span className="num">{fmtMB(p.memoryMB)}</span>, align: 'r' },
     { key: 'pub', label: 'Publisher', sort: (p) => (p.publisher || '').toLowerCase(), render: (p) => p.publisher ? <span className="trunc" style={{ maxWidth: 160, display: 'inline-block' }}>{p.publisher}</span> : <span className="muted">none</span> },
     { key: 'signed', label: 'Signed', sort: (p) => (p.signed ? 1 : 0), render: (p) => <Badge tone={p.signed ? 'ok' : 'warn'} dot>{p.signed ? 'Yes' : p.signature === 'Unknown' ? 'Unknown' : 'No'}</Badge> },
-    { key: 'path', label: 'Path', render: (p) => <Tip text={p.path || 'Path not accessible'}><span className="path trunc" style={{ display: 'inline-block' }}>{p.path || '—'}</span></Tip> },
-    { key: 'persist', label: 'Persistence', sort: (p) => (p.persistent ? 1 : 0), render: (p) => p.persistent ? <span className="row tight">{[...new Set([...(p.startupEntries || []).map((s) => s.kind), ...((p.services || []).length ? ['service'] : [])])].map((k) => <Badge key={k} tone="info">{k}</Badge>)}{!p.startupEntries?.length && !p.services?.length && <Badge tone="info">yes</Badge>}</span> : <span className="muted">—</span> },
+    { key: 'path', label: 'Path', render: (p) => <Tip text={p.path || 'Path not accessible'}><span className="path trunc" style={{ display: 'inline-block' }}>{p.path || NA}</span></Tip> },
+    { key: 'persist', label: 'Persistence', sort: (p) => (p.persistent ? 1 : 0), render: (p) => p.persistent ? <span className="row tight">{[...new Set([...(p.startupEntries || []).map((s) => s.kind), ...((p.services || []).length ? ['service'] : [])])].map((k) => <Badge key={k} tone="info">{k}</Badge>)}{!p.startupEntries?.length && !p.services?.length && <Badge tone="info">yes</Badge>}</span> : <span className="muted">n/a</span> },
     { key: 'status', label: 'Status', render: (p) => <span className="row tight" style={{ flexWrap: 'nowrap' }}><Badge tone="ok" dot>Running</Badge>{(p.flags || []).filter((f) => ['high-cpu', 'high-memory', 'unusual-location'].includes(f)).slice(0, 1).map((f) => <Badge key={f} tone="warn">{f}</Badge>)}</span> },
-    { key: 'rec', label: 'Recommendation', sort: (p) => recById.get(p.recommendationId || '')?.suggestedAction || '~', render: (p) => { const r = recById.get(p.recommendationId || ''); return r ? <span className="row tight" style={{ flexWrap: 'nowrap' }}><RiskBadge risk={r.risk} /><span className="small t2 trunc" style={{ maxWidth: 130 }}>{r.suggestedAction}</span></span> : <span className="muted">—</span>; } },
-    { key: 'policy', label: 'Policy', sort: (p) => p.policy || 'none', render: (p) => p.policy && p.policy !== 'none' ? <Badge tone={p.policy === 'blacklist' ? 'crit' : 'accent'}>{p.policy}</Badge> : <span className="muted">—</span> },
+    { key: 'rec', label: 'Recommendation', sort: (p) => recById.get(p.recommendationId || '')?.suggestedAction || '~', render: (p) => { const r = recById.get(p.recommendationId || ''); return r ? <span className="row tight" style={{ flexWrap: 'nowrap' }}><RiskBadge risk={r.risk} /><span className="small t2 trunc" style={{ maxWidth: 130 }}>{r.suggestedAction}</span></span> : <span className="muted">n/a</span>; } },
+    { key: 'policy', label: 'Policy', sort: (p) => p.policy || 'none', render: (p) => p.policy && p.policy !== 'none' ? <Badge tone={p.policy === 'blacklist' ? 'crit' : 'accent'}>{p.policy}</Badge> : <span className="muted">n/a</span> },
   ];
 
   const tabs: { id: Tab; label: string; count: number }[] = [

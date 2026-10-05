@@ -1,17 +1,18 @@
 import { useState } from 'react';
-import { useOverview, go } from '../App';
+import { useOverview } from '../state/overview';
+import { go } from '../router';
 import { useQuery } from '../api';
 import type { ActionEvent, ReportRow } from '../types';
 import { Badge, Card, Col, DataTable, Empty, ErrorState, PageHead, SkeletonCards, Tabs } from '../components/ui';
 import { BarChart, LineChart, Range, RangeSelect, filterRange, SERIES_COLORS } from '../components/Chart';
 import { ReportView } from '../components/ReportView';
 import { ActionTimeline, RunButtons, useRun } from '../components/common';
-import { fmtFull, scoreTone } from '../format';
+import { fmtFull, scoreTone, NA } from '../format';
 
 const historyCols = (type: string): Col<ReportRow>[] => [
   { key: 'id', label: type === 'daily' ? 'Date' : 'Week', sort: (r) => r.id, render: (r) => <b>{r.id}</b> },
   { key: 'gen', label: 'Generated', sort: (r) => r.generatedAt, render: (r) => <span className="small t2">{fmtFull(r.generatedAt)}</span> },
-  { key: 'score', label: 'Health', sort: (r) => r.healthScore ?? -1, align: 'r', render: (r) => <Badge tone={scoreTone(r.healthScore)}>{r.healthScore ?? '—'}</Badge> },
+  { key: 'score', label: 'Health', sort: (r) => r.healthScore ?? -1, align: 'r', render: (r) => <Badge tone={scoreTone(r.healthScore)}>{r.healthScore ?? NA}</Badge> },
   { key: 'status', label: 'Status', render: (r) => <Badge tone={r.status === 'complete' ? 'ok' : 'warn'} dot>{r.status}</Badge> },
   { key: 'sum', label: 'Summary', render: (r) => <span className="t2 trunc" style={{ maxWidth: 380, display: 'inline-block' }}>{r.summary?.headline}</span> },
 ];
@@ -61,7 +62,7 @@ export function WeeklyPage() {
   const sc = ov.data?.safety;
   return (
     <div className="page">
-      <PageHead title="Weekly" sub="Deep analysis on Saturday: integrity checks, a full Defender scan, storage review and pattern analysis, followed by a controlled shutdown." actions={<button className="btn" disabled={!!busy} onClick={() => start('weekly', ov.reload)}>{busy ? 'Starting…' : 'Run weekly analysis (no shutdown)'}</button>} />
+      <PageHead title="Weekly" sub="Deep analysis on Saturday: integrity checks, a full Defender scan, storage review and pattern analysis, followed by a controlled shutdown." actions={<button className="btn" disabled={!!busy} onClick={() => start('weekly', ov.reload)}>{busy ? 'Starting...' : 'Run weekly analysis (no shutdown)'}</button>} />
       {sc && (!sc.weeklyShutdown) && <div className="notice">Weekly shutdown is off. The machine stays on after analysis.</div>}
       <Tabs value={tab} onChange={setTab} label="Weekly views" items={[{ id: 'latest', label: 'Current report' }, { id: 'history', label: 'History' }, { id: 'analysis', label: 'Analysis' }]} />
       {tab === 'latest' && (ov.error ? <ErrorState error={ov.error} onRetry={ov.reload} /> : !ov.data ? <SkeletonCards /> : w ? <ReportView r={w} /> : <Card><Empty icon="weekly" title="No weekly report yet">The first deep analysis runs at the scheduled time on Saturday.</Empty></Card>)}
