@@ -17,9 +17,31 @@ function Get-ShutdownDateTime {
 }
 
 function Get-SecondsUntil {
-    param([string]$TimeOfDay, [string]$StartTime)   # "HH:mm"
-    $now = Get-Date
+    param([string]$TimeOfDay, [string]$StartTime, [datetime]$Now = (Get-Date))   # "HH:mm"
+    $now = $Now
     return [int]((Get-ShutdownDateTime -TimeOfDay $TimeOfDay -StartTime $StartTime -Now $now) - $now).TotalSeconds
+}
+
+function Get-UserIdleSeconds {
+    <# Seconds since the last keyboard or mouse input in this session, or $null when it cannot be read (no interactive desktop). #>
+    try {
+        if (-not ('Guardian.IdleTime' -as [type])) {
+            Add-Type -Namespace Guardian -Name IdleTime -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential)] public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+[DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+'@ -UsingNamespace System.Runtime.InteropServices
+        }
+        $i = New-Object Guardian.IdleTime+LASTINPUTINFO; $i.cbSize = [uint32][Runtime.InteropServices.Marshal]::SizeOf($i)
+        if (-not [Guardian.IdleTime]::GetLastInputInfo([ref]$i)) { return $null }
+        return [int](([uint32][Environment]::TickCount - $i.dwTime) / 1000)
+    } catch { return $null }
+}
+
+function Invoke-ShutdownExe {
+    # The only place that runs shutdown.exe (mocked in tests, so a test can never power the machine off).
+    param([int]$Delay, [string]$Comment)
+    $out = & "$env:SystemRoot\System32\shutdown.exe" /s /t $Delay /c $Comment 2>&1
+    return [pscustomobject]@{ Output = "$out"; ExitCode = $LASTEXITCODE }
 }
 
 function Test-ShutdownAllowed {
@@ -33,7 +55,7 @@ function Test-ShutdownAllowed {
 
 function Start-GuardianShutdown {
     <# Schedules a Windows shutdown at $ShutdownTime (or in 60 s if that time has passed). Abortable with: shutdown /a #>
-    param($Config, [switch]$NoShutdown, [int]$MinDelaySec = 300, [int]$MaxDelaySec = 21600)
+    param($Config, [switch]$NoShutdown, [int]$MinDelaySec = 300, [int]$MaxDelaySec = 21600, [int]$MinIdleSec = 600)
     $chk = Test-ShutdownAllowed -Config $Config -NoShutdown:$NoShutdown
     $res = [ordered]@{ planned = $null; initiated = $false; reason = $chk.Reason; delaySec = 0 }
     if (-not $chk.Allowed) { [void](Write-GuardianEvent -Category shutdown -Action 'shutdown:skipped' -Result skipped -Reason $chk.Reason); return [pscustomobject]$res }
@@ -44,11 +66,19 @@ function Start-GuardianShutdown {
         [void](Write-GuardianEvent -Category shutdown -Action 'shutdown:skipped' -Result skipped -Reason $res.reason)
         return [pscustomobject]$res
     }
+    # Windows closes open programs when a timed shutdown fires (/t implies forced close), so never schedule one while someone is using the laptop.
+    $idle = Get-UserIdleSeconds
+    if ($null -ne $idle -and $idle -lt $MinIdleSec) {
+        $res.reason = "The laptop is in use (last input $idle s ago), so the shutdown was withheld: Windows would close your open programs."
+        [void](Write-GuardianEvent -Category shutdown -Action 'shutdown:skipped' -Result skipped -Severity warning -Reason $res.reason)
+        return [pscustomobject]$res
+    }
     if ($delay -lt $MinDelaySec) { $delay = $MinDelaySec }
     $res.delaySec = $delay; $res.planned = (Get-Date).AddSeconds($delay).ToString('yyyy-MM-ddTHH:mm:sszzz')
     try {
-        $out = & "$env:SystemRoot\System32\shutdown.exe" /s /t $delay /c "Laptop Guardian weekly maintenance finished. Run 'shutdown /a' to cancel." 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        $sd = Invoke-ShutdownExe -Delay $delay -Comment "Laptop Guardian weekly maintenance finished. Windows will close open programs and shut down. Cancel it from the Laptop Guardian window, or run 'shutdown /a'."
+        $out = $sd.Output
+        if ($sd.ExitCode -eq 0) {
             $res.initiated = $true; $res.reason = "Windows shutdown scheduled in $delay s (cancel with: shutdown /a)"
             [void](Write-GuardianEvent -Category shutdown -Action 'shutdown:initiated' -Result success -Reason $res.reason)
         } else {

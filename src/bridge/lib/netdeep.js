@@ -82,7 +82,8 @@ function createDeep({ root, getConfig, log, runNetstat = realNetstat, runTasklis
     try {
       const t = now(); const ts = localIso(new Date(t));
       if (t - namesAt > NAME_REFRESH_MS) { try { names = parseTasklist(await runTasklist()); namesAt = t; } catch { /* names are optional */ } }
-      const rows = parseNetstat(await runNetstat()).filter((r) => !IGNORED_STATES.has(String(r.state).toUpperCase().replace(/ /g, '_')));
+      // State names are localised on non-English Windows, so a TCP row owned by PID 0 (what TIME_WAIT always shows) is skipped as well.
+      const rows = parseNetstat(await runNetstat()).filter((r) => !IGNORED_STATES.has(String(r.state).toUpperCase().replace(/ /g, '_')) && !(r.proto === 'TCP' && r.pid === 0));
       const seen = new Set(); const events = [];
       // A connection is only tracked once its open event is actually recorded, so a busy tick never loses an open and then reports a close without it.
       for (const r of rows) {

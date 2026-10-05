@@ -2,7 +2,30 @@
 $root = New-TestRoot; Import-Guardian
 
 Describe 'Process kill protection' {
-    It 'refuses protected process names' { (Test-ProcessKillAllowed -Name 'lsass.exe' -Path 'C:\x\lsass.exe' -ProcessId 1000).Allowed | Should Be $false }
+    It 'refuses a genuine Windows process by name (even with an unreadable path)' { (Test-ProcessKillAllowed -Name 'lsass.exe' -Path "$env:SystemRoot\System32\lsass.exe" -ProcessId 1000).Allowed | Should Be $false }
+    It 'treats a Windows-named copy outside the Windows folder and without a Microsoft signature as a suspicious lookalike' {
+        Mock -ModuleName Security Get-ImageTrust { [pscustomobject]@{ valid = $false; microsoft = $false } }
+        $r = Test-ProcessKillAllowed -Name 'lsass.exe' -Path 'C:\x\lsass.exe' -ProcessId 1000
+        $r.Allowed | Should Be $true; $r.Suspicious | Should Be $true; $r.Reason | Should Match 'not signed by Microsoft'
+    }
+    It 'still protects a Windows-named binary outside the Windows folder when it IS Microsoft-signed' {
+        Mock -ModuleName Security Get-ImageTrust { [pscustomobject]@{ valid = $true; microsoft = $true } }
+        (Test-ProcessKillAllowed -Name 'svchost.exe' -Path 'C:\x\svchost.exe' -ProcessId 1000).Allowed | Should Be $false
+    }
+    It 'does not treat C:\WindowsFake as the Windows directory' {
+        (Test-UnderSystemRoot "$($env:SystemRoot)Fake\thing.exe") | Should Be $false
+        (Test-UnderSystemRoot "$env:SystemRoot\thing.exe") | Should Be $true
+    }
+    It 'expands 8.3 short names so a protected folder cannot be spelled around' {
+        $short = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:ProgramFiles).ShortPath
+        if ($short -and $short -ne $env:ProgramFiles) { (Test-ProtectedPath -Path "$short\Vendor\x.dll") | Should Be $true } else { (Test-ProtectedPath -Path "$env:ProgramFiles\Vendor\x.dll") | Should Be $true }
+    }
+    It 'protects other users profiles and the Users folder, but not the current profile' {
+        (Test-ProtectedPath -Path "$env:SystemDrive\Users\SomeoneElse\Documents\a.txt") | Should Be $true
+        (Test-ProtectedPath -Path "$env:SystemDrive\Users") | Should Be $true
+        (Test-ProtectedPath -Path "$env:USERPROFILE\Documents\a.txt") | Should Be $false
+    }
+    It 'keeps development tools on the name-based list' { (Test-ProcessKillAllowed -Name 'node.exe' -Path 'C:\Users\x\node.exe' -ProcessId 1000).Allowed | Should Be $false }
     It 'refuses explorer' { (Test-ProcessKillAllowed -Name 'explorer' -Path '' -ProcessId 1000).Allowed | Should Be $false }
     It 'refuses svchost' { (Test-ProcessKillAllowed -Name 'svchost' -Path '' -ProcessId 1000).Allowed | Should Be $false }
     It 'refuses anything under the Windows dir' { (Test-ProcessKillAllowed -Name 'whatever' -Path "$env:SystemRoot\System32\whatever.exe" -ProcessId 1000).Allowed | Should Be $false }

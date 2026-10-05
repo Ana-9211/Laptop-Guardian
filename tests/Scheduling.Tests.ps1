@@ -115,6 +115,15 @@ Describe 'Shutdown policy' {
         $r.initiated | Should Be $false
         (Read-JsonLines (Get-GuardianPath 'Actions') | Where-Object { $_.action -eq 'shutdown:skipped' }) | Should Not BeNullOrEmpty
     }
+    It 'withholds the shutdown while the laptop is in use (a timed shutdown force-closes open programs)' {
+        $c = Get-GuardianConfig; $c.safety.safeMode = $false; $c.safety.weeklyShutdown = $true; $c.safety.automationPaused = $false
+        $c.schedule.weekly.shutdownEnabled = $true; $c.schedule.weekly.shutdownTime = (Get-Date).AddMinutes(30).ToString('HH:mm')
+        Mock -ModuleName Shutdown Invoke-ShutdownExe { throw 'a test must never shut the machine down' }
+        Mock -ModuleName Shutdown Get-UserIdleSeconds { 20 }
+        $r = Start-GuardianShutdown -Config $c
+        $r.initiated | Should Be $false
+        $r.reason | Should Match 'in use'
+    }
     It 'weekly script only shuts down for runs flagged -Scheduled' {
         (Get-Content (Join-Path $PSScriptRoot '..\src\powershell\Weekly.ps1') -Raw) | Should Match '-NoShutdown:\(\$NoShutdown -or -not \$Scheduled\)'
     }
@@ -124,7 +133,7 @@ Describe 'Shutdown policy' {
     It 'bridge never launches a weekly run that can shut down' {
         (Get-Content (Join-Path $PSScriptRoot '..\src\bridge\server.js') -Raw) | Should Match "launchScan\('Weekly', \['-NoShutdown'\]\)"
     }
-    It 'computes seconds until a wall-clock time' { $t = (Get-Date).AddMinutes(30).ToString('HH:mm'); $s = Get-SecondsUntil $t; ($s -gt 1500 -and $s -lt 1900) | Should Be $true }
+    It 'computes seconds until a wall-clock time (fixed clock, so it cannot flake around midnight)' { $now = [datetime]'2026-10-05 12:00:10'; (Get-SecondsUntil '12:30' -Now $now) | Should Be 1790; (Get-SecondsUntil '11:30' -Now $now) | Should BeLessThan 0 }
 }
 
 Describe 'Retention of interrupted runs (machine shut down mid-run)' {

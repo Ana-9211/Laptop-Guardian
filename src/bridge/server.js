@@ -108,13 +108,21 @@ function createApp(root, opts = {}) {
 
   function loadRecs() { return U.readJson(P.recs, { updatedAt: null, items: [] }) || { updatedAt: null, items: [] }; }
 
+  // The metrics file only grows, and every dashboard poll asks for it: parse it only when it changed, and read a bounded tail.
+  const METRICS_TAIL_BYTES = { ranged: 8 * 1024 * 1024, all: 32 * 1024 * 1024 };
+  let metricsCache = { key: null, rows: [] };
+  function readMetrics(maxBytes) {
+    let st; try { st = fs.statSync(P.metrics); } catch { return []; }
+    const key = `${st.size}:${st.mtimeMs}:${maxBytes}`;
+    if (metricsCache.key !== key) metricsCache = { key, rows: U.tailJsonl(P.metrics, Number.MAX_SAFE_INTEGER, maxBytes) };
+    return metricsCache.rows;
+  }
   function filterMetrics(range) {
-    const all = U.readAllJsonl(P.metrics);
-    if (!range || range === 'all') return all;
+    if (!range || range === 'all') return readMetrics(METRICS_TAIL_BYTES.all);
     const days = Number(range);
     need([7, 30, 90].includes(days), 'range must be 7, 30, 90 or all');
     const cutoff = Date.now() - days * 86400000;
-    return all.filter((m) => Date.parse(m.ts) >= cutoff);
+    return readMetrics(METRICS_TAIL_BYTES.ranged).filter((m) => Date.parse(m.ts) >= cutoff);
   }
 
   function aiStatus() {
@@ -273,16 +281,24 @@ function createApp(root, opts = {}) {
 
   route('GET', '/api/processes', () => U.readJson(P.latest('processes.json'), { generatedAt: null, processes: [] }));
 
+  // A finished report never changes, so the few fields this endpoint needs are read from it once and kept.
+  const dailyIndex = new Map();
+  function dailyProcessIndex(id) {
+    if (!dailyIndex.has(id)) {
+      const rep = U.readJson(path.join(P.reports, 'daily', id, 'report.json'));
+      const pr = rep && rep.sections && rep.sections.processes;
+      dailyIndex.set(id, { ts: rep ? rep.generatedAt : null, list: [...((pr && pr.topCpu) || []), ...((pr && pr.topMemory) || [])].map((p) => ({ name: p.name, cpuPct: p.cpuPct, memoryMB: p.memoryMB, flags: p.flags })) });
+      if (dailyIndex.size > 400) dailyIndex.delete(dailyIndex.keys().next().value);
+    }
+    return dailyIndex.get(id);
+  }
   route('GET', '/api/processes/history', ({ query }) => {
     const name = str(query.get('name'), 'name', 128).toLowerCase();
     const appearances = [];
-    for (const type of ['daily']) {
-      for (const r of listReports(type).slice(0, 90)) {
-        const rep = U.readJson(path.join(P.reports, type, r.id, 'report.json'));
-        const pr = rep?.sections?.processes;
-        const seen = [...(pr?.topCpu || []), ...(pr?.topMemory || [])].find((p) => String(p.name).toLowerCase() === name);
-        if (seen) appearances.push({ ts: rep.generatedAt, cpuPct: seen.cpuPct, memoryMB: seen.memoryMB, flags: seen.flags || [] });
-      }
+    for (const r of listReports('daily').slice(0, 90)) {
+      const procs = dailyProcessIndex(r.id);
+      const seen = procs.list.find((p) => String(p.name).toLowerCase() === name);
+      if (seen) appearances.push({ ts: procs.ts, cpuPct: seen.cpuPct, memoryMB: seen.memoryMB, flags: seen.flags || [] });
     }
     const actions = U.tailJsonl(P.actions, 5000).filter((a) => a.target && String(a.target).toLowerCase().includes(name)).reverse().slice(0, 100);
     return { name, appearances, actions };
@@ -294,7 +310,7 @@ function createApp(root, opts = {}) {
     return { updatedAt: d.updatedAt, items: d.items.filter((r) => (!status || r.status === status) && (!kind || r.kind === kind)) };
   });
 
-  route('POST', '/api/recommendations/:id/status', ({ params, body }) => {
+  route('POST', '/api/recommendations/:id/status', locked(P.recs, ({ params, body }) => {
     need(RE_HEX.test(params.id) || /^[\w.-]{1,80}$/.test(params.id), 'invalid id');
     need(REC_STATUSES.includes(body.status), `status must be one of ${REC_STATUSES.join(', ')}`);
     const d = loadRecs();
@@ -304,7 +320,7 @@ function createApp(root, opts = {}) {
     U.writeJsonAtomic(P.recs, d);
     log({ category: 'policy', action: 'recommendation.status', target: r.title, reason: `${prev} -> ${body.status}`, relatedRecommendation: r.id });
     return r;
-  });
+  }));
 
   route('GET', '/api/actions', ({ query }) => {
     const limit = Math.min(Math.max(parseInt(query.get('limit') || '200', 10) || 200, 1), 2000);
@@ -362,14 +378,14 @@ function createApp(root, opts = {}) {
     return d;
   });
 
-  route('POST', '/api/files/ignore', ({ body }) => {
+  route('POST', '/api/files/ignore', locked(P.ignoredFiles, ({ body }) => {
     const id = str(body.id, 'id', 128);
     const set = new Set(U.readJson(P.ignoredFiles, []) || []);
     if (body.ignored === false) set.delete(id); else set.add(id);
     U.writeJsonAtomic(P.ignoredFiles, [...set]);
     log({ category: 'file', action: body.ignored === false ? 'file.unignore' : 'file.ignore', target: id });
     return { ok: true };
-  });
+  }));
 
   route('GET', '/api/config', () => ({ ...config(), _ai: aiStatus() }));
   // Cancels a pending Windows shutdown. A fixed command with no inputs: the same as typing `shutdown /a`.
@@ -380,7 +396,7 @@ function createApp(root, opts = {}) {
     return { cancelled: r.ok, message: r.ok ? 'The pending shutdown was cancelled.' : 'No shutdown was pending, so nothing needed cancelling.' };
   });
 
-  route('PUT', '/api/config', ({ body: rawBody }) => {
+  route('PUT', '/api/config', locked(P.config, ({ body: rawBody }) => {
     const { _confirmRisky, ...body } = rawBody || {};
     const net = body && body.network;
     const cur = config().network || {};
@@ -398,7 +414,7 @@ function createApp(root, opts = {}) {
     log({ category: 'config', action: risky.length ? 'config.risky-update' : 'config.update', target: Object.keys(body).join(','), reason: risky.length ? `confirmed: ${risky.join(' ')}` : 'settings changed in dashboard', severity: risky.length ? 'warning' : 'info' });
     if (net) { try { deep.prune(); netStore.prune(); } catch { /* retention is applied again on the next write */ } }
     return m.value;
-  });
+  }));
 
   route('GET', '/api/cleanup-policy', () => U.readJson(P.cleanup, {}) || {});
   route('PUT', '/api/cleanup-policy', ({ body }) => {
@@ -411,7 +427,7 @@ function createApp(root, opts = {}) {
 
   route('GET', '/api/policy', () => policy());
 
-  route('POST', '/api/policy', ({ body }) => {
+  route('POST', '/api/policy', locked(P.policy, ({ body }) => {
     need(LISTS.includes(body.list), `list must be one of ${LISTS.join(', ')}`);
     const name = str(body.name, 'name', 128).replace(/\.exe$/i, '');
     need(/^[^\\/:*?"<>|\0]+$/.test(name), 'invalid process name');
@@ -433,9 +449,9 @@ function createApp(root, opts = {}) {
     U.writeJsonAtomic(P.policy, pol);
     log({ category: 'policy', action: `policy.${body.list}.add`, target: name, reason: entry.reason || null, relatedRecommendation: body.recommendationId || null });
     return entry;
-  });
+  }));
 
-  route('PATCH', '/api/policy/:list/:id', ({ params, body }) => {
+  route('PATCH', '/api/policy/:list/:id', locked(P.policy, ({ params, body }) => {
     need(LISTS.includes(params.list), 'invalid list');
     const pol = policy();
     const e = pol[params.list].find((x) => x.id === params.id);
@@ -449,9 +465,9 @@ function createApp(root, opts = {}) {
     U.writeJsonAtomic(P.policy, pol);
     log({ category: 'policy', action: `policy.${params.list}.update`, target: e.name, reason: JSON.stringify(body).slice(0, 200) });
     return e;
-  });
+  }));
 
-  route('DELETE', '/api/policy/:list/:id', ({ params }) => {
+  route('DELETE', '/api/policy/:list/:id', locked(P.policy, ({ params }) => {
     need(LISTS.includes(params.list), 'invalid list');
     const pol = policy();
     const e = pol[params.list].find((x) => x.id === params.id);
@@ -460,7 +476,7 @@ function createApp(root, opts = {}) {
     U.writeJsonAtomic(P.policy, pol);
     log({ category: 'policy', action: `policy.${params.list}.remove`, target: e.name });
     return { ok: true };
-  });
+  }));
 
   // ---- AI ----
   route('GET', '/api/ai/status', () => aiStatus());
@@ -760,6 +776,9 @@ function createApp(root, opts = {}) {
       req.on('error', reject);
     });
   }
+
+  /** Runs a synchronous handler while holding the shared lock for `file`, so a read-modify-write is not interleaved with the agents. */
+  function locked(file, handler) { return (ctx) => U.withFileLock(file, () => handler(ctx)); }
 
   /** One definition of "a weekly shutdown can happen", shared by /api/status and /api/overview. */
   function shutdownArmed(c) { return !!(c.schedule.weekly.enabled && c.schedule.weekly.shutdownEnabled && c.safety.weeklyShutdown && !c.safety.automationPaused); }

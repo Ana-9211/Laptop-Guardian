@@ -82,8 +82,9 @@ function Invoke-BlacklistEnforcement {
         $m = Find-PolicyMatch -Policy $pol -Name $p.name -Path $p.path
         if ($m.list -ne 'blacklist' -or $m.entry.action -ne 'terminate') { continue }
         $chk = Test-ProcessKillAllowed -Name $p.name -Path $p.path -ProcessId $p.pid
-        if (-not $chk.Allowed) {
-            [void](Write-GuardianEvent -Category process -Action 'process:terminate-blocked' -Target "$($p.name)#$($p.pid)" -Result skipped -Actor policy -Reason $chk.Reason)
+        if (-not $chk.Allowed -or $chk.Suspicious) {
+            # A lookalike of a Windows process is never ended automatically; it needs a person to confirm it in the dashboard.
+            [void](Write-GuardianEvent -Category process -Action 'process:terminate-blocked' -Target "$($p.name)#$($p.pid)" -Result skipped -Actor policy -Reason $(if ($chk.Suspicious) { "Suspicious lookalike, needs manual confirmation: $($chk.Reason)" } else { $chk.Reason }))
             continue
         }
         try {
@@ -92,7 +93,8 @@ function Invoke-BlacklistEnforcement {
             $livePath = $null; try { $livePath = (Get-CimInstance Win32_Process -Filter "ProcessId=$($p.pid)" -ErrorAction Stop).ExecutablePath } catch { }
             if (-not $livePath) { try { $livePath = $live.Path } catch { } }
             if (-not $livePath) { throw 'executable path unreadable; refusing to terminate' }
-            if (-not (Test-ProcessKillAllowed -Name $p.name -Path $livePath -ProcessId $p.pid).Allowed) { throw 'live executable is protected' }
+            $liveChk = Test-ProcessKillAllowed -Name $p.name -Path $livePath -ProcessId $p.pid
+            if (-not $liveChk.Allowed -or $liveChk.Suspicious) { throw 'live executable is protected or suspicious' }
             if ($p.path -and ($livePath -ine $p.path)) { throw 'PID now belongs to a different executable' }
             Stop-Process -Id $p.pid -ErrorAction Stop
             [void](Write-GuardianEvent -Category process -Action 'process:terminated' -Target "$($p.name)#$($p.pid)" -Actor policy -Reason "User blacklist entry $($m.entry.id)")
@@ -105,7 +107,15 @@ function Invoke-BlacklistEnforcement {
             [void]$results.Add([pscustomobject]@{ name = $p.name; pid = $p.pid; result = 'failed' })
         }
     }
-    if ($changed) { Save-ProcessPolicy $pol }
+    if ($changed) {
+        # Re-read under the lock and only update the counters, so entries the user edited in the dashboard meanwhile are not overwritten.
+        $terminated = @($results | Where-Object { $_.result -eq 'terminated' })
+        Invoke-WithFileLock -Path (Get-GuardianPath 'ProcessPolicy') -ScriptBlock {
+            $fresh = Get-ProcessPolicy
+            foreach ($e in @($fresh.blacklist)) { $mine = @($pol.blacklist | Where-Object { $_.id -eq $e.id }) | Select-Object -First 1; if ($mine -and $mine.PSObject.Properties['terminatedCount'] -and $e.PSObject.Properties['terminatedCount']) { $e.terminatedCount = $mine.terminatedCount; if ($mine.PSObject.Properties['lastTerminatedAt']) { if ($e.PSObject.Properties['lastTerminatedAt']) { $e.lastTerminatedAt = $mine.lastTerminatedAt } else { $e | Add-Member -NotePropertyName lastTerminatedAt -NotePropertyValue $mine.lastTerminatedAt } } } }
+            Save-ProcessPolicy $fresh
+        }
+    }
     return @($results)
 }
 

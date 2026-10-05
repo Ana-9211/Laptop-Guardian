@@ -12,11 +12,38 @@ function readJson(file, fallback = null) {
   }
 }
 
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
 function writeJsonAtomic(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-  fs.renameSync(tmp, file);
+  // Windows refuses a rename onto a file another process has open for a moment (an agent reading it, antivirus): retry with backoff.
+  for (let attempt = 0; ; attempt++) {
+    try { fs.renameSync(tmp, file); return; } catch (e) {
+      if (attempt >= 8 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) { try { fs.unlinkSync(tmp); } catch { /* already gone */ } throw e; }
+      sleepSync(15 * (attempt + 1));
+    }
+  }
+}
+
+/**
+ * Runs fn while holding `<file>.lock` (created exclusively; the PowerShell agents use the same protocol), so a read-modify-write of a shared
+ * JSON file is not interleaved with another writer. A lock older than 30 s is treated as left behind by a crash. If the lock cannot be
+ * obtained within `timeoutMs` the work still runs: a stuck lock must never freeze the dashboard.
+ */
+function withFileLock(file, fn, timeoutMs = 4000) {
+  const lock = `${file}.lock`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const deadline = Date.now() + timeoutMs; let fd = null;
+  while (fd === null) {
+    try { fd = fs.openSync(lock, 'wx'); } catch (e) {
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30000) fs.unlinkSync(lock); } catch { /* raced with the holder */ }
+      if (Date.now() > deadline) break;
+      sleepSync(15 + Math.floor(Math.random() * 30));
+    }
+  }
+  try { return fn(); } finally { if (fd !== null) { try { fs.closeSync(fd); fs.unlinkSync(lock); } catch { /* best effort */ } } }
 }
 
 /** Read the last `maxLines` parsable lines of a JSONL file, reading at most `maxBytes` from the end. */
@@ -175,4 +202,4 @@ function nextRun(time, day, from = new Date()) {
 }
 
 module.exports = {
-  csvCell, riskyChanges, readJson, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };
+  withFileLock, csvCell, riskyChanges, readJson, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };

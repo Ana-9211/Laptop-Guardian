@@ -115,7 +115,7 @@ function createRemediation(deps) {
     const sref = staticRefusal(spec, params);
     if (sref) throw refuse(spec, params, [sref], 403);
 
-    let adminRequired = spec.admin === true; let identityKey = ''; let details = null; let liveWarnings = [];
+    let adminRequired = spec.admin === true; let identityKey = ''; let details = null; let liveWarnings = []; let extraAcks = [];
     if (spec.handler === 'bridge') {
       if (spec.id === 'schedule.repair') {
         const tasks = deps.assessedTasks ? deps.assessedTasks() : [];
@@ -129,15 +129,16 @@ function createRemediation(deps) {
       if (!d.ok && !d.needsElevation) throw refuse(spec, params, (d.errors && d.errors.length ? d.errors : ['The live check refused this action.']), 422);
       if (d.needsAdmin || d.needsElevation) adminRequired = true;
       identityKey = d.identityKey || ''; details = d.details || null;
+      if (details && details.suspicious) extraAcks = ['suspicious-lookalike'];
       liveWarnings = Array.isArray(d.warnings) ? d.warnings.map(String) : [];
     }
     const token = crypto.randomBytes(16).toString('hex');
-    const record = { token, actionId, params, identityKey, adminRequired, details, expires: now() + PLAN_TTL_MS, used: false, createdAt: now() };
+    const record = { token, actionId, params, identityKey, adminRequired, details, extraAcks, expires: now() + PLAN_TTL_MS, used: false, createdAt: now() };
     plans.set(token, record);
     const base = describeAction(spec, params);
     if (spec.id === 'schedule.repair') base.summary = `Re-registers Guardian's Daily, Weekly and Dashboard scheduled tasks from your Settings${adminRequired ? ' with administrator permission (Windows will ask)' : ''}. It never downgrades an elevated task.`;
     return {
-      ...base, token, ok: true, admin: adminRequired ? 'yes' : 'no', adminRequired, identityKey, details, warnings: liveWarnings,
+      ...base, requiredAcks: [...(base.requiredAcks || []), ...extraAcks], token, ok: true, admin: adminRequired ? 'yes' : 'no', adminRequired, identityKey, details, warnings: liveWarnings,
       expiresAt: new Date(record.expires).toISOString(), confirmLabel: adminRequired ? 'Continue to Windows prompt' : base.label,
     };
   }
@@ -159,7 +160,7 @@ function createRemediation(deps) {
     const p = plans.get(token);
     if (!p) throw new RemediationError(410, 'This confirmation expired or was already used. Open the action again.');
     const spec = byId.get(p.actionId);
-    const need = REQUIRED_ACKS[p.actionId] || [];
+    const need = [...(REQUIRED_ACKS[p.actionId] || []), ...(p.extraAcks || [])];
     const missing = need.filter((a) => !Array.isArray(acknowledged) || !acknowledged.includes(a));
     if (missing.length) throw new RemediationError(400, `You must acknowledge: ${missing.join(', ')}`);
     p.used = true; plans.delete(token);

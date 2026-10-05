@@ -58,7 +58,7 @@ function Get-DesiredTasks {
 
 function Set-GuardianTask {
     param([string]$Kind, $Cfg, [string]$RunLevel)
-    $ps = (Get-Command powershell.exe).Source
+    $ps = Get-SystemPowerShellPath
     $user = "$env:USERDOMAIN\$env:USERNAME"
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel $RunLevel
     switch ($Kind) {
@@ -133,7 +133,7 @@ function Request-ElevatedRegister {
     <# The one and only elevated entry point: Register, with fixed arguments, through the normal UAC consent prompt. #>
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$PSCommandPath`"", '-Action', 'Register', '-TaskFolder', "`"$folder`"")
     try {
-        Start-Process -FilePath (Get-Command powershell.exe).Source -ArgumentList $argList -Verb RunAs -WindowStyle Hidden | Out-Null
+        Start-Process -FilePath (Get-SystemPowerShellPath) -ArgumentList $argList -Verb RunAs -WindowStyle Hidden | Out-Null
         [void](Write-GuardianEvent -Category config -Action 'scheduler:elevation-requested' -Actor user -Reason 'user asked to apply the schedule with administrator permission')
         return [pscustomobject]@{ requested = $true; message = 'Windows is asking for administrator permission. Approve it to finish updating the tasks.' }
     } catch {

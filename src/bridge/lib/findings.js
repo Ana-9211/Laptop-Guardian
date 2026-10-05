@@ -48,6 +48,7 @@ function processFinding(rec, ctx) {
   const evidence = [
     t.name && { label: 'Process', value: `${t.name}${t.pid ? ` (PID ${t.pid})` : ''}` },
     exe && { label: 'Path', value: exe },
+    prot.suspicious && { label: 'Suspicious', value: prot.reason },
     rec.identity && rec.identity.publisher && { label: 'Publisher', value: `${rec.identity.publisher}${rec.identity.signature ? ` (signature ${rec.identity.signature})` : ''}` },
     rec.persistence && rec.persistence.persistent && { label: 'Restarts via', value: rec.persistence.mechanisms.map((m) => `${m.kind}: ${m.name}`).join('; ') },
     app && { label: 'Installed application', value: app.name },

@@ -112,4 +112,19 @@ Describe 'Recycle Bin pre-checks' {
         Test-RecycleBinSafe -Path '\\server\share\x.bin' -SizeBytes 5 | Should Match 'local drive'
     }
 }
+Describe 'Shared file lock' {
+    It 'is exclusive, is released afterwards, and a stale lock is broken' {
+        $f = Join-Path $root 'locked.json'
+        $global:T_Ran = $false; $global:T_Held = $false
+        Invoke-WithFileLock -Path $f -ScriptBlock { $global:T_Ran = $true; $global:T_Held = (Test-Path "$f.lock") }
+        $global:T_Ran | Should Be $true; $global:T_Held | Should Be $true; (Test-Path "$f.lock") | Should Be $false
+        Set-Content "$f.lock" 'x'; (Get-Item "$f.lock").LastWriteTime = (Get-Date).AddMinutes(-5)
+        $global:T_Ran = $false; Invoke-WithFileLock -Path $f -ScriptBlock { $global:T_Ran = $true }; $global:T_Ran | Should Be $true
+    }
+    It 'runs anyway when the lock stays held, instead of freezing the caller' {
+        $f = Join-Path $root 'held.json'; Set-Content "$f.lock" 'x'
+        $global:T_Ran = $false; Invoke-WithFileLock -Path $f -TimeoutMs 300 -ScriptBlock { $global:T_Ran = $true }; $global:T_Ran | Should Be $true
+        Remove-Item "$f.lock" -Force
+    }
+}
 Remove-TestRoot $root
