@@ -4,6 +4,16 @@ Set-StrictMode -Version 2.0
 
 function ConvertTo-Html2 { param($Text) if ($null -eq $Text) { return '' }; return [System.Net.WebUtility]::HtmlEncode([string]$Text) }
 
+function Get-RunProblemCount {
+    <# Collector exceptions, plus anything that timed out or failed without raising one: failed or timed-out weekly phases, and unfinished-work notes such as "Defender full scan: timeout". The larger of the two is used so one problem is not counted twice. #>
+    param($Report, $Errors)
+    $phaseProblems = 0
+    try { $phaseProblems = @(@($Report.weekly.phases) | Where-Object { $_ -and $_.status -in 'failed', 'timeout' }).Count } catch { }
+    $noteProblems = 0
+    try { $noteProblems = @(@($Report.incomplete) | Where-Object { $_ -match '(?i)time(d)? ?out|failed|aborted' }).Count } catch { }
+    return @($Errors).Count + [math]::Max($phaseProblems, $noteProblems)
+}
+
 function New-MetricFromReport {
     param($Report, $Processes, $Recommendations, $Events, $Errors)
     $s = $Report.sections
@@ -15,7 +25,7 @@ function New-MetricFromReport {
         cpuPct = $s.system.cpu.usagePct; ramPct = $s.system.ram.usedPct; ramUsedGB = $s.system.ram.usedGB; ramTotalGB = $s.system.ram.totalGB
         diskUsedPct = $(if ($d) { $d.usedPct } else { $null }); diskFreeGB = $(if ($d) { $d.freeGB } else { $null }); diskTotalGB = $(if ($d) { $d.totalGB } else { $null }); diskFreePct = $(if ($d) { $d.freePct } else { $null })
         processCount = @($Processes).Count; flaggedCount = @($Processes | Where-Object { @($_.flags).Count -gt 0 -and $_.policy -ne 'whitelist' -and $_.recommendationId }).Count
-        recommendationCount = @($Recommendations | Where-Object { $_.status -eq 'open' }).Count; actionCount = @($Events).Count; errorCount = @($Errors).Count
+        recommendationCount = @($Recommendations | Where-Object { $_.status -eq 'open' }).Count; actionCount = @($Events).Count; errorCount = (Get-RunProblemCount -Report $Report -Errors $Errors)
         startupCount = $s.startup.count; serviceFailures = @($s.services.failed).Count; batteryPct = $(if ($s.system.battery) { $s.system.battery.pct } else { $null })
         downloadsGB = $s.storage.downloads.sizeGB; defenderSigAgeDays = $s.defender.sigAgeDays; defenderThreats = $s.defender.threats; healthScore = $Report.healthScore
     }

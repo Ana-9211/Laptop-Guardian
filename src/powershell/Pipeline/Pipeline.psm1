@@ -62,7 +62,7 @@ function Invoke-Collection {
     $procs = @(Add-ProcessFlags -Processes $procs -Config $Config -Policy $policy)
     [void](Write-GuardianEvent -Category process -Action 'process:snapshot' -Target "$($procs.Count) processes" -Result success)
 
-    $enforce = @(Invoke-Safely 'blacklist' { Invoke-BlacklistEnforcement -Processes $procs -Config $Config } @())
+    [void](@(Invoke-Safely 'blacklist' { Invoke-BlacklistEnforcement -Processes $procs -Config $Config } @()))
     $fresh = New-Object System.Collections.ArrayList
     foreach ($r in @(Invoke-Safely 'process-recommendations' { New-ProcessRecommendations -Processes $procs -Config $Config } @())) {
         [void]$fresh.Add($r); [void](Write-GuardianEvent -Category process -Action 'process:recommended' -Target $r.target.name -Result success -Related $r.id -Reason ($r.whyFlagged -join ' | '))

@@ -10,9 +10,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: bridge,
-        changeOrigin: true,
-        // The bridge only accepts its own origin on mutations; rewrite for dev.
-        headers: { origin: bridge },
+        changeOrigin: true,   // Host is rewritten to the bridge; Origin is left alone, so the bridge's same-origin check still applies in dev
       },
     },
   },

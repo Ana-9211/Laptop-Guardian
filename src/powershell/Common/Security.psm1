@@ -206,7 +206,7 @@ $script:AiRisk = @('LOW', 'MEDIUM', 'HIGH', 'UNKNOWN')
 $script:AiActions = @('Leave running', 'Review', 'Stop temporarily', 'Disable startup', 'Disable scheduled task', 'Uninstall associated application', 'Investigate further')
 $script:AiClass = @('windows-component', 'known-application', 'third-party-service', 'driver-utility', 'user-application', 'development-tool', 'security-software', 'unknown', 'potentially-unwanted', 'suspicious')
 
-function Clean-AiText {
+function ConvertTo-CleanAiText {
     param($Value, [int]$Max = 600)
     if ($null -eq $Value) { return '' }
     $s = [string]$Value
@@ -243,24 +243,24 @@ function Test-AiAnalysis {
     if ($errors.Count -gt 0) { return [pscustomobject]@{ Valid = $false; Errors = @($errors); Value = $null } }
 
     $warnings = New-Object System.Collections.ArrayList
-    foreach ($w in @($opt.warnings)) { if ($w) { [void]$warnings.Add((Clean-AiText $w 300)) } }
+    foreach ($w in @($opt.warnings)) { if ($w) { [void]$warnings.Add((ConvertTo-CleanAiText $w 300)) } }
 
-    $stop = Clean-AiText $opt.temporary_stop_method 400
+    $stop = ConvertTo-CleanAiText $opt.temporary_stop_method 400
     if ($stop -and -not (Test-CommandAllowed $stop)) {
         [void]$warnings.Add('AI-suggested stop command rejected by local allowlist; use the locally generated command.')
         $stop = ''
     }
-    $remove = Clean-AiText $opt.persistence_removal_method 400
+    $remove = ConvertTo-CleanAiText $opt.persistence_removal_method 400
     if ($remove -and -not (Test-CommandAllowed $remove)) {
         [void]$warnings.Add('AI-suggested persistence-removal command rejected by local allowlist; use the locally generated procedure.')
         $remove = ''
     }
-    $ev = @(); foreach ($e in @($opt.evidence)) { if ($e) { $ev += (Clean-AiText $e 300) } }
+    $ev = @(); foreach ($e in @($opt.evidence)) { if ($e) { $ev += (ConvertTo-CleanAiText $e 300) } }
 
     $val = [ordered]@{
-        classification = $cls; what_is_it = (Clean-AiText $Raw.what_is_it 800); why_flagged = (Clean-AiText $Raw.why_flagged 800)
-        risk = $risk; persistence = (Clean-AiText $opt.persistence 400); suggested_action = $action
-        temporary_stop_method = $stop; persistence_removal_method = $remove; consequences = (Clean-AiText $opt.consequences 600)
+        classification = $cls; what_is_it = (ConvertTo-CleanAiText $Raw.what_is_it 800); why_flagged = (ConvertTo-CleanAiText $Raw.why_flagged 800)
+        risk = $risk; persistence = (ConvertTo-CleanAiText $opt.persistence 400); suggested_action = $action
+        temporary_stop_method = $stop; persistence_removal_method = $remove; consequences = (ConvertTo-CleanAiText $opt.consequences 600)
         confidence = [math]::Round($conf, 2); evidence = @($ev | Select-Object -First 8); warnings = @($warnings | Select-Object -First 8)
         validated = $true
     }
