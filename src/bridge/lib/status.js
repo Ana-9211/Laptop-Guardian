@@ -138,9 +138,10 @@ function buildAttention({ daily, tasks, run, openRecs, highRiskRecs, config, now
       if (active > 0) add('crit', 'defender-threats', `${active} unresolved Defender threat${active > 1 ? 's' : ''}`, 'Open Windows Security > Protection history to review and remove them.', '#/health', 'Open Health');
       else add('info', 'defender-history', `${def.threats} past Defender detection${def.threats > 1 ? 's' : ''} already handled`, 'They were quarantined or removed. Check Windows Security > Protection history if you want details.', '#/health', 'Open Health');
     }
-    if ((def.sigAgeDays ?? 0) > 3) add('warn', 'defender-sigs', `Defender signatures are ${def.sigAgeDays} days old`, 'Updates may be failing; check Windows Update and connectivity.', '#/health', 'Open Health');
+    if ((def.sigAgeDays ?? 0) > 3) add('warn', 'defender-sigs', `Defender signatures are ${def.sigAgeDays} days old`, 'Updates may be failing; check Windows Update and connectivity. Guardian can run the Defender update after you confirm.', '#/actions?finding=health:defender-sigs', 'Fix options');
   }
-  if (fw?.profiles?.some((p) => p.enabled === false)) add('warn', 'firewall', 'A firewall profile is disabled', 'Guardian never changes firewall settings; review them in Windows Security.', '#/health', 'Open Health');
+  const fwOff = fw?.profiles?.find((p) => p.enabled === false);
+  if (fwOff) add('warn', 'firewall', 'A firewall profile is disabled', 'Guardian can turn a profile back ON after you confirm; it never turns the firewall off.', `#/actions?finding=health:firewall-${fwOff.name}`, 'Fix options');
   const disk = sec.system?.disks?.[0];
   if (disk && disk.freePct != null) {
     const crit = config.thresholds.diskFreeCritPct; const warn = config.thresholds.diskFreeWarnPct;
@@ -150,7 +151,7 @@ function buildAttention({ daily, tasks, run, openRecs, highRiskRecs, config, now
   if (highRiskRecs > 0) add('warn', 'recs-high', `${highRiskRecs} high-risk recommendation${highRiskRecs > 1 ? 's' : ''} open`, 'Review the evidence before deciding. Nothing is changed automatically.', '#/recommendations', 'Review');
   if (!bridgeOk) add('crit', 'bridge', 'Dashboard bridge is unreachable', 'Data on screen may be out of date.', null, null);
   for (const t of tasks || []) {
-    if (t.level === 'crit' || t.level === 'warn') add(t.level, `task-${t.kind}`, `${t.name}: ${t.summary}`, t.issues[0] || (t.lastResult?.hex ? `Result ${t.lastResult.hex}` : ''), '#/settings', 'Open Settings');
+    if (t.level === 'crit' || t.level === 'warn') add(t.level, `task-${t.kind}`, `${t.name}: ${t.summary}`, t.issues[0] || (t.lastResult?.hex ? `Result ${t.lastResult.hex}` : ''), t.repair?.needed ? '#/actions?finding=task:schedule' : '#/settings', t.repair?.needed ? 'Fix options' : 'Open Settings');
   }
   if (stale) add('warn', 'stale-run', `A previous ${stale.type} run never finished`, 'The machine probably shut down or the run crashed. The next run recovers automatically.', '#/logs', 'Open logs');
   if (!daily) add('info', 'no-scan', 'No scan has completed yet', 'Run a daily scan from the Overview page, or wait for the scheduled run.', '#/overview', null);

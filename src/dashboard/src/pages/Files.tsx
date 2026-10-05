@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { api, ApiError, useQuery } from '../api';
 import type { FileCandidate, FilesData, Metric } from '../types';
-import { Badge, Card, Col, DataTable, Empty, ErrorState, KV, PageHead, RiskBadge, SkeletonCards, Stat, Tabs, useConfirm, useToast, Icon } from '../components/ui';
+import { Badge, Card, Col, DataTable, Empty, ErrorState, KV, PageHead, RiskBadge, SkeletonCards, Stat, Tabs, useToast, Icon } from '../components/ui';
 import { LineChart, RangeSelect, Range, filterRange, SERIES_COLORS } from '../components/Chart';
 import { fmtDate, fmtMB, NA } from '../format';
+import { useActionFlow } from '../components/ActionFlow';
 
 type Tab = 'overview' | 'large' | 'duplicates' | 'recommended' | 'ignored' | 'trends';
 const CLS_TONE: Record<string, string> = { KEEP: 'ok', REVIEW: 'info', LIKELY_UNNECESSARY: 'warn', HIGH_RISK: 'crit', UNKNOWN: '' };
@@ -21,7 +22,7 @@ function FileCard({ f, onIgnore, onRecycle }: { f: FileCandidate; onIgnore: (f: 
       <div className="row spread"><span className="row tight"><RiskBadge risk={f.risk} /><span className="small t2">{f.recommendedAction}</span></span>
         <span className="row tight">
           <button className="btn sm" onClick={() => onIgnore(f)}>{f.ignored ? 'Stop ignoring' : 'Ignore'}</button>
-          {f.classification !== 'KEEP' && <button className="btn sm danger" onClick={() => onRecycle(f)}><Icon name="trash" size={13} />Move to Recycle Bin</button>}
+          {f.classification !== 'KEEP' && <button className="btn sm danger" onClick={() => onRecycle(f)}><Icon name="trash" size={13} />Recycle file</button>}
         </span></div>
     </article>
   );
@@ -31,7 +32,6 @@ export default function Files() {
   const q = useQuery<FilesData>('/api/files');
   const m = useQuery<Metric[]>('/api/metrics?range=all');
   const toast = useToast();
-  const { confirm, node } = useConfirm();
   const [tab, setTab] = useState<Tab>('overview');
   const [range, setRange] = useState<Range>(30);
   const [cls, setCls] = useState('');
@@ -43,11 +43,9 @@ export default function Files() {
   const ignore = async (f: FileCandidate) => {
     try { await api.post('/api/files/ignore', { id: f.id, ignored: !f.ignored }); toast('ok', f.ignored ? 'No longer ignored.' : 'Ignored. It will not be recommended again.'); q.reload(); } catch (e) { toast('error', (e as ApiError).message); }
   };
-  const recycle = (f: FileCandidate) => confirm({
-    title: 'Move to the Recycle Bin?', confirmLabel: 'Move to Recycle Bin', danger: true,
-    body: <div className="stack"><p><code>{f.path}</code> ({fmtMB(f.sizeMB)}) will go to the <b>Recycle Bin</b>, not be permanently deleted. You can restore it until the bin is emptied.</p><p className="small muted">{f.ifDeleted}</p></div>,
-    onConfirm: async () => { try { await api.post('/api/files/recycle', { path: f.path, confirm: true }); toast('ok', `${f.name} moved to the Recycle Bin.`); q.reload(); } catch (e) { toast('error', (e as ApiError).message); } },
-  });
+  // Recycling goes through the confirmed Action flow: the exact path, size and age are shown, and Guardian re-checks the file first.
+  const flow = useActionFlow(() => q.reload());
+  const recycle = (f: FileCandidate) => void flow.run('file.recycle', { path: f.path }, 'Recycle file');
 
   const reclaim = active.filter((c) => c.classification === 'LIKELY_UNNECESSARY' || c.classification === 'REVIEW').reduce((a, c) => a + c.sizeMB, 0);
   const metrics = filterRange(m.data || [], range);
@@ -96,7 +94,7 @@ export default function Files() {
           )}
         </>
       )}
-      {node}
+      {flow.node}
     </div>
   );
 }

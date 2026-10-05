@@ -6,6 +6,7 @@ function New-LauncherRoot([int]$Port, [switch]$NoDist) {
     $r = Join-Path ([IO.Path]::GetTempPath()) ("lg-launch-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Path $r, "$r\config", "$r\src\dashboard\dist", "$r\data\state" -Force | Out-Null
     Copy-Item (Join-Path $repo 'src\bridge') "$r\src\bridge" -Recurse
+    Copy-Item (Join-Path $repo 'src\shared') "$r\src\shared" -Recurse   # the bridge reads the action catalog from here
     if (-not $NoDist) { Set-Content "$r\src\dashboard\dist\index.html" '<!doctype html><title>t</title>' }
     ([ordered]@{ bridge = [ordered]@{ host = '127.0.0.1'; port = $Port } } | ConvertTo-Json) | Set-Content "$r\config\config.json"
     return $r

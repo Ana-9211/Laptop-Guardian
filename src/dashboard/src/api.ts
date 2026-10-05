@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ScheduleApplyResult, ScheduleSaveResult, StatusData } from './types';
+import type { ExecResponse, Finding, HistoryItem, Plan, RevoInfo, ScheduleApplyResult, ScheduleSaveResult, StatusData } from './types';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) { super(message); this.status = status; }
+  /** Every reason the bridge gave (for example each failed live check), not just the first. */
+  errors: string[];
+  constructor(status: number, message: string, errors: string[] = []) { super(message); this.status = status; this.errors = errors; }
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -18,7 +20,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const text = await res.text();
   let data: unknown = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* non-JSON */ }
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string } | null)?.error || `Request failed (${res.status})`);
+  if (!res.ok) { const body = data as { error?: string; errors?: string[] } | null; throw new ApiError(res.status, body?.error || `Request failed (${res.status})`, body?.errors || []); }
   return data as T;
 }
 
@@ -36,6 +38,17 @@ export const bridge = {
   startScan: (kind: 'daily' | 'weekly') => api.post<{ started: boolean }>(`/api/scan/${kind}`, {}),
   saveSchedule: (schedule: unknown) => api.put<ScheduleSaveResult>('/api/schedule', schedule),
   applySchedule: (elevate: boolean) => api.post<ScheduleApplyResult>('/api/schedule/apply', { elevate }),
+};
+
+/** Action Center: plan (re-validates the live target), confirm, execute, poll an elevated run. Nothing here accepts a command. */
+export const remediation = {
+  findings: () => api.get<{ generatedAt: string; revo: RevoInfo | null; findings: Finding[] }>('/api/remediation/findings'),
+  history: () => api.get<{ items: HistoryItem[] }>('/api/remediation/history?limit=200'),
+  plan: (actionId: string, params: Record<string, string | number>) => api.post<Plan>('/api/remediation/plan', { actionId, params }),
+  cancel: (token: string) => api.post<{ ok: boolean }>('/api/remediation/cancel', { token }),
+  execute: (token: string, acknowledged: string[]) => api.post<ExecResponse>('/api/remediation/execute', { token, confirm: true, acknowledged }),
+  result: (ticket: string) => api.get<ExecResponse>(`/api/remediation/result/${ticket}`),
+  undo: (eventId: string) => api.post<Plan>('/api/remediation/undo', { eventId }),
 };
 
 export interface Query<T> {

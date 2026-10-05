@@ -186,7 +186,7 @@ function Get-RunErrors { , @($script:RunErrors) }
 
 function Write-GuardianEvent {
     param(
-        [Parameter(Mandatory)][ValidateSet('scan', 'process', 'ai', 'file', 'cleanup', 'defender', 'windows', 'policy', 'shutdown', 'config', 'system')][string]$Category,
+        [Parameter(Mandatory)][ValidateSet('scan', 'process', 'ai', 'file', 'cleanup', 'defender', 'windows', 'policy', 'shutdown', 'config', 'system', 'remediation', 'network')][string]$Category,
         [Parameter(Mandatory)][string]$Action,
         [ValidateSet('info', 'warning', 'error')][string]$Severity = 'info',
         [string]$Target,
@@ -194,7 +194,8 @@ function Write-GuardianEvent {
         [ValidateSet('agent', 'user', 'policy', 'ai-validator')][string]$Actor = 'agent',
         [string]$Reason,
         [string]$Related,
-        [string]$ErrorDetails
+        [string]$ErrorDetails,
+        $Data = $null
     )
     $evt = [ordered]@{
         id = New-ShortId; ts = Get-IsoNow; category = $Category; severity = $Severity; action = $Action
@@ -202,6 +203,7 @@ function Write-GuardianEvent {
         reason = $(if ($Reason) { $Reason } else { $null }); relatedRecommendation = $(if ($Related) { $Related } else { $null })
         error = $(if ($ErrorDetails) { $ErrorDetails } else { $null }); runType = $script:RunType
     }
+    if ($null -ne $Data) { $evt['data'] = $Data }   # structured detail (verification, undo recipe); never secrets
     [void]$script:RunEvents.Add($evt)
     try { Add-JsonLine -Path (Get-GuardianPath 'Actions') -Object $evt } catch { }
     try {

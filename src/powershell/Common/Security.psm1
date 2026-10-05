@@ -14,6 +14,7 @@ $script:ProtectedProcessNames = @(
 $script:ProtectedServiceNames = @('wdfilter', 'windefend', 'wscsvc', 'mpssvc', 'bfe', 'rpcss', 'dcomlaunch', 'eventlog', 'lsm', 'samss', 'wuauserv', 'trustedinstaller', 'winmgmt', 'sppsvc', 'cryptsvc', 'dnscache', 'dhcp', 'netlogon', 'schedule', 'profsvc', 'power', 'plugplay', 'sens', 'themes', 'audiosrv', 'spooler', 'securityhealthservice', 'sense', 'wlidsvc')
 
 function Get-ProtectedProcessNames { $script:ProtectedProcessNames }
+function Get-ProtectedServiceNames { $script:ProtectedServiceNames }
 
 function Get-ProtectedPathPrefixes {
     $list = New-Object System.Collections.ArrayList
