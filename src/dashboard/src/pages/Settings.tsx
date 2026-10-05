@@ -14,7 +14,8 @@ const strip = (c: Config) => { const x = clone(c) as Partial<Config>; delete x._
   if (x.network) { delete (x.network as { deep?: unknown }).deep; delete (x.network as { dnsFiltering?: unknown }).dnsFiltering; }
   return x; };
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+// Shown until "Test connection" fetches the live list for this key. Retired models are not listed.
+const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite'];
 
 function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return <label className="field"><span>{label}</span>{children}{hint && <span className="hint" style={{ fontWeight: 400 }}>{hint}</span>}</label>;
@@ -44,6 +45,7 @@ export default function Settings() {
   const [saved, setSaved] = useState<string>('');
   const [key, setKey] = useState(''); const [show, setShow] = useState(false); const [busy, setBusy] = useState('');
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [liveModels, setLiveModels] = useState<string[]>([]);
 
   useEffect(() => {
     const c = cfgQ.data; if (!c) return;
@@ -98,7 +100,7 @@ export default function Settings() {
   const aiCall = async (name: string, fn: () => Promise<void>) => { setBusy(name); try { await fn(); } catch (e) { toast('error', (e as ApiError).message); } finally { setBusy(''); } };
   const saveKey = () => aiCall('key', async () => { await api.post('/api/ai/key', { key }); setKey(''); setShow(false); toast('ok', 'API key stored, encrypted for your Windows account.'); cfgQ.reload(); ov.reload(); });
   const removeKey = () => confirm({ title: 'Remove the Gemini API key?', confirmLabel: 'Remove key', danger: true, body: 'AI analysis will stop working until you add a key again. Everything else keeps working.', onConfirm: () => aiCall('key', async () => { await api.del('/api/ai/key'); toast('ok', 'Key removed.'); cfgQ.reload(); ov.reload(); }) });
-  const test = () => aiCall('test', async () => { setTestMsg(null); try { const r = await api.post<{ ok: boolean; message?: string; model?: string; latencyMs?: number; error?: string }>('/api/ai/test'); setTestMsg({ ok: r.ok, text: r.ok ? `Connected${r.model ? ` to ${r.model}` : ''}${r.latencyMs ? ` in ${r.latencyMs} ms` : ''}.` : r.error || 'Connection failed.' }); } catch (e) { setTestMsg({ ok: false, text: (e as ApiError).message }); } usage.reload(); });
+  const test = () => aiCall('test', async () => { setTestMsg(null); try { const r = await api.post<{ ok: boolean; message?: string; model?: string; latencyMs?: number; error?: string; models?: string[] }>('/api/ai/test'); if (r.models && r.models.length) setLiveModels(r.models); setTestMsg({ ok: r.ok, text: r.ok ? `Connected${r.model ? ` to ${r.model}` : ''}${r.latencyMs ? ` in ${r.latencyMs} ms` : ''}.` : r.error || 'Connection failed.' }); } catch (e) { setTestMsg({ ok: false, text: (e as ApiError).message }); } usage.reload(); });
 
   return (
     <div className="page">
@@ -113,7 +115,6 @@ export default function Settings() {
               label={<b>Safe mode</b>} hint="Observe and recommend only. No process is terminated and nothing is cleaned automatically." />
           </div>
           <div className="grid g2">
-            <Switch checked={d.safety.requireConfirmation} onChange={(v) => (v ? safety('requireConfirmation', true) : confirm({ title: 'Stop asking for confirmation?', confirmLabel: 'Turn off', danger: true, body: 'Destructive actions in the dashboard will still show a confirmation. This setting also governs scripted actions, which will no longer prompt.', onConfirm: () => safety('requireConfirmation', false) }))} label="Require confirmation for destructive actions" hint="Recommended. Always on in the dashboard." />
             <Switch checked={d.safety.autoKillBlacklisted} onChange={(v) => safety('autoKillBlacklisted', v)} label="Automatically terminate blacklisted processes" hint="Daily agent only. Needs safe mode off." />
             <Switch checked={d.safety.automationPaused} onChange={(v) => safety('automationPaused', v)} label="Pause automation" hint="Scheduled runs still observe and report; no automatic actions." />
             <Switch checked={d.safety.weeklyShutdown} onChange={(v) => safety('weeklyShutdown', v)} label="Shut down after the weekly run" hint="Windows performs the shutdown. Turn off to leave the laptop on." />
@@ -141,12 +142,11 @@ export default function Settings() {
           </form>
           {testMsg && <div className={`notice ${testMsg.ok ? 'ok' : 'crit'}`} role="status">{testMsg.text}</div>}
           <div className="grid g4">
-            <Field label="Model"><input list="models" value={d.ai.model} onChange={(e) => upd((x) => { x.ai.model = e.target.value; })} /><datalist id="models">{MODELS.map((m) => <option key={m} value={m} />)}</datalist></Field>
+            <Field label="Model"><input list="models" value={d.ai.model} onChange={(e) => upd((x) => { x.ai.model = e.target.value; })} /><datalist id="models">{(liveModels.length ? liveModels : FALLBACK_MODELS).map((m) => <option key={m} value={m} />)}</datalist></Field>
             <Field label="Max requests per run"><Num min={0} max={500} value={d.ai.maxRequestsPerRun} onChange={(v) => upd((x) => { x.ai.maxRequestsPerRun = v; })} /></Field>
             <Field label="Max processes per run"><Num min={0} max={100} value={d.ai.maxProcessesPerRun} onChange={(v) => upd((x) => { x.ai.maxProcessesPerRun = v; })} /></Field>
             <Field label="Daily token budget"><Num min={0} step={10000} value={d.ai.dailyTokenBudget} onChange={(v) => upd((x) => { x.ai.dailyTokenBudget = v; })} /></Field>
           </div>
-          <Field label="Analysis scope"><select value={d.ai.scope} onChange={(e) => upd((x) => { x.ai.scope = e.target.value; })}><option value="metadata">Metadata only (default)</option><option value="metadata+paths">Metadata and full executable paths</option></select></Field>
           <div>
             <h3 style={{ marginBottom: 6 }}>Request history</h3>
             {usage.data ? (<>
@@ -183,7 +183,7 @@ export default function Settings() {
             <Switch checked={d.cleanup.tempFiles} onChange={(v) => upd((x) => { x.cleanup.tempFiles = v; })} label="Clean temporary files" hint="Deletes files in user and Windows temp folders older than the age below. Apps using a temp file at that moment are skipped." />
             <Switch checked={d.cleanup.crashDumps} onChange={(v) => upd((x) => { x.cleanup.crashDumps = v; })} label="Clean crash dumps" hint="Removes minidumps and memory dumps. You lose the data used to diagnose a past blue screen." />
             <Switch checked={d.cleanup.caches} onChange={(v) => upd((x) => { x.cleanup.caches = v; })} label="Clean known safe caches" hint="Windows thumbnail and error-report caches. Rebuilt automatically; the first use afterwards may be slightly slower." />
-            <Field label="Recycle Bin" hint="Never is safest: Guardian will not empty the Recycle Bin."><select value={d.cleanup.recycleBin} onChange={(e) => upd((x) => { x.cleanup.recycleBin = e.target.value; })}><option value="never">Never empty</option><option value="older-than-30-days">Empty items older than 30 days</option><option value="always">Empty on every run (not recommended)</option></select></Field>
+            <Field label="Recycle Bin" hint="Never is safest: Guardian will not empty the Recycle Bin."><select value={d.cleanup.recycleBin} onChange={(e) => upd((x) => { x.cleanup.recycleBin = e.target.value; })}><option value="never">Never empty</option><option value="always">Empty on every run (not recommended)</option></select></Field>
             <Field label="Only clean temp files older than (days)"><Num min={0} max={365} value={d.cleanup.tempMinAgeDays} onChange={(v) => upd((x) => { x.cleanup.tempMinAgeDays = v; })} /></Field>
           </div>
         </div>
@@ -218,7 +218,7 @@ export default function Settings() {
 
       <Card title="Retention">
         <div className="grid g3">
-          {(['reportsDays', 'metricsDays', 'actionsDays'] as const).map((k) => <Field key={k} label={`Keep ${k.replace('Days', '')} for (days)`} hint="0 keeps everything forever."><Num min={0} value={d.retention[k]} onChange={(v) => upd((x) => { x.retention[k] = v; })} /></Field>)}
+          <Field label="Keep reports for (days)" hint="0 keeps every report forever. Metrics history and the audit log are never deleted automatically."><Num min={0} max={3650} value={d.retention.reportsDays} onChange={(v) => upd((x) => { x.retention.reportsDays = v; })} /></Field>
         </div>
       </Card>
 

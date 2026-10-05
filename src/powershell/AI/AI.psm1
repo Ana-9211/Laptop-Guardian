@@ -110,10 +110,21 @@ function Invoke-GeminiJson {
     return [pscustomobject]@{ Ok = $false; Json = $null; Error = $lastErr; Tokens = 0 }
 }
 
+function Get-GeminiModelList {
+    <# The text-generation models this API key can use right now (from the live models endpoint), so the Settings list never goes stale. Empty on any failure. #>
+    $key = Get-GeminiKey
+    if (-not $key) { return @() }
+    try {
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+        $resp = Invoke-RestMethod -Uri "$(Get-GeminiBase)/models?pageSize=100" -Headers @{ 'x-goog-api-key' = $key } -TimeoutSec 15 -ErrorAction Stop
+        return @($resp.models | Where-Object { $_.name -match '^models/gemini-' -and @($_.supportedGenerationMethods) -contains 'generateContent' } | ForEach-Object { ([string]$_.name) -replace '^models/', '' } | Sort-Object -Unique | Select-Object -First 60)
+    } catch { return @() }
+}
+
 function Test-GeminiConnection {
     param([string]$Model = 'gemini-2.5-flash')
     $r = Invoke-GeminiJson -Model $Model -Kind 'test' -TimeoutSec 20 -System 'Reply with JSON only.' -User 'Return {"ok": true}'
-    if ($r.Ok) { return [pscustomobject]@{ ok = $true; model = $Model; message = 'Connection OK' } }
+    if ($r.Ok) { return [pscustomobject]@{ ok = $true; model = $Model; message = 'Connection OK'; models = @(Get-GeminiModelList) } }
     $msg = switch ($r.Error) { 'no-api-key' { 'No API key configured' } 'http-400' { 'Request rejected (check model name and key)' } 'http-401' { 'Invalid API key' } 'http-403' { 'API key not permitted for this model/API' } 'http-404' { 'Model not found' } 'http-429' { 'Rate limit or quota exceeded' } default { "Failed: $($r.Error)" } }
     return [pscustomobject]@{ ok = $false; model = $Model; message = $msg; error = $r.Error }
 }
@@ -174,8 +185,6 @@ function Invoke-AiProcessAnalysis {
     } catch { [void](Write-GuardianEvent -Category ai -Action 'ai:analysis-error' -Result failure -Severity error -ErrorDetails $_.Exception.Message) }
     return $null
 }
-
-function Get-AiCacheKey { param($Rec) return "$($Rec.id)" }
 
 function Invoke-AiRecommendationEnrichment {
     <# Deterministic selection first; only the most valuable, not-recently-analysed process recommendations go to Gemini. Returns {used, requests, failures}. #>

@@ -21,7 +21,7 @@ function Get-FreePort { $l = New-Object System.Net.Sockets.TcpListener([Net.IPAd
 Describe 'Launcher helpers' {
     It 'finds Node.js and reports a major version >= 18' {
         $n = Find-NodeExe; $n | Should Not BeNullOrEmpty
-        ((Get-NodeMajor $n) -ge 18) | Should Be $true
+        ((Get-NodeMajor $n) -ge 22) | Should Be $true
     }
     It 'reads the bridge port from config and falls back to 7878' {
         $r = New-LauncherRoot -Port 18123; (Get-BridgePort -Root $r) | Should Be 18123
@@ -50,6 +50,11 @@ Describe 'Start-GuardianDashboard' {
             $ping = Get-BridgePing -Port $port; $ping.app | Should Be 'laptop-guardian'
             $b = Start-GuardianDashboard -Root $r -NoBrowser
             $b.ok | Should Be $true; $b.bridge | Should Be 'already-running'
+            # Exactly ONE existing app window: a StrictMode '.Count on a single object' error was once logged here. The window is focused, none is opened.
+            Mock -ModuleName Launcher Get-AppWindowProcess { [pscustomobject]@{ ProcessId = 4242 } }
+            Mock -ModuleName Launcher Set-ForegroundWindowOfProcess { $true }
+            $f = Start-GuardianDashboard -Root $r
+            $f.ok | Should Be $true; $f.window | Should Be 'focused'
             (Get-BridgePing -Port $port).pid | Should Be $ping.pid        # same process: no duplicate bridge
             @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like "*$r*server.js*" }).Count | Should Be 1
             (Get-Content "$r\data\state\bridge.json" -Raw | ConvertFrom-Json).pid | Should Be $ping.pid

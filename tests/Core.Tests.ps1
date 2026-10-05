@@ -15,7 +15,6 @@ Describe 'Configuration' {
         Write-JsonFile -Path (Get-GuardianPath 'Config') -Object @{ safety = @{ safeMode = $false }; thresholds = @{ cpuPct = 80 } }
         $c = Get-GuardianConfig
         $c.safety.safeMode | Should Be $false
-        $c.safety.requireConfirmation | Should Be $true
         $c.thresholds.cpuPct | Should Be 80
         $c.thresholds.memoryMB | Should Be 1500
     }
@@ -23,13 +22,17 @@ Describe 'Configuration' {
         Set-Content (Get-GuardianPath 'Config') '{ this is not json'
         (Get-GuardianConfig).safety.safeMode | Should Be $true
     }
-    It 'overlays cleanup-policy.json onto cleanup settings' {
-        Write-JsonFile -Path (Get-GuardianPath 'Config') -Object @{}
-        Write-JsonFile -Path (Get-GuardianPath 'CleanupPolicy') -Object @{ tempFiles = $false; recycleBin = 'always' }
+    It 'config.cleanup is the only source of cleanup settings (a stray cleanup-policy.json is ignored)' {
+        Write-JsonFile -Path (Get-GuardianPath 'Config') -Object @{ cleanup = @{ tempFiles = $false } }
+        Write-JsonFile -Path (Join-Path (Split-Path (Get-GuardianPath 'Config')) 'cleanup-policy.json') -Object @{ tempFiles = $true; recycleBin = 'always' }
         $c = Get-GuardianConfig
         $c.cleanup.tempFiles | Should Be $false
-        $c.cleanup.recycleBin | Should Be 'always'
-        $c.cleanup.caches | Should Be $true
+        $c.cleanup.recycleBin | Should Be 'never'
+    }
+    It 'the default config carries the network block with deep capture and DNS filtering off' {
+        Write-JsonFile -Path (Get-GuardianPath 'Config') -Object @{}
+        $c = Get-GuardianConfig
+        $c.network.deep.enabled | Should Be $false; $c.network.dnsFiltering.enabled | Should Be $false; $c.network.snapshot.everyMinutes | Should Be 60
     }
 }
 

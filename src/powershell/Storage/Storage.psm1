@@ -133,12 +133,11 @@ function Invoke-SafeCleanup {
     }
     # Recycle Bin policy (permanent removal of items YOU already deleted; opt-in via Settings, never in safe mode)
     $rb = [string]$Config.cleanup.recycleBin
-    if ($rb -in 'always', 'older-than-30-days') {
+    if ($rb -eq 'always') {
         if ($dry) { [void](Write-GuardianEvent -Category cleanup -Action 'cleanup:recycle-bin' -Result skipped -Reason "Dry run (safe mode/paused): policy '$rb' not applied") }
         else {
             try {
-                if ($rb -eq 'always') { Clear-RecycleBin -Force -ErrorAction Stop; [void](Write-GuardianEvent -Category cleanup -Action 'cleanup:recycle-bin' -Result success -Reason 'Emptied per policy: always') }
-                else { [void](Write-GuardianEvent -Category cleanup -Action 'cleanup:recycle-bin' -Result skipped -Reason "Policy 'older-than-30-days' is not supported safely (locale-dependent dates); nothing removed. Use 'always' or 'never'.") }
+                Clear-RecycleBin -Force -ErrorAction Stop; [void](Write-GuardianEvent -Category cleanup -Action 'cleanup:recycle-bin' -Result success -Reason 'Emptied per policy: always')
             } catch { [void](Write-GuardianEvent -Category cleanup -Action 'cleanup:recycle-bin' -Result failure -Severity warning -ErrorDetails $_.Exception.Message) }
         }
     }

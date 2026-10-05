@@ -8,8 +8,13 @@ Root = install dir (e.g. `C:\Users\You\LaptopGuardian`). All JSON UTF-8 (no BOM)
 |---|---|---|
 | `config/config.json` | object | installer, bridge (PUT /api/config) |
 | `config/process-policy.json` | `{blacklist:[PolicyEntry], whitelist:[PolicyEntry], ignored:[PolicyEntry]}` | bridge, agents (counters) |
-| `config/cleanup-policy.json` | object | bridge |
 | `data/secrets/gemini.dpapi` | DPAPI blob (CurrentUser) | bridge via Set-GeminiKey.ps1 |
+| `data/state/bridge.json` | `{app, pid, port, startedAt, version, token}` (restricted to the current user; `token` is the per-start session token) | bridge |
+| `data/state/ignored-files.json` | plain array of ignored file candidate ids | bridge (read by the weekly agent) |
+| `data/state/action-results/<ticket>.json` (+ `<ticket>.running.json`) | the result of one elevated Action Center run | elevated action script |
+| `data/latest/network.json` | the latest Network Guard snapshot | bridge (Network/Get-NetworkSnapshot.ps1) |
+| `data/network/history.jsonl`, `dns-history.jsonl`, `rules.json`, `dns-log-previous.json` | snapshot summaries, DNS names seen, Guardian-created firewall rules (metadata), DNS Client log size to restore | bridge + action scripts |
+| `data/network/deep/events-YYYY-MM-DD.jsonl` | Deep Network Guard connection events (opt-in, connection metadata only) | bridge |
 | `data/latest/daily.json`, `data/latest/weekly.json` | Report | agents |
 | `data/latest/processes.json` | `{generatedAt, processes:[Process]}` | agents |
 | `data/latest/files.json` | `{generatedAt, drives:[...], candidates:[FileCandidate], largest:[...], duplicates:[DupGroup], downloads:{...}}` | agents |
@@ -27,16 +32,16 @@ Root = install dir (e.g. `C:\Users\You\LaptopGuardian`). All JSON UTF-8 (no BOM)
  "schemaVersion":1,
  "bridge":{"host":"127.0.0.1","port":7878},
  "schedule":{"daily":{"enabled":true,"time":"19:00"},"weekly":{"enabled":true,"day":"Saturday","time":"02:00","shutdownTime":"05:00","shutdownEnabled":true}},
- "safety":{"safeMode":true,"requireConfirmation":true,"autoKillBlacklisted":true,"automationPaused":false,"weeklyShutdown":true},
- "ai":{"enabled":false,"model":"gemini-2.5-flash","maxRequestsPerRun":15,"maxProcessesPerRun":10,"scope":"metadata","dailyTokenBudget":200000},
+ "safety":{"safeMode":true,"autoKillBlacklisted":true,"automationPaused":false,"weeklyShutdown":true},
+ "ai":{"enabled":false,"model":"gemini-2.5-flash","maxRequestsPerRun":15,"maxProcessesPerRun":10,"dailyTokenBudget":200000},
  "cleanup":{"tempFiles":true,"crashDumps":true,"caches":true,"recycleBin":"never","tempMinAgeDays":2},
  "storage":{"drives":["C:"],"excludedDirs":[],"protectedDirs":[],"minLargeFileMB":500,"oldFileDays":365,"duplicateScan":true,"duplicateMinMB":50},
  "thresholds":{"cpuPct":50,"memoryMB":1500,"diskFreeWarnPct":15,"diskFreeCritPct":8},
- "retention":{"reportsDays":0,"metricsDays":0,"actionsDays":0},
- "dashboard":{"theme":"system"}
+ "retention":{"reportsDays":0},
+ "network":{"snapshot":{"auto":true,"everyMinutes":60,"retentionDays":30,"maxMB":20},"deep":{"enabled":false,"retentionDays":7,"maxMB":100,"sampleSec":5},"dnsFiltering":{"enabled":false},"thresholds":{"burstConnections":100,"burstDestinations":40,"unknownDestinations":8,"persistentDestinations":5,"newConnectionsPerMinute":50}}
 }
 ```
-`retention.*Days = 0` means keep forever. `safety.safeMode=true` => agents perform NO kill/cleanup/delete; observe+recommend only.
+`retention.reportsDays = 0` means keep reports forever; metrics and the audit log are never deleted automatically. `network.deep.enabled` and `network.dnsFiltering.enabled` can only be changed through their own confirmed endpoints (a settings save that changes them is refused). Settings that lower a safety margin (`safeMode` off, `autoKillBlacklisted` on, fewer `protectedDirs`, `recycleBin:"always"`) are refused with HTTP 409 and `{needsConfirmation:[...]}` until the request is repeated with `_confirmRisky:true`. `safety.safeMode=true` => agents perform NO kill/cleanup/delete; observe+recommend only.
 
 ## PolicyEntry
 `{id, name, path|null, reason, addedAt, addedBy:"user", enabled:true, action:"terminate"|"none", terminatedCount:0, lastTerminatedAt:null, disabledUntil:null}`
@@ -46,7 +51,8 @@ Match key = lower-case process name (without .exe) AND, if `path` set, case-inse
 `{ts, runType:"daily"|"weekly", cpuPct, ramPct, ramUsedGB, ramTotalGB, diskUsedPct, diskFreeGB, diskTotalGB, diskFreePct, processCount, flaggedCount, recommendationCount, actionCount, errorCount, startupCount, serviceFailures, batteryPct|null, downloadsGB, defenderSigAgeDays|null, defenderThreats, healthScore(0-100)}`
 
 ## ActionEvent
-`{id, ts, category:"scan|process|ai|file|cleanup|defender|windows|policy|shutdown|config|system", severity:"info|warning|error", action, target|null, result:"success|failure|skipped|timeout|started", actor:"agent|user|policy|ai-validator", reason|null, relatedRecommendation|null, error|null, runType|null}`
+`{id, ts, category:"scan|process|ai|file|cleanup|defender|windows|policy|shutdown|config|system|remediation|network", severity:"info|warning|error", action, target|null, result:"success|failure|skipped|timeout|started", actor:"agent|user|policy|ai-validator", reason|null, relatedRecommendation|null, error|null, runType|null, data?}`
+`data` is optional structured detail written by Action Center runs: `{subject, verified, needsElevation, details, undo:{action,params}|null, elevated, ticket}`. `subject` is a canonical key for what was changed (for example `service:Fax`, `fw:LG-...`) so an undo can be matched to its original. Never secrets.
 
 ## Process
 `{name, pid, path|null, commandLine|null, parentPid, parentName|null, cpuPct, cpuSeconds, memoryMB, startTime|null, publisher|null, signature:"Valid|NotSigned|Invalid|Unknown", signed:bool, services:[string], startupEntries:[{kind:"registry|folder|task|service",name,location,command}], scheduledTasks:[string], persistent:bool, user|null, pathClass:"system|program-files|user-appdata|temp|downloads|other|unknown", classification:"windows|known-app|third-party|unknown", instances:int, flags:[string], policy:"blacklist|whitelist|ignored|none", recommendationId|null}`
@@ -100,19 +106,37 @@ Commands are display-only text generated by local code (never AI-executed).
 Weekly-only `sections` may add `diskHealth`, `fileSystem`, `scheduledTasks`.
 
 ## Bridge API (Node, 127.0.0.1 only)
-All JSON. Mutating requests (POST/PUT/PATCH/DELETE) must send header `X-Guardian: 1` and same-origin Origin/Host; no CORS headers are emitted. Errors: `{error:string}` with 4xx/5xx.
+All JSON unless noted. Every `/api/*` request except `GET /api/ping` must send `Authorization: Bearer <session token>` (the token is created per bridge start, written to `data/state/bridge.json`, and handed to the dashboard window in the URL fragment by the launcher). Cross-site requests (`Sec-Fetch-Site` other than same-origin/none) are refused. Mutating requests (POST/PUT/PATCH/DELETE) must also send header `X-Guardian: 1` and a same-origin Origin/Host; no CORS headers are emitted. Errors: `{error:string, errors?:[string], needsConfirmation?:[string]}` with 4xx/5xx; 401 means a missing or wrong token.
 
-- `GET /api/overview` -> `{daily:Report|null, weekly:Report|null, metrics:Metric[] (last 90), next:{daily,weekly,shutdown}, safety, ai:{enabled,keyConfigured,model}, run:run-state, openRecommendations:int}`
+**Status and overview**
+- `GET /api/ping` (no token) -> `{app, version, pid, startedAt, codeMtime, restartNeeded, port, root, distBuilt}`
+- `GET /api/status[?fresh=1]` -> run state, last reports, snapshots, scheduled-task assessment (with repair info), attention items, shutdown info, `bridge:{...,restartNeeded}`, `network:{deepActive,deepSince,lastSnapshotAt,dnsFiltering}`
+- `GET /api/overview` -> `{daily:Report|null, weekly:Report|null, metrics:Metric[] (last 90 days), next:{daily,weekly,shutdown}, safety, ai:{enabled,keyConfigured,model}, run:run-state, openRecommendations:int}`
 - `GET /api/metrics?range=7|30|90|all` -> `Metric[]`
+
+**Data**
 - `GET /api/processes` -> processes.json; `GET /api/processes/history?name=x` -> `{name, appearances:[{ts,cpuPct,memoryMB,flags}], actions:[ActionEvent]}`
-- `GET /api/recommendations?status=&kind=` -> items; `POST /api/recommendations/:id/status {status}`
+- `GET /api/recommendations?status=&kind=` -> `{updatedAt, items:[Recommendation]}`; `POST /api/recommendations/:id/status {status}`
 - `GET /api/actions?limit=200&category=&severity=&q=&before=` -> `ActionEvent[]` newest first
-- `GET /api/reports?type=daily|weekly` -> `[{type,id,generatedAt,status,healthScore,summary,sizeKB}]`; `GET /api/reports/:type/:id` -> Report; `GET /api/reports/:type/:id/html` -> text/html; `DELETE /api/reports/:type/:id`; `GET /api/reports/export?type&id&format=json|csv`
-- `GET /api/files` -> files.json; `POST /api/files/ignore {id}`; files are recycled only through `/api/remediation/*` (`file.recycle`)
-- `GET|PUT /api/config` (never returns secrets); `GET|PUT /api/cleanup-policy`
+- `GET /api/reports?type=daily|weekly`; `GET /api/reports/:type/:id`; `GET /api/reports/:type/:id/html` (text/html); `DELETE /api/reports/:type/:id`; `GET /api/reports/export?type&id&format=json|csv`
+- `GET /api/files` -> files.json; `POST /api/files/ignore {id, ignored?}`. Files are recycled only through `/api/remediation/*` (`file.recycle`).
 - `GET /api/policy`; `POST /api/policy {list:"blacklist|whitelist|ignored", name, path?, reason}`; `PATCH /api/policy/:list/:id {enabled?, disabledUntil?}`; `DELETE /api/policy/:list/:id`
-- Stopping a process and recycling a file go through `/api/remediation/*` only (plan, confirm, execute); there are no direct kill or recycle endpoints.
-- `GET /api/commands/validate`? not exposed. 
-- `POST /api/ai/key {key}`; `DELETE /api/ai/key`; `GET /api/ai/status`; `POST /api/ai/test`; `POST /api/ai/analyze {recommendationId}`; `GET /api/ai/usage`
-- `POST /api/scan/daily`, `POST /api/scan/weekly {noShutdown:true}` -> starts agent detached; `GET /api/run`
-- `GET /api/schedule` -> `{tasks:[{name,state,nextRun,lastRun,lastResult}]}`; `PUT /api/schedule` -> updates config + re-registers tasks via Scheduler.ps1
+
+**Settings and schedule**
+- `GET|PUT /api/config` (never returns secrets; see the notes under config.json)
+- `PUT /api/schedule` -> saves the schedule and re-registers tasks only when it changed; `POST /api/schedule/apply {elevate}` -> applies Settings to Task Scheduler (elevated when needed)
+- `POST /api/scan/daily`, `POST /api/scan/weekly` -> start an agent detached. A dashboard-started weekly run always passes `-NoShutdown`, whatever the body says; only the scheduled task can start a shutdown.
+- `POST /api/shutdown/cancel` -> cancels a pending Windows shutdown (fixed command, no inputs)
+
+**AI**
+- `POST /api/ai/key {key}`; `DELETE /api/ai/key`; `POST /api/ai/test` (returns `models`, the live list for this key); `POST /api/ai/analyze {recommendationId}`; `GET /api/ai/usage`
+
+**Action Center** (every executable change is one of the allowlisted actions in `src/shared/action-catalog.json`; nothing accepts a command)
+- `GET /api/remediation/findings` -> `{generatedAt, revo, findings:[Finding]}`; `GET /api/remediation/history?limit=` -> `{items:[HistoryItem]}`
+- `POST /api/remediation/plan {actionId, params}` -> the exact plan (summary, consequences, undo, `requiredAcks`, `warnings`, `admin`, one-time `token`, 10 minute expiry)
+- `POST /api/remediation/execute {token, confirm:true, acknowledged:[...]}`; `POST /api/remediation/cancel {token}`; `GET /api/remediation/result/:ticket` (polls an elevated run); `POST /api/remediation/undo {eventId}` -> a new plan
+
+**Network Guard**
+- `GET /api/network/current` (read-only; reads nothing from Windows); `POST /api/network/snapshot` (takes one read-only snapshot); `GET /api/network/history?range=`; `GET /api/network/dns-log`
+- `GET /api/network/deep`; `POST /api/network/deep/start {confirm:true, acknowledged:true}`; `POST /api/network/deep/stop`; `GET /api/network/deep/events`; `POST /api/network/deep/export {format:"jsonl"|"csv"}` (streamed download); `POST /api/network/deep/delete {confirm:true}`
+- `POST /api/network/dns-filtering {confirm, enabled, acknowledged}`

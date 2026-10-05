@@ -54,7 +54,6 @@
       "risk": "LOW",
       "admin": "dynamic",
       "reversible": true,
-      "undoId": "startup.enable",
       "long": false,
       "params": {
         "kind": {
@@ -81,7 +80,6 @@
       "risk": "LOW",
       "admin": "dynamic",
       "reversible": true,
-      "undoId": "startup.disable",
       "long": false,
       "params": {
         "kind": {
@@ -108,7 +106,6 @@
       "risk": "LOW",
       "admin": "dynamic",
       "reversible": true,
-      "undoId": "task.enable",
       "long": false,
       "params": {
         "taskPath": {
@@ -129,7 +126,6 @@
       "risk": "LOW",
       "admin": "dynamic",
       "reversible": true,
-      "undoId": "task.disable",
       "long": false,
       "params": {
         "taskPath": {
@@ -150,7 +146,6 @@
       "risk": "MEDIUM",
       "admin": true,
       "reversible": true,
-      "undoId": "service.enable",
       "long": false,
       "params": {
         "name": {
@@ -168,7 +163,6 @@
       "risk": "LOW",
       "admin": true,
       "reversible": true,
-      "undoId": "service.disable",
       "long": false,
       "params": {
         "name": {
@@ -317,7 +311,6 @@
       "risk": "MEDIUM",
       "admin": true,
       "reversible": true,
-      "undoId": "firewall.remove-rule",
       "params": {
         "path": {
           "pattern": "absPath"
@@ -350,7 +343,6 @@
       "risk": "MEDIUM",
       "admin": true,
       "reversible": true,
-      "undoId": "firewall.remove-rule",
       "params": {
         "path": {
           "pattern": "absPath"
@@ -383,7 +375,6 @@
       "risk": "MEDIUM",
       "admin": true,
       "reversible": true,
-      "undoId": "firewall.remove-rule",
       "params": {
         "port": {
           "pattern": "port"
@@ -416,7 +407,6 @@
       "risk": "MEDIUM",
       "admin": true,
       "reversible": true,
-      "undoId": "firewall.remove-rule",
       "params": {
         "remote": {
           "pattern": "remote"
@@ -460,7 +450,6 @@
       "risk": "LOW",
       "admin": true,
       "reversible": true,
-      "undoId": "firewall.enable-rule",
       "params": {
         "name": {
           "pattern": "ruleName"
@@ -478,7 +467,6 @@
       "risk": "LOW",
       "admin": true,
       "reversible": true,
-      "undoId": "firewall.disable-rule",
       "params": {
         "name": {
           "pattern": "ruleName"
@@ -496,7 +484,6 @@
       "risk": "MEDIUM",
       "admin": true,
       "reversible": true,
-      "undoId": "dns.unblock-domain",
       "params": {
         "domain": {
           "pattern": "domain"
@@ -514,7 +501,6 @@
       "risk": "LOW",
       "admin": true,
       "reversible": true,
-      "undoId": "dns.block-domain",
       "params": {
         "domain": {
           "pattern": "domain"
@@ -545,7 +531,6 @@
       "risk": "LOW",
       "admin": true,
       "reversible": true,
-      "undoId": "deep.dnslog-disable",
       "params": {},
       "summary": "Enables the Windows \"DNS Client / Operational\" event log so Deep Network Guard can show which program asked for which name. It records names only, never packets.",
       "consequences": "Windows keeps a rolling record of DNS lookups on this laptop, which is private information. Turn it off when you are done.",
@@ -559,7 +544,6 @@
       "risk": "LOW",
       "admin": true,
       "reversible": true,
-      "undoId": "deep.dnslog-enable",
       "params": {},
       "summary": "Disables the Windows \"DNS Client / Operational\" event log again.",
       "consequences": "Windows stops recording DNS lookups in that log. Existing entries are not deleted.",

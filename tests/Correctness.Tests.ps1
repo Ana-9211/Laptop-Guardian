@@ -112,6 +112,15 @@ Describe 'Recycle Bin pre-checks' {
         Test-RecycleBinSafe -Path '\\server\share\x.bin' -SizeBytes 5 | Should Match 'local drive'
     }
 }
+Describe 'Audit events match the action-event schema' {
+    It 'a remediation event with structured data validates' {
+        $e = Write-GuardianEvent -Category remediation -Action 'remediation:service.disable' -Target 'name=Fax' -Actor user -Data ([ordered]@{ subject = 'service:Fax'; verified = $true; undo = [ordered]@{ action = 'service.enable'; params = [ordered]@{ name = 'Fax' } } })
+        $line = (Read-JsonLines (Get-GuardianPath 'Actions') | Where-Object { $_.id -eq $e.id } | Select-Object -First 1)
+        @(Test-JsonSchema -Value $line -Schema (Get-Schema 'action-event')).Count | Should Be 0
+        $line.data.subject | Should Be 'service:Fax'
+    }
+}
+
 Describe 'Shared file lock' {
     It 'is exclusive, is released afterwards, and a stale lock is broken' {
         $f = Join-Path $root 'locked.json'

@@ -106,13 +106,12 @@ const DEFAULT_CONFIG = {
     daily: { enabled: true, time: '19:00' },
     weekly: { enabled: true, day: 'Saturday', time: '02:00', shutdownTime: '05:00', shutdownEnabled: true },
   },
-  safety: { safeMode: true, requireConfirmation: true, autoKillBlacklisted: true, automationPaused: false, weeklyShutdown: true },
-  ai: { enabled: false, model: 'gemini-2.5-flash', maxRequestsPerRun: 15, maxProcessesPerRun: 10, scope: 'metadata', dailyTokenBudget: 200000 },
+  safety: { safeMode: true, autoKillBlacklisted: true, automationPaused: false, weeklyShutdown: true },
+  ai: { enabled: false, model: 'gemini-2.5-flash', maxRequestsPerRun: 15, maxProcessesPerRun: 10, dailyTokenBudget: 200000 },
   cleanup: { tempFiles: true, crashDumps: true, caches: true, recycleBin: 'never', tempMinAgeDays: 2 },
   storage: { drives: ['C:'], excludedDirs: [], protectedDirs: [], minLargeFileMB: 500, oldFileDays: 365, duplicateScan: true, duplicateMinMB: 50 },
   thresholds: { cpuPct: 50, memoryMB: 1500, diskFreeWarnPct: 15, diskFreeCritPct: 8 },
-  retention: { reportsDays: 0, metricsDays: 0, actionsDays: 0 },
-  dashboard: { theme: 'system' },
+  retention: { reportsDays: 0 },
   // Network Guard. Deep capture and DNS filtering are OFF by default and can only be switched on through their own
   // confirmed endpoints, never through the generic settings save.
   network: {
@@ -125,9 +124,7 @@ const DEFAULT_CONFIG = {
 
 const ENUMS = {
   'schedule.weekly.day': ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-  'ai.scope': ['metadata', 'metadata+paths'],
-  'cleanup.recycleBin': ['never', 'older-than-30-days', 'always'],
-  'dashboard.theme': ['system', 'light', 'dark'],
+  'cleanup.recycleBin': ['never', 'always'],
 };
 const TIME_KEYS = new Set(['schedule.daily.time', 'schedule.weekly.time', 'schedule.weekly.shutdownTime']);
 const RANGES = {
@@ -140,7 +137,7 @@ const RANGES = {
 Object.assign(RANGES, {
   'cleanup.tempMinAgeDays': [0, 365], 'storage.minLargeFileMB': [1, 1_000_000], 'storage.oldFileDays': [1, 3650], 'storage.duplicateMinMB': [1, 100_000],
   'thresholds.cpuPct': [1, 100], 'thresholds.memoryMB': [50, 1_000_000], 'thresholds.diskFreeWarnPct': [1, 90], 'thresholds.diskFreeCritPct': [1, 89],
-  'retention.reportsDays': [0, 3650], 'retention.metricsDays': [0, 3650], 'retention.actionsDays': [0, 3650],
+  'retention.reportsDays': [0, 3650],
 });
 const READONLY = new Set(['schemaVersion', 'bridge.host']);
 
@@ -178,7 +175,6 @@ function riskyChanges(before, after) {
   if (b.safety && a.safety) {
     if (b.safety.safeMode !== false && a.safety.safeMode === false) out.push('Turn Safe Mode off: agents may then clean files and end blacklisted processes on their own.');
     if (!b.safety.autoKillBlacklisted && a.safety.autoKillBlacklisted) out.push('Automatically terminate blacklisted processes (effective when Safe Mode is off).');
-    if (b.safety.requireConfirmation !== false && a.safety.requireConfirmation === false) out.push('Stop requiring confirmation for destructive actions.');
   }
   if (b.storage && a.storage) {
     const gone = (b.storage.protectedDirs || []).filter((d) => !(a.storage.protectedDirs || []).includes(d));

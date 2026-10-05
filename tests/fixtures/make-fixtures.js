@@ -80,7 +80,6 @@ function makeFixtures(dir, days = 45, seed = 42) {
   config.safety.safeMode = false;
   config.ai.enabled = true;
   w('config/config.json', config);
-  w('config/cleanup-policy.json', { tempFiles: { enabled: true, minAgeDays: 2 }, crashDumps: { enabled: true }, caches: { enabled: true, targets: ['Windows\\Temp', 'INetCache'] } });
   const bl = { id: 'p_bl1', name: 'updater', path: 'C:\\Users\\TestUser\\AppData\\Local\\Temp\\7zS4F2A\\updater.exe', reason: 'Re-launches from Temp every login; no publisher.', addedAt: localIso(new Date(now - 20 * 86400000)), addedBy: 'user', enabled: true, action: 'terminate', terminatedCount: 14, lastTerminatedAt: localIso(new Date(now - 86400000)), disabledUntil: null };
   const bl2 = { id: 'p_bl2', name: 'AdobeUpdateService', path: null, reason: 'Not needed outside active Adobe sessions.', addedAt: localIso(new Date(now - 9 * 86400000)), addedBy: 'user', enabled: false, action: 'terminate', terminatedCount: 3, lastTerminatedAt: localIso(new Date(now - 6 * 86400000)), disabledUntil: null };
   w('config/process-policy.json', {

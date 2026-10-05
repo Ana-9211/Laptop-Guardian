@@ -61,7 +61,7 @@ export interface Report {
   weekly?: Any;
 }
 export interface ReportRow { type: 'daily' | 'weekly'; id: string; generatedAt: string; status: string; healthScore?: number; summary?: { headline?: string; bullets?: string[] }; sizeKB?: number; hasHtml?: boolean }
-export interface Safety { safeMode: boolean; requireConfirmation: boolean; autoKillBlacklisted: boolean; automationPaused: boolean; weeklyShutdown: boolean }
+export interface Safety { safeMode: boolean; autoKillBlacklisted: boolean; automationPaused: boolean; weeklyShutdown: boolean }
 export interface Overview {
   daily: Report | null; weekly: Report | null; metrics: Metric[]; next: { daily: string | null; weekly: string | null; shutdown: string | null };
   safety: Safety; ai: { enabled: boolean; keyConfigured: boolean; model: string };
@@ -104,12 +104,11 @@ export interface Config {
   schemaVersion: number; bridge: { host: string; port: number };
   schedule: { daily: { enabled: boolean; time: string }; weekly: { enabled: boolean; day: string; time: string; shutdownTime: string; shutdownEnabled: boolean } };
   safety: Safety;
-  ai: { enabled: boolean; model: string; maxRequestsPerRun: number; maxProcessesPerRun: number; scope: string; dailyTokenBudget: number };
+  ai: { enabled: boolean; model: string; maxRequestsPerRun: number; maxProcessesPerRun: number; dailyTokenBudget: number };
   cleanup: { tempFiles: boolean; crashDumps: boolean; caches: boolean; recycleBin: string; tempMinAgeDays: number };
   storage: { drives: string[]; excludedDirs: string[]; protectedDirs: string[]; minLargeFileMB: number; oldFileDays: number; duplicateScan: boolean; duplicateMinMB: number };
   thresholds: { cpuPct: number; memoryMB: number; diskFreeWarnPct: number; diskFreeCritPct: number };
-  retention: { reportsDays: number; metricsDays: number; actionsDays: number };
-  dashboard: { theme: string };
+  retention: { reportsDays: number };
   network?: { snapshot: { auto: boolean; everyMinutes: number; retentionDays: number; maxMB: number }; deep: { enabled: boolean; sampleSec: number; retentionDays: number; maxMB: number }; dnsFiltering: { enabled: boolean } } & Record<string, unknown>;
   _ai?: { enabled: boolean; keyConfigured: boolean; model: string };
 }

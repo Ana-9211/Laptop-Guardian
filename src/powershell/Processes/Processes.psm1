@@ -197,16 +197,6 @@ function Get-ProcessSnapshot {
     return @($out)
 }
 
-function Get-ProcessOwner {
-    param([int]$ProcessId)
-    try {
-        $c = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop
-        $o = Invoke-CimMethod -InputObject $c -MethodName GetOwner -ErrorAction Stop
-        if ($o.User) { return "$($o.Domain)\$($o.User)" }
-    } catch { }
-    return $null
-}
-
 function Add-ProcessFlags {
     <# Annotates processes with deterministic flags. $Policy = result of Get-ProcessPolicy. Returns same list. #>
     param($Processes, $Config, $Policy)

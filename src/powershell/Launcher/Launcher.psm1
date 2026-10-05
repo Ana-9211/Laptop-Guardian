@@ -229,7 +229,7 @@ function Start-GuardianDashboard {
         else {
             $node = Find-NodeExe
             if (-not $node) { $result.message = 'Node.js was not found. Install the LTS version from https://nodejs.org, then open Laptop Guardian again.'; Show-LauncherError -Root $Root -Message $result.message -Gui:$Gui; return [pscustomobject]$result }
-            if ((Get-NodeMajor $node) -lt 18) { $result.message = "Node.js 18 or newer is required (found $node). Update Node.js from https://nodejs.org."; Show-LauncherError -Root $Root -Message $result.message -Gui:$Gui; return [pscustomobject]$result }
+            if ((Get-NodeMajor $node) -lt 22) { $result.message = "Node.js 22 or newer is required (found $node). Update Node.js from https://nodejs.org."; Show-LauncherError -Root $Root -Message $result.message -Gui:$Gui; return [pscustomobject]$result }
             if (-not (Test-Path (Join-Path $Root 'src\dashboard\dist\index.html'))) { $result.message = "The dashboard has not been built. Run Install-LaptopGuardian.ps1 in $Root (or: cd src\dashboard; npm ci; npm run build)."; Show-LauncherError -Root $Root -Message $result.message -Gui:$Gui; return [pscustomobject]$result }
             if (-not (Test-Path (Join-Path $Root 'src\bridge\server.js'))) { $result.message = "src\bridge\server.js is missing from $Root. Re-install Laptop Guardian."; Show-LauncherError -Root $Root -Message $result.message -Gui:$Gui; return [pscustomobject]$result }
             if (Test-PortInUse -Port $port) {
@@ -264,8 +264,8 @@ function Start-GuardianDashboard {
         # The token travels in the URL fragment only (never sent to the server, never logged, removed from the address bar by the page).
         $tok = Get-BridgeToken -Root $Root -Ping $ping
         $openUrl = if ($tok) { "${url}#guardian-token=$tok" } else { $url }
-        $profile = Join-Path $Root 'data\state\app-profile'
-        $existing = @(Get-AppWindowProcess -ProfileDir $profile)
+        $appProfile = Join-Path $Root 'data\state\app-profile'
+        $existing = @(Get-AppWindowProcess -ProfileDir $appProfile)
         # A window opened before this bridge started holds an old token, so a freshly started bridge always gets a new window.
         if ($existing.Count -gt 0 -and $result.bridge -ne 'started') {
             if (Set-ForegroundWindowOfProcess -ProcessIds @($existing | ForEach-Object { [int]$_.ProcessId })) { $result.window = 'focused'; Write-LauncherLog -Root $Root -Message 'focused existing window'; return [pscustomobject]$result }
@@ -274,8 +274,8 @@ function Start-GuardianDashboard {
         $opened = $false
         if ($browser) {
             try {
-                New-Item -ItemType Directory -Path $profile -Force | Out-Null
-                Start-Process -FilePath $browser.Path -ArgumentList @("--app=$openUrl", "--user-data-dir=`"$profile`"", '--no-first-run', '--no-default-browser-check', '--window-size=1366,880') | Out-Null
+                New-Item -ItemType Directory -Path $appProfile -Force | Out-Null
+                Start-Process -FilePath $browser.Path -ArgumentList @("--app=$openUrl", "--user-data-dir=`"$appProfile`"", '--no-first-run', '--no-default-browser-check', '--window-size=1366,880') | Out-Null
                 $result.window = 'opened'; $opened = $true; Write-LauncherLog -Root $Root -Message "opened app window with $($browser.Name)"
             } catch { Write-LauncherLog -Root $Root -Message "app-mode launch failed: $($_.Exception.Message)" }
         }

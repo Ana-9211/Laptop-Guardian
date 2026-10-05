@@ -1,6 +1,5 @@
 /** Shown wherever a value is missing. Plain ASCII on purpose. */
 export const NA = 'n/a';
-export const fmtNum = (v: number | null | undefined, d = 1) => (v == null || Number.isNaN(v) ? NA : v.toLocaleString(undefined, { maximumFractionDigits: d }));
 export const fmtMB = (mb: number | null | undefined) => {
   if (mb == null) return NA;
   if (mb >= 1024 * 1024) return `${(mb / 1024 / 1024).toFixed(1)} TB`;
@@ -43,10 +42,8 @@ export const until = (s?: string | null) => {
   return `in ${Math.round(h / 24)} d`;
 };
 export const pct = (v: number | null | undefined, d = 0) => (v == null ? NA : `${v.toFixed(d)}%`);
-export const clampN = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 export const riskTone = (r?: string) => (r === 'HIGH' ? 'crit' : r === 'MEDIUM' ? 'warn' : r === 'LOW' ? 'ok' : '');
 export const sevTone = (s?: string) => (s === 'critical' || s === 'high' || s === 'error' ? 'crit' : s === 'medium' || s === 'warning' ? 'warn' : s === 'low' ? 'info' : '');
 export const scoreTone = (s?: number) => (s == null ? '' : s >= 85 ? 'ok' : s >= 70 ? 'warn' : 'crit');
 /** The UTC second-resolution form PowerShell uses for process start times, so a PID that was reused is detected. */
 export const toUtcSeconds = (iso: string) => { const t = Date.parse(iso); return Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 19); };
-export const basename = (p?: string | null) => (p ? p.split(/[\\/]/).pop() || p : '');

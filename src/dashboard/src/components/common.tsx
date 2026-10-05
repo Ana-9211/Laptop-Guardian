@@ -61,9 +61,4 @@ export function RunButtons({ onStarted }: { onStarted?: () => void }) {
   return <button className="btn" disabled={!!busy} onClick={() => start('daily', onStarted)}><Icon name="play" size={13} />{busy === 'daily' ? 'Starting...' : 'Run daily scan'}</button>;
 }
 
-export function Meter({ value, warn = 70, crit = 90 }: { value: number; warn?: number; crit?: number }) {
-  const tone = value >= crit ? 'crit' : value >= warn ? 'warn' : '';
-  return <div className="stat" style={{ padding: 0 }}><div className="bar" style={{ width: 90 }}><i className={tone} style={{ width: `${Math.min(100, value)}%` }} /></div></div>;
-}
-
 export { sevTone };

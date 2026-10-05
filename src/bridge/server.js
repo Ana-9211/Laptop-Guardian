@@ -35,7 +35,6 @@ const MIME = {
 };
 const RE_DAILY = /^\d{4}-\d{2}-\d{2}$/;
 const RE_WEEKLY = /^\d{4}-W\d{2}$/;
-const RE_HEX = /^[0-9a-f]{6,64}$/i;
 const LISTS = ['blacklist', 'whitelist', 'ignored'];
 const REC_STATUSES = ['open', 'dismissed', 'ignored', 'resolved', 'actioned'];
 
@@ -47,7 +46,6 @@ function createApp(root, opts = {}) {
   const P = {
     config: path.join(root, 'config', 'config.json'),
     policy: path.join(root, 'config', 'process-policy.json'),
-    cleanup: path.join(root, 'config', 'cleanup-policy.json'),
     actions: path.join(root, 'data', 'actions', 'actions.jsonl'),
     metrics: path.join(root, 'data', 'metrics', 'metrics.jsonl'),
     recs: path.join(root, 'data', 'recommendations', 'recommendations.json'),
@@ -311,7 +309,7 @@ function createApp(root, opts = {}) {
   });
 
   route('POST', '/api/recommendations/:id/status', locked(P.recs, ({ params, body }) => {
-    need(RE_HEX.test(params.id) || /^[\w.-]{1,80}$/.test(params.id), 'invalid id');
+    need(/^[\w.-]{1,80}$/.test(params.id), 'invalid id');
     need(REC_STATUSES.includes(body.status), `status must be one of ${REC_STATUSES.join(', ')}`);
     const d = loadRecs();
     const r = d.items.find((x) => x.id === params.id);
@@ -416,15 +414,6 @@ function createApp(root, opts = {}) {
     return m.value;
   }));
 
-  route('GET', '/api/cleanup-policy', () => U.readJson(P.cleanup, {}) || {});
-  route('PUT', '/api/cleanup-policy', ({ body }) => {
-    need(body && typeof body === 'object' && !Array.isArray(body), 'body must be an object');
-    need(JSON.stringify(body).length < 20000, 'too large');
-    U.writeJsonAtomic(P.cleanup, body);
-    log({ category: 'config', action: 'cleanup-policy.update', reason: 'cleanup policy changed' });
-    return body;
-  });
-
   route('GET', '/api/policy', () => policy());
 
   route('POST', '/api/policy', locked(P.policy, ({ body }) => {
@@ -479,7 +468,6 @@ function createApp(root, opts = {}) {
   }));
 
   // ---- AI ----
-  route('GET', '/api/ai/status', () => aiStatus());
   route('POST', '/api/ai/key', async ({ body }) => {
     const key = str(body.key, 'key', 128).trim();
     need(/^[A-Za-z0-9_-]{20,128}$/.test(key), 'key has an unexpected format');
@@ -522,7 +510,6 @@ function createApp(root, opts = {}) {
   });
 
   // ---- scan / schedule ----
-  route('GET', '/api/run', () => currentRun());
   const launchScan = (kind, args) => {
     const st = currentRun();
     need(!st.running, `a ${st.running?.type} run is already in progress`, 409);
@@ -533,12 +520,6 @@ function createApp(root, opts = {}) {
   };
   route('POST', '/api/scan/daily', () => launchScan('Daily', []));
   route('POST', '/api/scan/weekly', () => launchScan('Weekly', ['-NoShutdown']));
-
-  route('GET', '/api/schedule', async ({ query }) => {
-    const st = await (query.get('fresh') === '1' || !schedCache ? queryTasks() : getTasks());
-    need(!(st.error && !st.tasks.length), st.error || 'scheduler query failed', /not installed/.test(st.error || '') ? 501 : 500);
-    return { tasks: st.tasks, assessed: S.assessTasks(st.tasks, config()), config: config().schedule, fetchedAt: st.okAt ? new Date(st.okAt).toISOString() : null, warning: st.error || undefined };
-  });
 
   /** True while a UAC request is outstanding and the tasks still need the repair it was asked for. */
   function elevationPending(assessed) {
@@ -723,8 +704,6 @@ function createApp(root, opts = {}) {
     }
     return Promise.race([factInFlight[topic], new Promise((resolve) => setTimeout(() => resolve(hit ? hit.value : null), FACT_WAIT_MS))]);
   }
-  route('GET', '/api/remediation/catalog', () => ({ actions: remediation.catalog() }));
-  route('GET', '/api/remediation/revo', async () => (await fact('revo')) || { available: false, reason: 'Revo could not be inspected.' });
   route('GET', '/api/remediation/findings', async () => {
     const [apps, revo] = await Promise.all([fact('apps'), fact('revo')]);
     const procs = U.readJson(P.latest('processes.json'), { processes: [] }) || {};

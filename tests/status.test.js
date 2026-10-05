@@ -87,10 +87,6 @@ test('a stale running marker (dead pid) is not a live scan and does not block a 
   } finally { if (prev === null) fs.rmSync(rs, { force: true }); else fs.writeFileSync(rs, prev); }
 });
 
-test('schedule endpoint returns 501 when Scheduler.ps1 is not installed', async () => {
-  assert.strictEqual((await get('/api/schedule')).status, 501);
-});
-
 test('Task Scheduler result codes are translated; 0x41303 means "has not run yet"', () => {
   const never = S.describeResult(267011);
   assert.strictEqual(never.kind, 'never-run');

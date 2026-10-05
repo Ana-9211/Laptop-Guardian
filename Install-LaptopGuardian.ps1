@@ -23,7 +23,8 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if ($Elevate -and -not $isAdmin) {
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
     foreach ($k in 'SkipTasks', 'SkipBuild', 'SkipSmokeTest', 'RunTests', 'NoDesktopShortcut', 'SkipShortcuts') { if ($PSBoundParameters.ContainsKey($k)) { $argList += "-$k" } }
-    Start-Process powershell.exe -ArgumentList $argList -Verb RunAs -Wait
+    if ($PSBoundParameters.ContainsKey('TaskFolder')) { $argList += @('-TaskFolder', "`"$TaskFolder`"") }
+    Start-Process (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList $argList -Verb RunAs -Wait
     return
 }
 
@@ -34,9 +35,9 @@ if ($PSVersionTable.PSVersion -lt [version]'5.1') { throw 'PowerShell 5.1 or new
 if ([Environment]::OSVersion.Platform -ne 'Win32NT') { throw 'Windows required.' }
 Ok "PowerShell $($PSVersionTable.PSVersion), Windows $([Environment]::OSVersion.Version)"
 $node = (Get-Command node.exe -ErrorAction SilentlyContinue)
-if (-not $node) { throw 'Node.js 18+ is required for the dashboard bridge (https://nodejs.org).' }
+if (-not $node) { throw 'Node.js 22+ is required for the dashboard bridge (https://nodejs.org).' }
 $nv = [version](($node.Version).ToString())
-if ($nv.Major -lt 18) { throw "Node.js 18+ required (found $nv)." }
+if ($nv.Major -lt 22) { throw "Node.js 22+ required (found $nv)." }
 Ok "Node.js $nv"
 if ($isAdmin) { Ok 'Running elevated: tasks will use highest privileges (SFC/DISM/filesystem scan enabled)' }
 else { Warn 'Not elevated: tasks will run with limited rights; SFC/DISM/Repair-Volume/Windows\Temp cleanup will be skipped. Re-run with -Elevate to enable.' }
