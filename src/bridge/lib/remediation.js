@@ -128,6 +128,7 @@ function createRemediation(deps) {
       if (!d.ok && !d.needsElevation) throw refuse(spec, params, (d.errors && d.errors.length ? d.errors : ['The live check refused this action.']), 422);
       if (d.needsAdmin || d.needsElevation) adminRequired = true;
       identityKey = d.identityKey || ''; details = d.details || null;
+      liveWarnings = Array.isArray(d.warnings) ? d.warnings.map(String) : [];
     }
     const token = crypto.randomBytes(16).toString('hex');
     const record = { token, actionId, params, identityKey, adminRequired, details, expires: now() + PLAN_TTL_MS, used: false, createdAt: now() };
@@ -220,10 +221,11 @@ function createRemediation(deps) {
       const d = e.data || {};
       const id = String(e.action).replace(/^remediation[:.]/, '');
       const spec = byId.get(id);
-      return { id: e.id, ts: e.ts, actionId: id, label: spec ? spec.label : id, category: spec ? spec.category : e.category, target: e.target || null, result: e.result, severity: e.severity, message: e.reason || e.error || null, error: e.error || null, verified: !!d.verified, elevated: !!d.elevated, undo: d.undo || null, details: d.details || null };
+      return { id: e.id, ts: e.ts, actionId: id, label: spec ? spec.label : id, category: spec ? spec.category : e.category, target: e.target || null, result: e.result, severity: e.severity, message: e.reason || e.error || null, error: e.error || null, verified: !!d.verified, elevated: !!d.elevated, undo: d.undo || null, subject: d.subject || null, details: d.details || null };
     });
     // an undo is "used" once a newer successful event ran the undo action on the same target
-    for (const e of out) { e.canUndo = !!(e.undo && e.result === 'success' && !out.some((n) => n.ts > e.ts && n.result === 'success' && n.actionId === e.undo.action && n.target && e.target && n.target === e.target)); }
+    // Matched on the canonical subject recorded with each event (an undo's own params differ from the original's).
+    for (const e of out) { e.canUndo = !!(e.undo && e.result === 'success' && !out.some((n) => n.ts > e.ts && n.result === 'success' && n.actionId === e.undo.action && n.subject && e.subject && n.subject === e.subject)); }
     return out.slice(0, limit);
   }
 

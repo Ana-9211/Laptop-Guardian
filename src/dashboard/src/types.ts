@@ -87,7 +87,7 @@ export interface RunInfo {
 }
 export interface StatusData {
   now: string;
-  bridge: { ok: boolean; pid: number; version: string; startedAt: string; port: number; uptimeSec: number };
+  bridge: { ok: boolean; pid: number; version: string; startedAt: string; restartNeeded?: boolean; port: number; uptimeSec: number };
   run: RunInfo;
   lastAction: ActionEvent | null;
   actions24h: { total: number; warnings: number; errors: number; lastError: { ts: string; action: string; error?: string | null } | null };
@@ -110,6 +110,7 @@ export interface Config {
   thresholds: { cpuPct: number; memoryMB: number; diskFreeWarnPct: number; diskFreeCritPct: number };
   retention: { reportsDays: number; metricsDays: number; actionsDays: number };
   dashboard: { theme: string };
+  network?: { snapshot: { auto: boolean; everyMinutes: number; retentionDays: number; maxMB: number }; deep: { enabled: boolean; sampleSec: number; retentionDays: number; maxMB: number }; dnsFiltering: { enabled: boolean } } & Record<string, unknown>;
   _ai?: { enabled: boolean; keyConfigured: boolean; model: string };
 }
 

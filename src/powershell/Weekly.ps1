@@ -24,7 +24,7 @@ if ($prevRun -and $prevRun.type -eq 'weekly') { [void](Write-GuardianEvent -Cate
 
 # Time budget: everything must finish before shutdownTime minus a reserve for reporting.
 $deadline = $started.AddHours(3)
-try { $sd = (Get-Date).Date.Add([datetime]::ParseExact($config.schedule.weekly.shutdownTime, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture).TimeOfDay); if ($sd -gt $started.AddMinutes(20)) { $deadline = $sd } } catch { }
+try { $sd = Get-ShutdownDateTime -TimeOfDay $config.schedule.weekly.shutdownTime -StartTime $config.schedule.weekly.time; if ($sd -gt $started.AddMinutes(20)) { $deadline = $sd } } catch { }
 $reportReserveMin = 12
 function Get-RemainingSec { [int][math]::Max(0, ($deadline.AddMinutes(-$reportReserveMin) - (Get-Date)).TotalSeconds) }
 
@@ -36,7 +36,7 @@ function Invoke-Phase {
     catch { $p.status = 'failed'; $p.detail = $_.Exception.Message; [void](Write-GuardianEvent -Category scan -Action "weekly:phase-failed:$Name" -Result failure -Severity error -ErrorDetails $_.Exception.Message) }
     $p.finishedAt = Get-IsoNow
     [void]$phases.Add([pscustomobject]$p)
-    [void](Write-GuardianEvent -Category scan -Action "weekly:phase-finished:$Name" -Result $(if ($p.status -eq 'complete') { 'success' } elseif ($p.status -eq 'timeout') { 'timeout' } elseif ($p.status -eq 'skipped') { 'skipped' } else { 'failure' }) -Reason $p.detail)
+    [void](Write-GuardianEvent -Category scan -Action "weekly:phase-finished:$Name" -Result $(if ($p.status -eq 'complete') { 'success' } elseif ($p.status -eq 'timeout') { 'timeout' } elseif ($p.status -in 'skipped', 'incomplete') { 'skipped' } else { 'failure' }) -Severity $(if ($p.status -in 'incomplete', 'timeout') { 'warning' } else { 'info' }) -Reason $p.detail)
 }
 
 $ctx = $null; $fileData = $null; $onBattery = $false; $incomplete = New-Object System.Collections.ArrayList; $briefing = $null; $patterns = @()
@@ -50,7 +50,7 @@ try {
         $ac = Test-OnAcPower
         if (-not $ac) { $script:onBattery = $true; [void]$notes.Add('On battery: heavy scans (full Defender, SFC, DISM) will be skipped') }
         $free = (Get-PSDrive -Name ($env:SystemDrive.TrimEnd(':')) -ErrorAction SilentlyContinue).Free
-        if ($null -ne $free -and $free -lt 2GB) { [void]$notes.Add('Less than 2 GB free: duplicate hashing skipped') }
+        if ($null -ne $free -and $free -lt 2GB) { $script:lowDisk = $true; [void]$notes.Add('Less than 2 GB free: duplicate hashing skipped') }
         $prev = (Get-RunState).lastWeekly
         if ($prev -and $prev.status -in 'failed', 'incomplete') { [void]$notes.Add("Previous weekly run ended '$($prev.status)'") }
         $probe = Join-Path (Get-GuardianPath 'Reports') '.write-test'
@@ -119,10 +119,12 @@ try {
     Invoke-Phase 'storage-analysis' {
         if ((Get-RemainingSec) -lt 300) { return @{ status = 'skipped'; detail = 'Not enough time budget' } }
         $budget = if ($Fast) { 20 } else { [math]::Min(2400, [int]((Get-RemainingSec) * 0.5)) }
+        if ($script:lowDisk) { $config.storage.duplicateScan = $false }
         $script:fileData = Invoke-FileAnalysis -Config $config -DeadlineSec $budget
         # Apply user-ignored files
         $ig = Read-JsonFile -Path (Join-Path (Get-GuardianPath 'Root') 'data\state\ignored-files.json') -Default $null
-        if ($ig -and $ig.ids) { $set = @{}; foreach ($i in @($ig.ids)) { $set[[string]$i] = $true }; foreach ($c in $script:fileData.candidates) { if ($set.ContainsKey($c.id)) { $c.ignored = $true } } }
+        $igIds = if ($ig -is [array]) { @($ig) } elseif ($ig -and $ig.PSObject.Properties['ids']) { @($ig.ids) } else { @() }
+        if ($igIds.Count) { $set = @{}; foreach ($i in $igIds) { $set[[string]$i] = $true }; foreach ($c in $script:fileData.candidates) { if ($set.ContainsKey($c.id)) { $c.ignored = $true } } }
         Write-JsonFile -Path (Get-GuardianPath 'LatestFiles') -Object $script:fileData -Depth 8
         $script:ctx.Sections.files = [pscustomobject]@{ candidateCount = @($script:fileData.candidates).Count; reclaimableGB = $script:fileData.reclaimableGB }
         $script:ctx.Sections.storage.duplicateCandidates = @($script:fileData.duplicates).Count
@@ -196,7 +198,7 @@ catch {
 $sdResult = [pscustomobject]@{ planned = $null; initiated = $false; reason = 'not evaluated'; delaySec = 0 }
 try {
     Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; mode = $runMode; shutdownPossible = (-not $NoShutdown -and $Scheduled.IsPresent); pid = $PID; phase = 'shutdown-prep'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
-    $finalStatus = if ($exit -ne 0) { 'failed' } elseif (@($incomplete).Count) { 'incomplete' } else { 'complete' }
+    $finalStatus = if ($exit -ne 0) { 'failed' } elseif (@($incomplete).Count -or @($phases | Where-Object { $_.status -in 'failed', 'timeout', 'incomplete' }).Count) { 'incomplete' } else { 'complete' }
     $id = Get-IsoWeekId
     [void](Write-GuardianEvent -Category scan -Action 'weekly:finished' -Result $(if ($exit -eq 0) { 'success' } else { 'failure' }) -Reason "status=$finalStatus; unfinished: $(@($incomplete) -join '; ')")
     # Verify reports on disk BEFORE shutting down

@@ -306,12 +306,10 @@ function Test-IsAdmin {
 
 function Get-IsoWeekId {
     param([datetime]$Date = (Get-Date))
-    $cal = [System.Globalization.CultureInfo]::InvariantCulture.Calendar
-    $w = $cal.GetWeekOfYear($Date, [System.Globalization.CalendarWeekRule]::FirstFourDayWeek, [DayOfWeek]::Monday)
-    $y = $Date.Year
-    if ($w -ge 52 -and $Date.Month -eq 1) { $y-- }
-    if ($w -eq 1 -and $Date.Month -eq 12) { $y++ }
-    return ('{0}-W{1:00}' -f $y, $w)
+    # ISO 8601: the week belongs to the year that holds its Thursday.
+    $thursday = $Date.Date.AddDays(3 - (([int]$Date.DayOfWeek + 6) % 7))
+    $w = [int][math]::Floor(($thursday.DayOfYear - 1) / 7) + 1
+    return ('{0}-W{1:00}' -f $thursday.Year, $w)
 }
 
 Export-ModuleMember -Function *

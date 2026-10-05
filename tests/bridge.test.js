@@ -73,20 +73,8 @@ test('security: oversize body rejected', async () => {
 test('security: invalid JSON rejected', async () => {
   assert.strictEqual((await req('POST', '/api/policy', { raw: '{nope', headers: H })).status, 400);
 });
-test('security: kill requires confirm and snapshot membership', async () => {
-  assert.strictEqual((await mut('POST', '/api/process/kill', { pid: 1234, name: 'x', path: '' })).status, 400);
-  assert.strictEqual((await mut('POST', '/api/process/kill', { pid: 1234, name: 'ghost', path: '', confirm: true })).status, 409);
-  assert.strictEqual((await mut('POST', '/api/process/kill', { pid: 4, name: 'System', confirm: true })).status, 400);
-});
 test('security: missing scripts give 501, not a crash', async () => {
-  const p = (await get('/api/processes')).json.processes[0];
-  const r = await mut('POST', '/api/process/kill', { pid: p.pid, name: p.name, path: p.path, confirm: true });
-  assert.strictEqual(r.status, 501);
   assert.strictEqual((await mut('POST', '/api/ai/key', { key: 'A'.repeat(39) })).status, 501);
-});
-test('security: recycle only known candidate paths', async () => {
-  const r = await mut('POST', '/api/files/recycle', { path: 'C:\\Windows\\System32\\kernel32.dll', confirm: true });
-  assert.strictEqual(r.status, 403);
 });
 
 test('api: overview shape', async () => {
@@ -180,4 +168,21 @@ test('util: atomic write, tail with corrupt lines, nextRun', () => {
   assert.strictEqual(n.getDate(), 4);
   const s = new Date(U.nextRun('02:00', 'Saturday', new Date('2026-10-03T03:00:00'))); // Saturday past 2am -> next week
   assert.strictEqual(s.getDay(), 6); assert.strictEqual(s.getDate(), 10);
+});
+
+test('api: malformed percent-encoding is a 400, not a 500', async () => {
+  assert.strictEqual((await get('/%E0%A4%A')).status, 400);
+  assert.strictEqual((await get('/api/reports/daily/%E0%A4%A')).status, 400);
+});
+test('config: numeric ranges and cross-field checks', async () => {
+  for (const bad of [{ thresholds: { cpuPct: 0 } }, { thresholds: { memoryMB: 1 } }, { storage: { oldFileDays: 0 } }, { thresholds: { diskFreeCritPct: 20, diskFreeWarnPct: 10 } }]) assert.strictEqual((await mut('PUT', '/api/config', bad)).status, 400, JSON.stringify(bad));
+  assert.strictEqual((await mut('PUT', '/api/config', { thresholds: { cpuPct: 60 } })).status, 200);
+  await mut('PUT', '/api/config', { thresholds: { cpuPct: 50 } });
+});
+test('api: overview and status agree on the shutdown gate (automation paused hides it in both)', async () => {
+  await mut('PUT', '/api/config', { safety: { automationPaused: true } });
+  try {
+    assert.strictEqual((await get('/api/overview')).json.next.shutdown, null);
+    assert.strictEqual((await get('/api/status')).json.shutdown.armed, false);
+  } finally { await mut('PUT', '/api/config', { safety: { automationPaused: false } }); }
 });

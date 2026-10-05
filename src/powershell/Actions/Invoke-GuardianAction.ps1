@@ -42,13 +42,33 @@ try {
     $result = [pscustomobject]@{ ok = $false; action = $Action; mode = $Mode; message = ''; errors = @($_.Exception.Message); needsAdmin = $false; needsElevation = $false; identityKey = ''; verified = $false; details = $null; undo = $null }
 }
 
+function Get-ActionSubject {
+    # Canonical identity of what an action changed, so an undo (whose params differ) can be matched to the original.
+    param([string]$Action, $P, $Res)
+    function V($k) { if ($P -and $P.ContainsKey($k)) { [string]$P[$k] } else { '' } }
+    switch -Wildcard ($Action) {
+        'firewall.block-*' { $n = $null; try { $n = $Res.details.ruleName } catch { }; if ($n) { return "fw:$n" }; return $null }
+        'firewall.allow-*' { $n = $null; try { $n = $Res.details.ruleName } catch { }; if ($n) { return "fw:$n" }; return $null }
+        'firewall.remove-rule' { return "fw:$(V 'name')" }
+        'firewall.enable-rule' { return "fw:$(V 'name')" }
+        'firewall.disable-rule' { return "fw:$(V 'name')" }
+        'service.*' { return "service:$(V 'name')" }
+        'startup.*' { return "startup:$(V 'kind')|$(V 'name')|$(V 'location')" }
+        'task.*' { return "task:$(V 'taskPath')$(V 'taskName')" }
+        'dns.block-domain' { return "dns:$(V 'domain')" }
+        'dns.unblock-domain' { return "dns:$(V 'domain')" }
+        'deep.dnslog-*' { return 'dnslog' }
+        default { return $null }
+    }
+}
+
 if ($Mode -eq 'Execute') {
     # Audit trail: one event per attempt, whatever the outcome. Details carry verification and the undo recipe.
     $first = if (@($result.errors).Count) { @($result.errors)[0] } else { $null }
     $target = if ($params -and $params.Count) { (($params.GetEnumerator() | Where-Object { $_.Key -notlike '_*' } | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ') } else { $null }
     $res = if ($result.ok) { 'success' } elseif ($result.needsElevation) { 'skipped' } else { 'failure' }
     $reason = if ($result.message) { $result.message } else { $first }
-    [void](Write-GuardianEvent -Category remediation -Action "remediation:$Action" -Target $target -Result $res -Actor user -Severity $(if ($result.ok) { 'info' } else { 'warning' }) -Reason $reason -ErrorDetails $(if (-not $result.ok) { $first } else { $null }) -Data ([ordered]@{ verified = [bool]$result.verified; needsElevation = [bool]$result.needsElevation; details = $result.details; undo = $result.undo; elevated = (Test-IsAdmin); ticket = $Ticket }))
+    [void](Write-GuardianEvent -Category remediation -Action "remediation:$Action" -Target $target -Result $res -Actor user -Severity $(if ($result.ok) { 'info' } else { 'warning' }) -Reason $reason -ErrorDetails $(if (-not $result.ok) { $first } else { $null }) -Data ([ordered]@{ subject = (Get-ActionSubject -Action $Action -P $params -Res $result); verified = [bool]$result.verified; needsElevation = [bool]$result.needsElevation; details = $result.details; undo = $result.undo; elevated = (Test-IsAdmin); ticket = $Ticket }))
 }
 
 if ($Ticket) {

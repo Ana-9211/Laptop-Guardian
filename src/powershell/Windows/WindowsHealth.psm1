@@ -86,8 +86,8 @@ function Invoke-DismCheck {
     if ($c.TimedOut) { $result = 'timeout' }
     elseif ($c.Error) { $result = 'failed' }
     elseif ($c.Output -match 'No component store corruption detected') { $result = 'healthy' }
-    elseif ($c.Output -match 'repairable') { $result = 'repairable' }
     elseif ($c.Output -match 'not repairable') { $result = 'not-repairable' }
+    elseif ($c.Output -match 'repairable') { $result = 'repairable' }
     elseif ($c.ExitCode -ne 0) { $result = 'failed' }
     $rr = switch ($result) { 'healthy' { 'success' } 'timeout' { 'timeout' } 'failed' { 'failure' } default { 'success' } }
     [void](Write-GuardianEvent -Category windows -Action "dism:$Mode-finished" -Result $rr -Target $result -Severity $(if ($result -eq 'healthy') { 'info' } else { 'warning' }) -ErrorDetails $c.Error)

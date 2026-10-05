@@ -24,6 +24,11 @@ export function ScanBanner() {
   const report = finishedType ? s.reports[finishedType] : null;
   return (
     <div className="banners">
+      {s.bridge.restartNeeded && (
+        <div className="notice warn banner" role="status">
+          <Icon name="warn" /><div className="grow"><b>Laptop Guardian was updated, but this window is still using the old version.</b> Close it and open Laptop Guardian from its shortcut again to load the new code.</div>
+        </div>
+      )}
       {s.network?.deepActive && (
         <div className="notice warn banner" role="status">
           <Icon name="network" /><div className="grow"><b>Deep Network Guard is recording connection activity</b>{s.network.deepSince ? <><Sep />since {fmtDate(s.network.deepSince)}</> : null}. Metadata only (no packet contents), kept on this laptop.</div>
