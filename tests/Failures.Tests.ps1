@@ -100,14 +100,5 @@ Describe 'Permission denied' {
         $f = Join-Path $root 'locked.bin'; Set-Content $f 'abc'; $fs = [IO.File]::Open($f, 'Open', 'Read', 'None')
         try { Get-FileHashCached -Path $f -Size 5 -MTimeTicks 1 -Cache @{} | Should BeNullOrEmpty } finally { $fs.Dispose() }
     }
-    It 'bridge kill script refuses protected processes' {
-        $r = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:RepoRoot 'src\powershell\Actions\Stop-GuardianProcess.ps1') -ProcessId (Get-Process lsass).Id -Name 'lsass' -Path 'C:\Windows\System32\lsass.exe' | ConvertFrom-Json
-        $r.ok | Should Be $false
-        $r.message | Should Match 'protected|verify'
-    }
-    It 'bridge recycle script refuses protected paths' {
-        $r = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:RepoRoot 'src\powershell\Actions\Move-ToRecycleBin.ps1') -Path 'C:\Windows\notepad.exe' | ConvertFrom-Json
-        $r.ok | Should Be $false
-    }
 }
 Remove-TestRoot $root

@@ -75,9 +75,11 @@ function Invoke-Collection {
     $startup = Invoke-Safely 'startup-health' { Get-StartupHealth -Startup $persist.Startup } ([pscustomobject]@{ count = 0; items = @() })
 
     $defender = Invoke-Safely 'defender' { Get-DefenderStatus } ([pscustomobject]@{ available = $false; enabled = $null; realTimeProtection = $null; sigVersion = $null; sigAgeDays = $null; lastQuickScan = $null; threats = 0; scan = [pscustomobject]@{ ran = $false; result = 'not-run'; durationSec = 0; threats = @() } })
-    if (-not $SkipDefenderScan -and $defender.available -and -not $Config.safety.automationPaused) {
+    $recentScan = $false; try { $recentScan = ($defender.lastQuickScan -and (((Get-Date) - [datetime]$defender.lastQuickScan).TotalHours -lt 24)) } catch { }
+    if (-not $SkipDefenderScan -and $defender.available -and -not $Config.safety.automationPaused -and $recentScan) { [void](Write-GuardianEvent -Category defender -Action 'defender:QuickScan-skipped' -Result skipped -Reason 'A quick scan finished less than 24 hours ago.') }
+    if (-not $SkipDefenderScan -and $defender.available -and -not $Config.safety.automationPaused -and -not $recentScan) {
         [void](Invoke-Safely 'defender-update' { Update-DefenderSignatures } $null)
-        $scan = Invoke-Safely 'defender-scan' { Invoke-DefenderScan -Type QuickScan -TimeoutSec $DefenderTimeoutSec } ([pscustomobject]@{ ran = $false; result = 'failed'; durationSec = 0 })
+        $scan = Invoke-Safely 'defender-scan' { Invoke-DefenderScan -Type QuickScan -TimeoutSec ([math]::Min(120, $DefenderTimeoutSec)) -LeaveRunning } ([pscustomobject]@{ ran = $false; result = 'failed'; durationSec = 0 })
         $fresh2 = Invoke-Safely 'defender-status2' { Get-DefenderStatus } $null
         if ($fresh2) { $defender = $fresh2 }
         $defender.scan = [pscustomobject]@{ ran = [bool]$scan.ran; result = $scan.result; durationSec = $scan.durationSec; threats = @($defender.scan.threats) }

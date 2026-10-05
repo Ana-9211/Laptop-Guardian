@@ -179,6 +179,10 @@ function Update-RecommendationStore {
         $e = $byId[$id]
         if ($seen.ContainsKey($id)) { continue }
         if ($e.kind -notin $SweepKinds) { continue }
+        # The weekly file review is only produced by the weekly run; the daily sweep must not resolve it.
+        if ($id -eq (New-RecId 'storage' 'weekly-file-candidates' '')) { continue }
+        # A process recommendation that was not seen in this run keeps no PID-based stop command: the PID is stale by now.
+        if ($e.kind -eq 'process' -and (Get-PropNames $e) -contains 'stopCommand' -and $e.stopCommand) { $e.stopCommand = $null }
         $last = $null; try { $last = [datetime]$e.lastSeen } catch { }
         if ($e.status -eq 'open' -and $last -and (($today - $last.Date).TotalDays -gt 3)) { $e.status = 'resolved' }
     }

@@ -108,10 +108,10 @@ All JSON. Mutating requests (POST/PUT/PATCH/DELETE) must send header `X-Guardian
 - `GET /api/recommendations?status=&kind=` -> items; `POST /api/recommendations/:id/status {status}`
 - `GET /api/actions?limit=200&category=&severity=&q=&before=` -> `ActionEvent[]` newest first
 - `GET /api/reports?type=daily|weekly` -> `[{type,id,generatedAt,status,healthScore,summary,sizeKB}]`; `GET /api/reports/:type/:id` -> Report; `GET /api/reports/:type/:id/html` -> text/html; `DELETE /api/reports/:type/:id`; `GET /api/reports/export?type&id&format=json|csv`
-- `GET /api/files` -> files.json; `POST /api/files/ignore {id}`; `POST /api/files/recycle {path, confirm:true}` (Recycle Bin only)
+- `GET /api/files` -> files.json; `POST /api/files/ignore {id}`; files are recycled only through `/api/remediation/*` (`file.recycle`)
 - `GET|PUT /api/config` (never returns secrets); `GET|PUT /api/cleanup-policy`
 - `GET /api/policy`; `POST /api/policy {list:"blacklist|whitelist|ignored", name, path?, reason}`; `PATCH /api/policy/:list/:id {enabled?, disabledUntil?}`; `DELETE /api/policy/:list/:id`
-- `POST /api/process/kill {pid, name, path, confirm:true}` -> validated against live process (name+path match) and protected list; logs action
+- Stopping a process and recycling a file go through `/api/remediation/*` only (plan, confirm, execute); there are no direct kill or recycle endpoints.
 - `GET /api/commands/validate`? not exposed. 
 - `POST /api/ai/key {key}`; `DELETE /api/ai/key`; `GET /api/ai/status`; `POST /api/ai/test`; `POST /api/ai/analyze {recommendationId}`; `GET /api/ai/usage`
 - `POST /api/scan/daily`, `POST /api/scan/weekly {noShutdown:true}` -> starts agent detached; `GET /api/run`

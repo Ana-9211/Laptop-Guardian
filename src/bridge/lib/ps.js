@@ -27,8 +27,12 @@ function makeRunner(root) {
           // whole stdout may be pretty-printed multi-line JSON
           try { json = JSON.parse(String(stdout).trim()); } catch { /* ignore */ }
         }
-        if (err && !json) return res({ ok: false, error: err.killed ? 'script timed out' : (String(stderr).trim().split('\n')[0] || err.message) });
-        res({ ok: true, data: json || {} });
+        const exitCode = err ? (typeof err.code === 'number' ? err.code : 1) : 0;
+        const firstErr = String(stderr).trim().split('\n')[0];
+        if (err && !json) return res({ ok: false, exitCode, error: err.killed ? 'script timed out' : (firstErr || err.message) });
+        // A non-zero exit or a timeout is a failure even when partial JSON was printed first.
+        if (err) return res({ ok: false, exitCode, data: json, error: err.killed ? 'script timed out' : (json && json.error) || firstErr || `script exited with code ${exitCode}` });
+        res({ ok: true, exitCode, data: json || {} });
       });
       if (stdin !== undefined) { child.stdin.on('error', () => {}); child.stdin.end(stdin); }
     });

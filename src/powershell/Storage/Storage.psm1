@@ -66,7 +66,7 @@ function Get-DownloadsStats {
     if (-not (Test-Path -LiteralPath $dl)) { return $r }
     Initialize-FsWalker
     $w = [Guardian.FsWalker]::Walk($dl, @(), 0, [datetime]::MinValue, 200000, [datetime]::UtcNow.AddSeconds(30))
-    $cut = (Get-Date).AddDays(-$OldDays).Ticks
+    $cut = (Get-Date).AddDays(-$OldDays).ToUniversalTime().Ticks
     $installerBytes = 0L; $old = 0
     foreach ($e in $w.Entries) {
         if ($e.MTimeTicks -lt $cut) { $old++ }

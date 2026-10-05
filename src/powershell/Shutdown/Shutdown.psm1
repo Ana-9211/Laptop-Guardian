@@ -2,11 +2,24 @@
 # Shutdown: controlled Windows shutdown. Guardian never kills processes; Windows performs the shutdown.
 Set-StrictMode -Version 2.0
 
-function Get-SecondsUntil {
-    param([string]$TimeOfDay)   # "HH:mm"
+function Get-ShutdownDateTime {
+    <# Wall-clock target for "HH:mm". With -StartTime (the weekly run's start), an earlier target means an overnight window: after the start it falls on the next day. #>
+    param([string]$TimeOfDay, [string]$StartTime, [datetime]$Now = (Get-Date))
     $t = [datetime]::ParseExact($TimeOfDay, 'HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
-    $target = (Get-Date).Date.Add($t.TimeOfDay)
-    return [int](($target - (Get-Date)).TotalSeconds)
+    $target = $Now.Date.Add($t.TimeOfDay)
+    if ($StartTime) {
+        try {
+            $s = [datetime]::ParseExact($StartTime, 'HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
+            if ($t.TimeOfDay -lt $s.TimeOfDay -and $Now.TimeOfDay -ge $s.TimeOfDay) { $target = $target.AddDays(1) }
+        } catch { }
+    }
+    return $target
+}
+
+function Get-SecondsUntil {
+    param([string]$TimeOfDay, [string]$StartTime)   # "HH:mm"
+    $now = Get-Date
+    return [int]((Get-ShutdownDateTime -TimeOfDay $TimeOfDay -StartTime $StartTime -Now $now) - $now).TotalSeconds
 }
 
 function Test-ShutdownAllowed {
@@ -24,7 +37,7 @@ function Start-GuardianShutdown {
     $chk = Test-ShutdownAllowed -Config $Config -NoShutdown:$NoShutdown
     $res = [ordered]@{ planned = $null; initiated = $false; reason = $chk.Reason; delaySec = 0 }
     if (-not $chk.Allowed) { [void](Write-GuardianEvent -Category shutdown -Action 'shutdown:skipped' -Result skipped -Reason $chk.Reason); return [pscustomobject]$res }
-    $delay = Get-SecondsUntil $Config.schedule.weekly.shutdownTime
+    $delay = Get-SecondsUntil $Config.schedule.weekly.shutdownTime $Config.schedule.weekly.time
     # Never shut down outside the planned window (e.g. a missed run started late while you are working)
     if ($delay -lt 0 -or $delay -gt $MaxDelaySec) {
         $res.reason = 'Planned shutdown time has passed (or is too far away); shutdown withheld'

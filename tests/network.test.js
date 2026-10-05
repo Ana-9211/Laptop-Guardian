@@ -291,3 +291,27 @@ test('HTTP: firewall plans refuse gateway/DNS addresses, protected programs and 
     const call = ps.calls.find((c) => c.rel === 'Actions/Request-ElevatedAction.ps1'); assert.strictEqual(call.args[1], 'firewall.block-remote');
   } finally { b.close(); }
 });
+
+test('HTTP: GET /api/config then PUT the same body is accepted (Settings round trip)', async () => {
+  const b = await startBridge({ ps: snapshotRunner() });
+  try {
+    const cfg = (await b.get('/api/config')).json;
+    const { _ai, bridge, schemaVersion, ...body } = cfg; // eslint-disable-line no-unused-vars
+    assert.strictEqual((await b.put('/api/config', body)).status, 200, 'unchanged opt-in flags are not a flip');
+    body.network.deep.enabled = true;
+    assert.strictEqual((await b.put('/api/config', body)).status, 400, 'a real flip is still refused');
+  } finally { b.close(); }
+});
+
+test('HTTP: a failed or timed-out snapshot never overwrites the last good one', async () => {
+  let fail = false;
+  const ps = snapshotRunner({ 'Network/Get-NetworkSnapshot.ps1': () => (fail ? { ok: false, exitCode: 1, data: { connections: [] }, error: 'script timed out' } : { ok: true, data: makeNetworkSnapshot() }) });
+  const b = await startBridge({ ps });
+  try {
+    assert.strictEqual((await b.post('/api/network/snapshot', {})).status, 200);
+    const latest = path.join(b.root, 'data', 'latest', 'network.json'); const before = fs.readFileSync(latest, 'utf8');
+    fail = true;
+    assert.strictEqual((await b.post('/api/network/snapshot', {})).status, 502);
+    assert.strictEqual(fs.readFileSync(latest, 'utf8'), before);
+  } finally { b.close(); }
+});

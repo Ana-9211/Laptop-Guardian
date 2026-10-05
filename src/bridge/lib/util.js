@@ -103,6 +103,11 @@ const RANGES = {
   'network.thresholds.burstConnections': [5, 100000], 'network.thresholds.burstDestinations': [5, 100000], 'network.thresholds.unknownDestinations': [2, 1000],
   'network.thresholds.persistentDestinations': [2, 1000], 'network.thresholds.newConnectionsPerMinute': [5, 100000],
 };
+Object.assign(RANGES, {
+  'cleanup.tempMinAgeDays': [0, 365], 'storage.minLargeFileMB': [1, 1_000_000], 'storage.oldFileDays': [1, 3650], 'storage.duplicateMinMB': [1, 100_000],
+  'thresholds.cpuPct': [1, 100], 'thresholds.memoryMB': [50, 1_000_000], 'thresholds.diskFreeWarnPct': [1, 90], 'thresholds.diskFreeCritPct': [1, 89],
+  'retention.reportsDays': [0, 3650], 'retention.metricsDays': [0, 3650], 'retention.actionsDays': [0, 3650],
+});
 const READONLY = new Set(['schemaVersion', 'bridge.host']);
 
 /** Merge `patch` into a copy of `base`, accepting only keys that exist in DEFAULT_CONFIG with matching types. */
@@ -128,6 +133,7 @@ function mergeConfig(base, patch, defaults = DEFAULT_CONFIG, prefix = '') {
     else if (typeof v === 'number' && (!Number.isFinite(v) || v < (RANGES[key]?.[0] ?? 0) || v > (RANGES[key]?.[1] ?? 1e9))) errors.push(`${key} out of range`);
     else out[k] = v;
   }
+  if (prefix === '' && !errors.length && out.thresholds && out.thresholds.diskFreeCritPct >= out.thresholds.diskFreeWarnPct) errors.push('thresholds.diskFreeCritPct must be lower than diskFreeWarnPct');
   return { value: out, errors };
 }
 

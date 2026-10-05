@@ -41,7 +41,7 @@ Describe 'Install -> scan -> dashboard -> uninstall' {
         (Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing).Content | Should Match 'id="root"'
     }
     It 'bridge blocks mutating requests without the CSRF header' {
-        $code = try { (Invoke-WebRequest "http://127.0.0.1:$port/api/process/kill" -Method Post -Body '{}' -ContentType 'application/json' -UseBasicParsing).StatusCode } catch { [int]$_.Exception.Response.StatusCode }
+        $code = try { (Invoke-WebRequest "http://127.0.0.1:$port/api/policy" -Method Post -Body '{}' -ContentType 'application/json' -UseBasicParsing).StatusCode } catch { [int]$_.Exception.Response.StatusCode }
         $code | Should Be 403
     }
     It 'bridge rejects a foreign Host header (DNS-rebinding defence)' {

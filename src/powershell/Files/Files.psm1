@@ -182,6 +182,7 @@ function Invoke-FileAnalysis {
         $w = [Guardian.FsWalker]::Walk($dl, [string[]]$excluded, 1MB, [datetime]::UtcNow.AddDays(-90), 20000, $deadline)
         $have = @{}; foreach ($e in $entries) { $have[$e.Path.ToLowerInvariant()] = $true }
         foreach ($e in $w.Entries) { if (-not $have.ContainsKey($e.Path.ToLowerInvariant())) { [void]$entries.Add($e) } }
+        if ($w.Truncated) { $truncated = $true }
     }
     # crash dumps explicitly
     foreach ($d in @("$env:LOCALAPPDATA\CrashDumps")) {
@@ -217,7 +218,7 @@ function Invoke-FileAnalysis {
         if (-not $interesting) { continue }
         $c = Get-FileClassification -Path $e.Path -SizeMB $sizeMB -AgeDays $age -IsDuplicate $isDup -DuplicateOf $(if ($isDup) { $dupLookup[$e.Path.ToLowerInvariant()] } else { $null }) -ProtectedDirs @($Config.storage.protectedDirs) -OldFileDays $old -LastAccessDays ([int]($now - $a).TotalDays)
         $sha = [System.Security.Cryptography.SHA1]::Create()
-        $id = (($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($e.Path.ToLowerInvariant())) | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 12)
+        try { $id = (($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($e.Path.ToLowerInvariant())) | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 12) } finally { $sha.Dispose() }
         [void]$cands.Add([pscustomobject][ordered]@{
                 id = $id; path = $e.Path; name = [System.IO.Path]::GetFileName($e.Path); sizeMB = $sizeMB; lastModified = ConvertTo-IsoTime $m; lastAccessed = ConvertTo-IsoTime $a
                 ageDays = $age; extension = $ext; classification = $c.classification; category = $c.category; whatIsIt = $c.whatIsIt; whyFlagged = @($c.whyFlagged)

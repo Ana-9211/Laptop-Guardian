@@ -34,7 +34,7 @@ function Find-PolicyMatch {
             if ((ConvertTo-ProcKey $e.name) -ne $k) { continue }
             $ep = if ((Get-PropNames $e) -contains 'path') { $e.path } else { $null }
             if ($ep -and (-not $Path -or ($ep -ine $Path))) { continue }   # path-scoped entry: must match exactly
-            if (-not (Test-PolicyEntryActive $e) -and $list -eq 'blacklist') { continue }
+            if (-not (Test-PolicyEntryActive $e)) { continue }
             return [pscustomobject]@{ list = $list; entry = $e }
         }
     }

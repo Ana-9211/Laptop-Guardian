@@ -27,9 +27,14 @@ function Get-DefenderStatus {
         try { $r.tamperProtected = [bool]$s.IsTamperProtected } catch { }
     } catch { $r.error = $_.Exception.Message }
     try {
-        $det = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { $_.InitialDetectionTime -gt (Get-Date).AddDays(-30) -and $_.ThreatStatusID -ne 5 })
+        # Only unresolved detections count: 1 detected, 5 allowed, 102-106 an action (quarantine/remove/allow/abandon/block) failed.
+        # 2 cleaned, 3 quarantined, 4 removed and 6 blocked are resolved and must not be reported as active threats.
+        $unresolved = 1, 5, 102, 103, 104, 105, 106
+        $det = @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { $_.InitialDetectionTime -gt (Get-Date).AddDays(-30) -and ([int]$_.ThreatStatusID) -in $unresolved } | Group-Object { [string]$_.ThreatID } | ForEach-Object { $_.Group | Sort-Object InitialDetectionTime -Descending | Select-Object -First 1 })
+        $names = @{}
+        try { foreach ($t in @(Get-MpThreat -ErrorAction Stop)) { $names[[string]$t.ThreatID] = [string]$t.ThreatName } } catch { }
         $r.threats = $det.Count
-        $r.scan.threats = @($det | Select-Object -First 20 | ForEach-Object { [pscustomobject]@{ name = [string]$_.ThreatID; severity = 'unknown'; status = [string]$_.ThreatStatusID } })
+        $r.scan.threats = @($det | Select-Object -First 20 | ForEach-Object { $tid = [string]$_.ThreatID; [pscustomobject]@{ name = $(if ($names.ContainsKey($tid) -and $names[$tid]) { $names[$tid] } else { "Threat ID $tid" }); severity = 'unknown'; status = [string]$_.ThreatStatusID } })
     } catch { }
     [pscustomobject]$r
 }
@@ -43,12 +48,13 @@ function Update-DefenderSignatures {
 }
 
 function Invoke-DefenderScan {
-    param([ValidateSet('QuickScan', 'FullScan')][string]$Type = 'QuickScan', [int]$TimeoutSec = 900)
+    # -LeaveRunning: a scan still going at the deadline is reported as 'running' (Defender keeps scanning) instead of 'timeout'.
+    param([ValidateSet('QuickScan', 'FullScan')][string]$Type = 'QuickScan', [int]$TimeoutSec = 900, [switch]$LeaveRunning)
     [void](Write-GuardianEvent -Category defender -Action "defender:$Type-started" -Result started)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $res = Invoke-JobWithTimeout -TimeoutSec $TimeoutSec -ArgumentList $Type -ScriptBlock { param($t) Start-MpScan -ScanType $t -ErrorAction Stop }
     $sw.Stop()
-    $result = if ($res.TimedOut) { 'timeout' } elseif ($res.Ok) { 'completed' } else { 'failed' }
+    $result = if ($res.TimedOut) { $(if ($LeaveRunning) { 'running' } else { 'timeout' }) } elseif ($res.Ok) { 'completed' } else { 'failed' }
     $sev = if ($result -eq 'completed') { 'info' } else { 'warning' }
     $rr = if ($result -eq 'completed') { 'success' } elseif ($result -eq 'timeout') { 'timeout' } else { 'failure' }
     [void](Write-GuardianEvent -Category defender -Action "defender:$Type-finished" -Result $rr -Severity $sev -ErrorDetails $res.Error)

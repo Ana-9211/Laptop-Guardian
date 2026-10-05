@@ -142,6 +142,19 @@ function createApp(root, opts = {}) {
 
   // ---------- live status ----------
   const startedAt = U.localIso();
+  const startedMs = Date.now();
+  // Newest modification time among the bridge's own code. A newer file than the process start means this bridge runs old code.
+  let codeCache = { at: 0, mtimeMs: 0 };
+  function codeMtime() {
+    if (Date.now() - codeCache.at < 10000) return codeCache.mtimeMs;
+    let newest = 0;
+    const walk = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const f = path.join(dir, e.name); if (e.isDirectory()) walk(f); else if (e.name.endsWith('.js')) newest = Math.max(newest, fs.statSync(f).mtimeMs); } };
+    try { walk(path.join(root, 'src', 'bridge')); } catch { /* unreadable: report no change */ }
+    try { newest = Math.max(newest, fs.statSync(path.join(root, 'src', 'shared', 'action-catalog.json')).mtimeMs); } catch { /* optional */ }
+    codeCache = { at: Date.now(), mtimeMs: newest };
+    return newest;
+  }
+  const restartNeeded = () => codeMtime() > startedMs + 2000;
   const isAlive = opts.isAlive || ((pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } });
   const currentRun = () => S.sanitizeRun(U.readJson(P.runState, {}) || {}, isAlive);
   const mtimeCache = new Map();
@@ -185,7 +198,7 @@ function createApp(root, opts = {}) {
   const dirCount = (type, re) => { try { return fs.readdirSync(path.join(P.reports, type)).filter((n) => re.test(n)).length; } catch { return 0; } };
 
   // `root` lets the launcher confirm a bridge belongs to THIS installation before it ever considers stopping it.
-  route('GET', '/api/ping', () => ({ app: 'laptop-guardian', version: VERSION, pid: process.pid, startedAt, port: boundPort, root, distBuilt: fs.existsSync(path.join(P.dist, 'index.html')) }));
+  route('GET', '/api/ping', () => ({ app: 'laptop-guardian', version: VERSION, pid: process.pid, startedAt, codeMtime: new Date(codeMtime()).toISOString(), restartNeeded: restartNeeded(), port: boundPort, root, distBuilt: fs.existsSync(path.join(P.dist, 'index.html')) }));
 
   route('GET', '/api/status', async ({ query }) => {
     const c = config();
@@ -199,11 +212,11 @@ function createApp(root, opts = {}) {
     const recs = loadRecs().items.filter((r) => r.status === 'open');
     const daily = cachedJson(P.latest('daily.json')); const weekly = cachedJson(P.latest('weekly.json'));
     const procs = cachedJson(P.latest('processes.json'), null); const files = cachedJson(P.latest('files.json'), null);
-    const shutdownGates = c.schedule.weekly.enabled && c.schedule.weekly.shutdownEnabled && c.safety.weeklyShutdown && !c.safety.automationPaused;
+    const shutdownGates = shutdownArmed(c);
     const worst = tasks.some((t) => t.level === 'crit') ? 'crit' : tasks.some((t) => t.level === 'warn') ? 'warn' : tasks.some((t) => t.level === 'info' && t.status !== 'never-run' && t.status !== 'off') ? 'info' : 'ok';
     return {
       now: U.localIso(),
-      bridge: { ok: true, pid: process.pid, version: VERSION, startedAt, port: boundPort, uptimeSec: Math.round(process.uptime()) },
+      bridge: { ok: true, pid: process.pid, version: VERSION, startedAt, restartNeeded: restartNeeded(), port: boundPort, uptimeSec: Math.round(process.uptime()) },
       run,
       lastAction: acts.length ? acts[acts.length - 1] : null,
       actions24h: { total: recent.length, warnings: recent.filter((a) => a.severity === 'warning').length, errors: recent.filter((a) => a.severity === 'error').length, lastError: lastErr ? { ts: lastErr.ts, action: lastErr.action, error: lastErr.error || lastErr.reason } : null },
@@ -242,7 +255,7 @@ function createApp(root, opts = {}) {
       next: {
         daily: c.schedule.daily.enabled ? U.nextRun(c.schedule.daily.time) : null,
         weekly: c.schedule.weekly.enabled ? U.nextRun(c.schedule.weekly.time, c.schedule.weekly.day) : null,
-        shutdown: c.schedule.weekly.enabled && c.schedule.weekly.shutdownEnabled && c.safety.weeklyShutdown ? U.nextRun(c.schedule.weekly.shutdownTime, c.schedule.weekly.day === 'Saturday' ? 'Saturday' : c.schedule.weekly.day) : null,
+        shutdown: shutdownArmed(c) ? U.nextRun(c.schedule.weekly.shutdownTime, c.schedule.weekly.day) : null,
       },
       safety: c.safety, ai: aiStatus(), run: currentRun(),
       openRecommendations: recs.filter((r) => r.status === 'open').length,
@@ -351,25 +364,12 @@ function createApp(root, opts = {}) {
     return { ok: true };
   });
 
-  route('POST', '/api/files/recycle', async ({ body }) => {
-    need(body.confirm === true, 'confirm:true required');
-    const p = str(body.path, 'path', 1000);
-    need(path.isAbsolute(p) && !p.startsWith('\\\\'), 'path must be an absolute local path');
-    const files = U.readJson(P.latest('files.json'), {}) || {};
-    const known = (files.candidates || []).some((c) => c.path === p);
-    need(known, 'path is not a current Guardian file recommendation', 403);
-    const r = await ps.run('Actions/Move-ToRecycleBin.ps1', ['-Path', p]);
-    if (r.missing) throw new HttpError(501, r.error);
-    const ok = r.ok && r.data && r.data.success !== false;
-    log({ category: 'file', action: 'file.recycle', target: p, result: ok ? 'success' : 'failure', error: ok ? null : (r.error || r.data?.error || 'failed'), reason: 'user confirmed in dashboard' });
-    need(ok, r.error || r.data?.error || 'recycle failed', 500);
-    return r.data;
-  });
-
   route('GET', '/api/config', () => ({ ...config(), _ai: aiStatus() }));
   route('PUT', '/api/config', ({ body }) => {
     const net = body && body.network;
-    need(!(net && ((net.deep && 'enabled' in net.deep) || (net.dnsFiltering && 'enabled' in net.dnsFiltering))), 'Deep Network Guard and DNS filtering are switched on or off only from Network Guard, with their own confirmation.', 400);
+    const cur = config().network || {};
+    const flips = (k) => net && net[k] && 'enabled' in net[k] && net[k].enabled !== (cur[k] || {}).enabled;
+    need(!(flips('deep') || flips('dnsFiltering')), 'Deep Network Guard and DNS filtering are switched on or off only from Network Guard, with their own confirmation.', 400);
     const m = U.mergeConfig(config(), body);
     need(m.errors.length === 0, m.errors.join('; '));
     U.writeJsonAtomic(P.config, m.value);
@@ -438,22 +438,6 @@ function createApp(root, opts = {}) {
     U.writeJsonAtomic(P.policy, pol);
     log({ category: 'policy', action: `policy.${params.list}.remove`, target: e.name });
     return { ok: true };
-  });
-
-  route('POST', '/api/process/kill', async ({ body }) => {
-    need(body.confirm === true, 'confirm:true required');
-    need(Number.isInteger(body.pid) && body.pid > 4 && body.pid < 4194304, 'pid must be an integer > 4');
-    const name = str(body.name, 'name', 128);
-    const p = body.path == null || body.path === '' ? '' : str(body.path, 'path', 1000);
-    // The target must be a process Guardian has actually observed; the script re-validates against the live process and a protected list.
-    const snap = U.readJson(P.latest('processes.json'), { processes: [] }) || {};
-    need((snap.processes || []).some((x) => x.pid === body.pid && String(x.name).toLowerCase() === name.toLowerCase()), 'process is not in the latest Guardian snapshot; refresh first', 409);
-    const r = await ps.run('Actions/Stop-GuardianProcess.ps1', ['-ProcessId', String(body.pid), '-Name', name, '-Path', p]);
-    if (r.missing) throw new HttpError(501, r.error);
-    const ok = r.ok && r.data && r.data.success !== false;
-    log({ category: 'process', action: 'process.kill', target: `${name} (PID ${body.pid})`, result: ok ? 'success' : 'failure', reason: 'user clicked Kill once', relatedRecommendation: body.recommendationId || null, error: ok ? null : (r.error || r.data?.error || 'failed') });
-    need(ok, r.error || r.data?.error || 'kill failed', 422);
-    return r.data;
   });
 
   // ---- AI ----
@@ -749,9 +733,12 @@ function createApp(root, opts = {}) {
     });
   }
 
+  /** One definition of "a weekly shutdown can happen", shared by /api/status and /api/overview. */
+  function shutdownArmed(c) { return !!(c.schedule.weekly.enabled && c.schedule.weekly.shutdownEnabled && c.safety.weeklyShutdown && !c.safety.automationPaused); }
+
   function serveStatic(req, res, pathname) {
     const base = path.resolve(P.dist);
-    let rel = decodeURIComponent(pathname);
+    let rel; try { rel = decodeURIComponent(pathname); } catch { throw new HttpError(400, 'bad path'); }
     if (rel.includes('\0')) throw new HttpError(400, 'bad path');
     let file = path.resolve(base, '.' + path.posix.normalize('/' + rel));
     if (file !== base && !file.startsWith(base + path.sep)) throw new HttpError(403, 'forbidden');
@@ -792,7 +779,7 @@ function createApp(root, opts = {}) {
       }
       const m = r.re.exec(url.pathname);
       const params = {};
-      r.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]); });
+      try { r.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]); }); } catch { throw new HttpError(400, 'malformed URL encoding'); }
       const body = mutating ? await readBody(req) : {};
       const out = await r.handler({ params, query: url.searchParams, body });
       if (out && out.__raw !== undefined) {

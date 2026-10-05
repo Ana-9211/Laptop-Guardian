@@ -9,12 +9,24 @@ import { ScheduleRepairNotice } from '../components/ScheduleRepair';
 
 type Draft = Config;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
-const strip = (c: Config) => { const x = clone(c) as Partial<Config>; delete x._ai; delete x.bridge; delete x.schemaVersion; return x; };
+const strip = (c: Config) => { const x = clone(c) as Partial<Config>; delete x._ai; delete x.bridge; delete x.schemaVersion;
+  // Deep Network Guard and DNS filtering are switched only from Network Guard, with their own confirmation.
+  if (x.network) { delete (x.network as { deep?: unknown }).deep; delete (x.network as { dnsFiltering?: unknown }).dnsFiltering; }
+  return x; };
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
 function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
   return <label className="field"><span>{label}</span>{children}{hint && <span className="hint" style={{ fontWeight: 400 }}>{hint}</span>}</label>;
+}
+/** Numeric input that never turns an empty or out-of-range entry into a value: it keeps the text while typing and commits only valid numbers, clamping on blur. */
+function Num({ value, onChange, min = 0, max = 1_000_000_000, step }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => { setText((t) => (Number(t) === value ? t : String(value))); }, [value]);
+  const bad = text.trim() === '' || !Number.isFinite(Number(text)) || Number(text) < min || Number(text) > max;
+  return <input type="number" inputMode="decimal" min={min} max={max} step={step} value={text} aria-invalid={bad || undefined} title={bad ? `Enter a number from ${min} to ${max}` : undefined}
+    onChange={(e) => { setText(e.target.value); const v = Number(e.target.value); if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= min && v <= max) onChange(v); }}
+    onBlur={() => { const v = Number(text); const c = text.trim() === '' || !Number.isFinite(v) ? value : Math.min(max, Math.max(min, v)); setText(String(c)); if (c !== value) onChange(c); }} />;
 }
 const Lines = ({ value, onChange, rows = 3, placeholder }: { value: string[]; onChange: (v: string[]) => void; rows?: number; placeholder?: string }) => (
   <textarea rows={rows} value={value.join('\n')} placeholder={placeholder} spellCheck={false} style={{ fontFamily: 'var(--mono)', fontSize: 12.5, width: '100%' }} onChange={(e) => onChange(e.target.value.split('\n').map((x) => x.trim()).filter(Boolean))} />
@@ -117,9 +129,9 @@ export default function Settings() {
           {testMsg && <div className={`notice ${testMsg.ok ? 'ok' : 'crit'}`} role="status">{testMsg.text}</div>}
           <div className="grid g4">
             <Field label="Model"><input list="models" value={d.ai.model} onChange={(e) => upd((x) => { x.ai.model = e.target.value; })} /><datalist id="models">{MODELS.map((m) => <option key={m} value={m} />)}</datalist></Field>
-            <Field label="Max requests per run"><input type="number" min={0} max={500} value={d.ai.maxRequestsPerRun} onChange={(e) => upd((x) => { x.ai.maxRequestsPerRun = +e.target.value; })} /></Field>
-            <Field label="Max processes per run"><input type="number" min={0} max={100} value={d.ai.maxProcessesPerRun} onChange={(e) => upd((x) => { x.ai.maxProcessesPerRun = +e.target.value; })} /></Field>
-            <Field label="Daily token budget"><input type="number" min={0} step={10000} value={d.ai.dailyTokenBudget} onChange={(e) => upd((x) => { x.ai.dailyTokenBudget = +e.target.value; })} /></Field>
+            <Field label="Max requests per run"><Num min={0} max={500} value={d.ai.maxRequestsPerRun} onChange={(v) => upd((x) => { x.ai.maxRequestsPerRun = v; })} /></Field>
+            <Field label="Max processes per run"><Num min={0} max={100} value={d.ai.maxProcessesPerRun} onChange={(v) => upd((x) => { x.ai.maxProcessesPerRun = v; })} /></Field>
+            <Field label="Daily token budget"><Num min={0} step={10000} value={d.ai.dailyTokenBudget} onChange={(v) => upd((x) => { x.ai.dailyTokenBudget = v; })} /></Field>
           </div>
           <Field label="Analysis scope"><select value={d.ai.scope} onChange={(e) => upd((x) => { x.ai.scope = e.target.value; })}><option value="metadata">Metadata only (default)</option><option value="metadata+paths">Metadata and full executable paths</option></select></Field>
           <div>
@@ -159,7 +171,7 @@ export default function Settings() {
             <Switch checked={d.cleanup.crashDumps} onChange={(v) => upd((x) => { x.cleanup.crashDumps = v; })} label="Clean crash dumps" hint="Removes minidumps and memory dumps. You lose the data used to diagnose a past blue screen." />
             <Switch checked={d.cleanup.caches} onChange={(v) => upd((x) => { x.cleanup.caches = v; })} label="Clean known safe caches" hint="Windows thumbnail and error-report caches. Rebuilt automatically; the first use afterwards may be slightly slower." />
             <Field label="Recycle Bin" hint="Never is safest: Guardian will not empty the Recycle Bin."><select value={d.cleanup.recycleBin} onChange={(e) => upd((x) => { x.cleanup.recycleBin = e.target.value; })}><option value="never">Never empty</option><option value="older-than-30-days">Empty items older than 30 days</option><option value="always">Empty on every run (not recommended)</option></select></Field>
-            <Field label="Only clean temp files older than (days)"><input type="number" min={0} max={365} value={d.cleanup.tempMinAgeDays} onChange={(e) => upd((x) => { x.cleanup.tempMinAgeDays = +e.target.value; })} /></Field>
+            <Field label="Only clean temp files older than (days)"><Num min={0} max={365} value={d.cleanup.tempMinAgeDays} onChange={(v) => upd((x) => { x.cleanup.tempMinAgeDays = v; })} /></Field>
           </div>
         </div>
       </Card>
@@ -170,8 +182,8 @@ export default function Settings() {
           {pol.data ? <div className="row" style={{ gap: 20 }}><span><b className="num">{pol.data.blacklist.length}</b> <a href="#/blacklist">blacklisted</a></span><span><b className="num">{pol.data.whitelist.length}</b> <a href="#/whitelist">whitelisted</a></span><span><b className="num">{pol.data.ignored.length}</b> ignored recommendations</span></div> : <div className="small muted">Loading...</div>}
           <Switch checked={d.safety.autoKillBlacklisted} onChange={(v) => safety('autoKillBlacklisted', v)} label="Automatically terminate blacklisted processes" hint="Only entries on your blacklist. Unknown processes are never terminated automatically." />
           <div className="grid g4">
-            <Field label="Flag CPU above (%)"><input type="number" min={1} max={100} value={d.thresholds.cpuPct} onChange={(e) => upd((x) => { x.thresholds.cpuPct = +e.target.value; })} /></Field>
-            <Field label="Flag memory above (MB)"><input type="number" min={50} value={d.thresholds.memoryMB} onChange={(e) => upd((x) => { x.thresholds.memoryMB = +e.target.value; })} /></Field>
+            <Field label="Flag CPU above (%)"><Num min={1} max={100} value={d.thresholds.cpuPct} onChange={(v) => upd((x) => { x.thresholds.cpuPct = v; })} /></Field>
+            <Field label="Flag memory above (MB)"><Num min={50} value={d.thresholds.memoryMB} onChange={(v) => upd((x) => { x.thresholds.memoryMB = v; })} /></Field>
           </div>
         </div>
       </Card>
@@ -183,9 +195,9 @@ export default function Settings() {
           <Field label="Excluded directories" hint="Never scanned."><Lines value={d.storage.excludedDirs} onChange={(v) => upd((x) => { x.storage.excludedDirs = v; })} rows={2} placeholder="D:\Games" /></Field>
           <Field label="Protected directories" hint="Scanned for reporting but never recommended for removal."><Lines value={d.storage.protectedDirs} onChange={(v) => upd((x) => { x.storage.protectedDirs = v; })} rows={2} placeholder="C:\Users\You\Documents" /></Field>
           <div className="grid g2" style={{ alignContent: 'start' }}>
-            <Field label="Minimum large file (MB)"><input type="number" min={1} value={d.storage.minLargeFileMB} onChange={(e) => upd((x) => { x.storage.minLargeFileMB = +e.target.value; })} /></Field>
-            <Field label="Old file after (days)"><input type="number" min={1} value={d.storage.oldFileDays} onChange={(e) => upd((x) => { x.storage.oldFileDays = +e.target.value; })} /></Field>
-            <Field label="Duplicate minimum (MB)"><input type="number" min={1} value={d.storage.duplicateMinMB} onChange={(e) => upd((x) => { x.storage.duplicateMinMB = +e.target.value; })} /></Field>
+            <Field label="Minimum large file (MB)"><Num min={1} value={d.storage.minLargeFileMB} onChange={(v) => upd((x) => { x.storage.minLargeFileMB = v; })} /></Field>
+            <Field label="Old file after (days)"><Num min={1} value={d.storage.oldFileDays} onChange={(v) => upd((x) => { x.storage.oldFileDays = v; })} /></Field>
+            <Field label="Duplicate minimum (MB)"><Num min={1} value={d.storage.duplicateMinMB} onChange={(v) => upd((x) => { x.storage.duplicateMinMB = v; })} /></Field>
             <div style={{ alignSelf: 'end' }}><Switch checked={d.storage.duplicateScan} onChange={(v) => upd((x) => { x.storage.duplicateScan = v; })} label="Scan for duplicates" /></div>
           </div>
         </div>
@@ -193,7 +205,7 @@ export default function Settings() {
 
       <Card title="Retention">
         <div className="grid g3">
-          {(['reportsDays', 'metricsDays', 'actionsDays'] as const).map((k) => <Field key={k} label={`Keep ${k.replace('Days', '')} for (days)`} hint="0 keeps everything forever."><input type="number" min={0} value={d.retention[k]} onChange={(e) => upd((x) => { x.retention[k] = +e.target.value; })} /></Field>)}
+          {(['reportsDays', 'metricsDays', 'actionsDays'] as const).map((k) => <Field key={k} label={`Keep ${k.replace('Days', '')} for (days)`} hint="0 keeps everything forever."><Num min={0} value={d.retention[k]} onChange={(v) => upd((x) => { x.retention[k] = v; })} /></Field>)}
         </div>
       </Card>
 

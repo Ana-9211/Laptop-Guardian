@@ -236,6 +236,21 @@ test('history exposes undo only for reversible successes, and an undo is a norma
   } finally { done(); }
 });
 
+test('history: an undo whose params differ from the original still marks the original as undone (canonical subject)', () => {
+  const events = [
+    { id: 's1', ts: '2026-10-05T10:00:00Z', category: 'remediation', action: 'remediation:service.disable', target: 'name=Fax', result: 'success', data: { subject: 'service:Fax', verified: true, undo: { action: 'service.enable', params: { name: 'Fax', startMode: 'Manual' } } } },
+    { id: 's2', ts: '2026-10-05T10:10:00Z', category: 'remediation', action: 'remediation:service.enable', target: 'name=Fax; startMode=Manual', result: 'success', data: { subject: 'service:Fax', verified: true, undo: { action: 'service.disable', params: { name: 'Fax' } } } },
+    { id: 'f1', ts: '2026-10-05T10:20:00Z', category: 'remediation', action: 'remediation:firewall.block-remote', target: 'remote=203.0.113.9; duration=1h', result: 'success', data: { subject: 'fw:LG-1-abc123', verified: true, undo: { action: 'firewall.remove-rule', params: { name: 'LG-1-abc123' } } } },
+  ];
+  const { eng, done } = engine({ events, handlers: {} });
+  try {
+    const h = eng.history();
+    assert.strictEqual(h.find((x) => x.id === 's1').canUndo, false, 'already undone');
+    assert.strictEqual(h.find((x) => x.id === 's2').canUndo, true, 'the re-enable can itself be undone');
+    assert.strictEqual(h.find((x) => x.id === 'f1').canUndo, true);
+  } finally { done(); }
+});
+
 // ---------- findings ----------
 const NOW = Date.parse('2026-10-05T12:00:00+05:30');
 const baseCtx = (o = {}) => ({ recs: [], processes: [], files: null, daily: null, weekly: null, tasks: [], apps: null, revo: null, history: [], protectedDirs: [], guardianRoot: 'C:\\Guardian', now: NOW, ...o });
