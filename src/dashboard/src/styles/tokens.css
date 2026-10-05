@@ -1,0 +1,76 @@
+/*
+ * Design tokens. Every colour is defined once with light-dark(), so the light, dark and system themes cannot drift apart.
+ *   system: color-scheme "light dark" follows the OS;  data-theme="light" / "dark" on <html> forces a theme.
+ * Requires Chromium 123+ (Edge or Chrome), which is what the app-style launcher uses.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* surfaces: bg < sunken < panel < raised < overlay */
+  --bg: light-dark(#edf0f4, #090d12);
+  --sunken: light-dark(#e3e8ee, #0c1117);
+  --panel: light-dark(#ffffff, #0f151c);
+  --raised: light-dark(#f5f7fa, #141c25);
+  --overlay: light-dark(#ffffff, #18212b);
+  --line: light-dark(#dbe1e8, #1d2833);
+  --line-strong: light-dark(#bec8d3, #2c3a48);
+
+  /* text */
+  --text: light-dark(#111a24, #e4ebf2);
+  --text-2: light-dark(#3a4857, #adbac7);
+  --muted: light-dark(#586677, #8190a0);
+
+  /* brand + semantic colours (each has a soft tint for backgrounds) */
+  --accent: light-dark(#0a7560, #3dd1ae);
+  --accent-soft: light-dark(#d6efe8, #0f2f29);
+  --accent-ink: light-dark(#ffffff, #04201a);
+  --ok: light-dark(#17703f, #4fc283);
+  --ok-soft: light-dark(#dcf1e5, #12301f);
+  --info: light-dark(#1d5d9c, #6db0ee);
+  --info-soft: light-dark(#dce9f6, #132a3f);
+  --warn: light-dark(#80560a, #e0aa47);
+  --warn-soft: light-dark(#f7ecd2, #36290f);
+  --crit: light-dark(#b0372a, #f0705f);
+  --crit-soft: light-dark(#f8e0dc, #3b1a16);
+  --crit-ink: light-dark(#ffffff, #1a0805);
+  --offline: light-dark(#6b7684, #6f7d8b);
+
+  /* chart series */
+  --s1: light-dark(#1f6fb8, #5aa2e6);
+  --s2: light-dark(#b0721a, #d8943a);
+  --s3: light-dark(#7a4cba, #a98be6);
+
+  /* code */
+  --code-bg: light-dark(#eef1f5, #0b1016);
+  --code-kw: light-dark(#8a3b9c, #c792ea);
+  --code-str: light-dark(#1c6b3c, #8fd19e);
+  --code-var: light-dark(#1f5f9e, #82aaff);
+  --code-flag: light-dark(#80560a, #e6c07b);
+
+  /* depth */
+  --shadow-1: 0 1px 2px light-dark(rgba(16, 28, 40, .06), rgba(0, 0, 0, .35));
+  --shadow-2: 0 10px 30px light-dark(rgba(16, 28, 40, .14), rgba(0, 0, 0, .55)), 0 2px 6px light-dark(rgba(16, 28, 40, .08), rgba(0, 0, 0, .4));
+  --edge: inset 0 1px 0 light-dark(rgba(255, 255, 255, .7), rgba(255, 255, 255, .035));
+  --scrim: light-dark(rgba(14, 22, 32, .42), rgba(2, 5, 9, .62));
+
+  /* type */
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", ui-monospace, monospace;
+
+  /* shape, layout, motion */
+  --r: 8px; --r-lg: 12px; --r-pill: 999px;
+  --nav-w: 244px; --nav-w-collapsed: 64px; --bar-h: 56px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --t-fast: 120ms; --t-med: 200ms; --t-slow: 320ms;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* semantic tone helper: set data-tone on any element, then use var(--tone) / var(--tone-soft) */
+[data-tone="ok"] { --tone: var(--ok); --tone-soft: var(--ok-soft); }
+[data-tone="info"], [data-tone="active"] { --tone: var(--info); --tone-soft: var(--info-soft); }
+[data-tone="warn"] { --tone: var(--warn); --tone-soft: var(--warn-soft); }
+[data-tone="crit"] { --tone: var(--crit); --tone-soft: var(--crit-soft); }
+[data-tone="offline"], [data-tone="disabled"] { --tone: var(--offline); --tone-soft: var(--sunken); }
+[data-tone="accent"] { --tone: var(--accent); --tone-soft: var(--accent-soft); }

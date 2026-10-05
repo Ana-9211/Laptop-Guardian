@@ -17,6 +17,7 @@ export function RecCard({ rec, onOpen }: { rec: Recommendation; onOpen?: (r: Rec
         <Badge tone="outline">{rec.kind}</Badge>
         <span>{rec.suggestedAction}</span><Sep />
         <span>{(rec.consecutiveDays ?? 0) > 1 ? `${rec.consecutiveDays} days in a row` : `seen ${ago(rec.lastSeen)}`}</span>
+        {onOpen && <span className="go-hint"><Icon name="chev" size={14} /></span>}
       </div>
     </button>
   );
@@ -27,14 +28,14 @@ export function ActionTimeline({ rows, max = 8 }: { rows: ActionEvent[]; max?: n
   return (
     <div className="timeline">
       {rows.slice(0, max).map((a) => (
-        <div className="tl" key={a.id}>
+        <a className="tl" key={a.id} href={`#/logs?q=${encodeURIComponent(a.id)}`} aria-label={`Open ${a.action} in the log`}>
           <span className={`dot ${CAT_TONE[a.severity] || 'info'}`} />
           <div style={{ minWidth: 0 }}>
             <div className="row tight"><b className="mono" style={{ fontSize: 12.5 }}>{a.action}</b>{a.target && <span className="t2 trunc" style={{ maxWidth: 260 }}>{a.target}</span>}
               {a.result && a.result !== 'success' && <Badge tone={a.result === 'failure' || a.result === 'timeout' ? 'crit' : ''}>{a.result}</Badge>}</div>
             <div className="small muted">{fmtDate(a.ts)}<Sep />{a.actor || 'agent'}<Sep />{a.category}{a.reason ? <><Sep />{a.reason}</> : null}</div>
           </div>
-        </div>
+        </a>
       ))}
     </div>
   );

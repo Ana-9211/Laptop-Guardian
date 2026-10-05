@@ -66,7 +66,7 @@ try {
       await page.goto(`${base()}#/${id}`);
       await page.waitForSelector('main .page', { timeout: 15000 });
       await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(250);
+      await page.waitForTimeout(450); // let entrance animations settle before the screenshot
       const h1 = await page.locator('main h1').first().innerText().catch(() => '');
       const text = await page.locator('body').innerText();
       const failedPage = /This page failed to display/.test(text);
@@ -91,6 +91,9 @@ try {
       fs.writeFileSync(rs, JSON.stringify({ ...base0, running: { type: 'daily', mode: 'manual', pid: process.pid, phase: 'collecting', startedAt: new Date(Date.now() - 65000).toISOString() } }));
       await page.getByText('Daily audit running').waitFor({ timeout: 20000 }).then(() => check(true, 'running scan shows a live banner')).catch(() => fail('running scan banner did not appear'));
       check((await page.getByText('Daily scan running').count()) > 0, 'status strip says a scan is running');
+      check(await page.locator('.scan-progress').isVisible(), 'a quiet progress indicator is shown while scanning');
+      await page.waitForTimeout(450);
+      await page.screenshot({ path: path.join(OUT, 'state-scan-running-dark.png') });
       await page.locator('main table tbody tr').first().click();
       await page.waitForSelector('[role="dialog"]');
       // Finishing makes the status poller reload every mounted query; the open drawer and the filter must survive it.
@@ -119,6 +122,8 @@ try {
       target.bridge.app.close();
       await page.getByText('Bridge offline').first().waitFor({ timeout: 25000 }).then(() => check(true, 'offline state is shown when the bridge stops')).catch(() => fail('offline state never appeared'));
       check((await page.locator('main h1').count()) > 0, 'page content stays visible while offline (no blank page)');
+      await page.waitForTimeout(450);
+      await page.screenshot({ path: path.join(OUT, 'state-offline-dark.png') });
       await new Promise((r) => target.bridge.app.listen_(port, r));
       await page.getByText('Bridge connected').first().waitFor({ timeout: 25000 }).then(() => check(true, 'reconnects automatically')).catch(() => fail('did not reconnect'));
 
@@ -129,6 +134,45 @@ try {
       await page.getByText('Could not load data').waitFor({ timeout: 10000 }).then(() => check(true, 'API failure shows an error state with Retry')).catch(() => fail('error state missing'));
       await page.unroute('**/api/recommendations**');
       expected.length = 0;
+
+      note('\n== keyboard focus: skip link, visible focus ring, drawer trap and restore');
+      await page.goto(`${base()}#/processes`);
+      await page.waitForSelector('main .page table tbody tr');
+      await page.reload(); // a fresh load resets the focus navigation starting point
+      await page.waitForSelector('main .page table tbody tr');
+      await page.keyboard.press('Tab');
+      check(await page.evaluate(() => document.activeElement?.className === 'skip'), 'first Tab stop is the skip link');
+      const ringOk = await page.evaluate(() => { const s = getComputedStyle(document.activeElement); return s.outlineStyle !== 'none' || s.boxShadow !== 'none' || document.activeElement.getBoundingClientRect().top >= 0; });
+      check(ringOk, 'focused element is visible');
+      const row = page.locator('main table tbody tr').first();
+      await row.focus();
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('[role="dialog"]');
+      let trapped = true;
+      for (let i = 0; i < 30; i++) { await page.keyboard.press('Tab'); if (!(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]')))) trapped = false; }
+      check(trapped, 'Tab stays inside the open drawer');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+      check(await page.evaluate(() => document.activeElement?.tagName === 'TR'), 'focus returns to the row that opened the drawer');
+      const focusRing = await page.evaluate(() => { document.querySelector('main button, main a')?.focus(); const s = getComputedStyle(document.activeElement); return `${s.outlineStyle} ${s.outlineWidth}`; });
+      check(/solid 2px/.test(focusRing), `keyboard focus ring is drawn (${focusRing})`);
+
+      note('\n== sidebar collapse is remembered');
+      await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+      check((await page.locator('.shell').getAttribute('data-collapsed')) === 'true', 'sidebar collapses to icons');
+      await page.reload();
+      await page.waitForSelector('.nav');
+      check((await page.locator('.shell').getAttribute('data-collapsed')) === 'true', 'collapsed state survives reload');
+      check((await page.locator('.nav a.item[aria-label="Overview"]').count()) === 1, 'collapsed items keep accessible names');
+      await page.getByRole('button', { name: 'Expand sidebar' }).click();
+
+      note('\n== loading state is shown while data is slow');
+      await page.route('**/api/overview', async (r) => { await new Promise((x) => setTimeout(x, 1200)); await r.continue(); });
+      await page.goto(`${base()}#/overview`);
+      await page.reload();
+      await page.waitForSelector('.skel', { timeout: 5000 }).then(() => check(true, 'skeleton placeholders appear while loading')).catch(() => fail('no skeleton while loading'));
+      await page.screenshot({ path: path.join(OUT, 'overview-loading-dark.png') });
+      await page.unroute('**/api/overview');
     }
     await ctx.close();
   }
@@ -144,9 +188,34 @@ try {
     await mpage.waitForLoadState('networkidle');
     const overflow = await mpage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(overflow <= 1, `[mobile] ${id}: no horizontal overflow (${overflow}px)`);
+    await mpage.waitForTimeout(450);
     await mpage.screenshot({ path: path.join(OUT, `${id}-mobile.png`) });
   }
+  note('\n== narrow viewport interactions');
+  await mpage.goto(`${base()}#/overview`);
+  await mpage.waitForSelector('main .page');
+  const toggle = mpage.locator('.rail-toggle');
+  check(await toggle.isVisible(), 'status rail folds into a one-line summary');
+  check(!(await mpage.locator('.rail-items').isVisible()), 'rail details are collapsed by default');
+  await toggle.click();
+  check(await mpage.locator('.rail-items').isVisible(), 'rail expands on demand');
+  check((await mpage.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 1, 'expanded rail does not overflow');
+  await mpage.screenshot({ path: path.join(OUT, 'overview-rail-open-mobile.png') });
+  await mpage.getByRole('button', { name: 'Toggle navigation' }).click();
+  await mpage.waitForSelector('.nav.open');
+  await mpage.waitForTimeout(350);
+  await mpage.screenshot({ path: path.join(OUT, 'nav-open-mobile.png') });
+  await mpage.keyboard.press('Escape');
   await mctx.close();
+
+  note('\n== reduced motion');
+  const rctx = await browser.newContext({ viewport: { width: 1366, height: 880 }, reducedMotion: 'reduce' });
+  const rpage = await rctx.newPage();
+  await rpage.goto(`${base()}#/overview`);
+  await rpage.waitForSelector('main .page');
+  const dur = await rpage.evaluate(() => parseFloat(getComputedStyle(document.querySelector('main .page')).animationDuration));
+  check(dur < 0.01, `page animation is disabled under prefers-reduced-motion (${dur}s)`);
+  await rctx.close();
 } catch (e) {
   fail(`smoke test crashed: ${e.stack || e}`);
 } finally {

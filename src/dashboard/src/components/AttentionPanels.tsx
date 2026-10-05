@@ -16,18 +16,24 @@ const TASK_BLURB: Record<TaskRow['kind'], string> = {
 export function AttentionCard() {
   const { status: s, live } = useStatus();
   return (
-    <Card title="What needs attention" actions={s && <Badge tone={s.attention.some((a) => a.level === 'crit') ? 'crit' : s.attention.some((a) => a.level === 'warn') ? 'warn' : 'ok'}>{s.attention.length}</Badge>}>
-      {!s ? (live.link === 'offline' ? <div className="small t2">The bridge is offline, so priorities cannot be computed. Open Laptop Guardian again to restart it.</div> : <SkeletonCards n={1} />)
+    <Card title="What needs attention" flush actions={s && <Badge tone={s.attention.some((a) => a.level === 'crit') ? 'crit' : s.attention.some((a) => a.level === 'warn') ? 'warn' : 'ok'}>{s.attention.length}</Badge>}>
+      {!s ? (live.link === 'offline' ? <div className="small t2 pad">The bridge is offline, so priorities cannot be computed. Open Laptop Guardian again to restart it.</div> : <div className="pad"><SkeletonCards n={1} /></div>)
         : s.attention.length === 0 ? <Empty icon="check" title="Nothing needs your attention">Security, storage, scheduled maintenance and recommendations all look fine.</Empty>
         : (
-          <div className="attn" role="list">
-            {s.attention.map((a) => (
-              <div key={a.id} className={`attn-item ${a.level}`} role="listitem">
-                <Icon name={a.level === 'info' ? 'info' : 'warn'} />
-                <div className="grow"><b>{a.title}</b><div className="small t2">{a.detail}</div></div>
-                {a.href && a.cta && <a className="btn sm" href={a.href}>{a.cta}</a>}
-              </div>
-            ))}
+          <div className="list" role="list">
+            {s.attention.map((a) => {
+              const inner = (
+                <>
+                  <span className="ico"><Icon name={a.level === 'info' ? 'info' : 'warn'} /></span>
+                  <span className="what"><b>{a.title}</b><span className="small t2">{a.detail}</span></span>
+                  {a.cta && <span className="small muted nowrap">{a.cta}</span>}
+                  {a.href && <Icon name="chev" size={14} />}
+                </>
+              );
+              return a.href
+                ? <a key={a.id} className="list-row" data-tone={a.level} href={a.href} role="listitem">{inner}</a>
+                : <div key={a.id} className="list-row" data-tone={a.level} role="listitem">{inner}</div>;
+            })}
           </div>
         )}
     </Card>
@@ -36,15 +42,17 @@ export function AttentionCard() {
 
 function TaskLine({ t }: { t: TaskRow }) {
   const never = t.lastResult.kind === 'never-run';
+  const clean = ['success', 'ready', 'never-run', 'running'].includes(t.lastResult.kind);
   return (
     <div className="task-row">
       <div><b>{t.name}</b><div className="small muted">{TASK_BLURB[t.kind]}</div></div>
       <div className="stack tight">
         <div className="row tight"><Badge tone={TONE[t.level]} dot>{LABEL[t.status] || t.status}</Badge><span className="small t2">{t.summary}</span></div>
         <div className="small muted">
-          Next {t.nextRun ? fmtDate(t.nextRun) : NA}<Sep />Last run {t.lastRun ? `${ago(t.lastRun)} (${fmtFull(t.lastRun)})` : 'never'}
-          {t.state !== 'NotRegistered' && <><Sep />Result <Tip text={never ? 'Task Scheduler reports 0x41303 ("has not yet run") for a task that is registered but has not been triggered yet. That is normal.' : t.lastResult.text}><span className="mono" tabIndex={0}>{t.lastResult.hex || NA}</span></Tip> {t.lastResult.text}</>}
+          Next {t.nextRun ? fmtDate(t.nextRun) : NA}<Sep />Last run {t.lastRun ? <Tip text={fmtFull(t.lastRun)}><span>{ago(t.lastRun)}</span></Tip> : 'never'}
           {t.runLevel && <><Sep />{t.runLevel === 'Highest' ? 'Administrator' : 'Standard user'} rights</>}
+          {t.state !== 'NotRegistered' && !clean && <><Sep />Result <Tip text={t.lastResult.text}><span className="mono" tabIndex={0}>{t.lastResult.hex || NA}</span></Tip> {t.lastResult.text}</>}
+          {never && <Tip text={'Task Scheduler reports 0x41303 ("has not yet run") for a task that is registered but has not been triggered yet. That is normal.'}><span tabIndex={0}><Sep />Waiting for first run</span></Tip>}
         </div>
         {t.issues.map((i) => <div key={i} className="small warn-text issue"><Icon name="warn" size={13} />{i}</div>)}
       </div>

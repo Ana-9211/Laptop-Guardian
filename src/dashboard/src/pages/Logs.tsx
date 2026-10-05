@@ -3,11 +3,13 @@ import { useQuery } from '../api';
 import type { ActionEvent } from '../types';
 import { Badge, Card, Empty, ErrorState, Expander, PageHead, SearchBox, SkeletonCards } from '../components/ui';
 import { fmtFull, sevTone } from '../format';
+import { useHash } from '../router';
 
 const CATS = ['scan', 'process', 'ai', 'file', 'cleanup', 'defender', 'windows', 'policy', 'shutdown', 'config', 'system'];
 
 export default function Logs() {
-  const [q, setQ] = useState(''); const [dq, setDq] = useState('');
+  const { params } = useHash();
+  const [q, setQ] = useState(params.get('q') ?? ''); const [dq, setDq] = useState(params.get('q') ?? ''); // deep links such as #/logs?q=<event id> arrive pre-filtered
   const [cat, setCat] = useState(''); const [sev, setSev] = useState(''); const [limit, setLimit] = useState(200);
   useEffect(() => { const t = setTimeout(() => setDq(q), 250); return () => clearTimeout(t); }, [q]);
   const qs = new URLSearchParams({ limit: String(limit), ...(cat && { category: cat }), ...(sev && { severity: sev }), ...(dq && { q: dq }) }).toString();

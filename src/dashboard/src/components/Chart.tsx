@@ -80,7 +80,7 @@ export function LineChart({ x, series, height = 200, unit = '', min, max, digits
         {xt.map((i, k) => <text key={k} x={px(i)} y={height - 5} textAnchor={k === 0 && n > 1 ? 'start' : k === xt.length - 1 && n > 1 ? 'end' : 'middle'}>{fmtDay(x[i])}</text>)}
         {threshold && threshold.value >= lo && threshold.value <= hi && <g><line x1={m.l} x2={W - m.r} y1={py(threshold.value)} y2={py(threshold.value)} stroke="var(--warn)" strokeDasharray="4 4" /><text x={W - m.r} y={py(threshold.value) - 4} textAnchor="end" style={{ fill: 'var(--warn)' }}>{threshold.label}</text></g>}
         {area && paths.map((p) => p.a && <path key={`a${p.s.id}`} d={p.a} fill={p.s.color} opacity=".1" />)}
-        {paths.map((p) => <path key={p.s.id} d={p.d} fill="none" stroke={p.s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={p.s.dashed ? '5 4' : undefined} />)}
+        {paths.map((p) => <path key={p.s.id} d={p.d} fill="none" stroke={p.s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" pathLength={p.s.dashed ? undefined : 1} className={p.s.dashed ? undefined : 'line-draw'} strokeDasharray={p.s.dashed ? '5 4' : undefined} />)}
         {n <= 40 && paths.map((p) => p.pts.map(([cx, cy], i) => <circle key={`${p.s.id}${i}`} cx={cx} cy={cy} r="2.2" fill={p.s.color} />))}
         {hover != null && <g>
           <line x1={px(hover)} x2={px(hover)} y1={m.t} y2={m.t + ih} stroke="var(--line-strong)" />
@@ -142,13 +142,16 @@ export function BarChart({ x, values, color, height = 140, title, unit = '' }: {
   );
 }
 
-export function ScoreRing({ score }: { score?: number }) {
-  const s = score ?? 0; const r = 24; const c = 2 * Math.PI * r;
+export function ScoreRing({ score, size = 56 }: { score?: number; size?: number }) {
+  const s = score ?? 0; const stroke = Math.max(5, Math.round(size / 11)); const r = (size - stroke) / 2 - 1; const c = 2 * Math.PI * r; const mid = size / 2;
   const tone = score == null ? 'var(--muted)' : s >= 85 ? 'var(--ok)' : s >= 70 ? 'var(--warn)' : 'var(--crit)';
   return (
-    <div className="score" role="img" aria-label={`Health score ${score ?? 'unknown'} out of 100`}>
-      <svg width="56" height="56" viewBox="0 0 56 56"><circle cx="28" cy="28" r={r} fill="none" stroke="var(--sunken)" strokeWidth="5" /><circle cx="28" cy="28" r={r} fill="none" stroke={tone} strokeWidth="5" strokeLinecap="round" strokeDasharray={`${(s / 100) * c} ${c}`} transform="rotate(-90 28 28)" /></svg>
-      <b>{score ?? NA}</b>
+    <div className="score" style={{ width: size, height: size }} role="img" aria-label={`Health score ${score ?? 'unknown'} out of 100`}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={mid} cy={mid} r={r} fill="none" stroke="var(--sunken)" strokeWidth={stroke} />
+        <circle className="arc" cx={mid} cy={mid} r={r} fill="none" stroke={tone} strokeWidth={stroke} strokeLinecap="round" style={{ strokeDasharray: `${(s / 100) * c} ${c}` }} transform={`rotate(-90 ${mid} ${mid})`} />
+      </svg>
+      <b style={{ fontSize: Math.round(size / 3.2) }}>{score ?? NA}</b>
     </div>
   );
 }

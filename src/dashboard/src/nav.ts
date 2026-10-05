@@ -28,4 +28,10 @@ export const NAV: NavItem[] = [
   { id: 'whitelist', label: 'Whitelist', icon: 'whitelist', page: WhitelistPage },
   { id: 'settings', label: 'Settings', icon: 'settings', page: Settings },
 ];
-export const findNav = (id: string): NavItem => NAV.find((n) => n.id === id) ?? NAV[0];
+/** The section label ("Monitor", "Records", "Policy") a page belongs to. */
+export function groupOf(id: string): string {
+  let group = '';
+  for (const n of NAV) { if (n.group) group = n.group; if (n.id === id) return group; }
+  return group;
+}
+export const findNav =(id: string): NavItem => NAV.find((n) => n.id === id) ?? NAV[0];
