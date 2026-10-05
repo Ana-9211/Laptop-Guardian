@@ -43,6 +43,10 @@ class HttpError extends Error {
 }
 
 function createApp(root, opts = {}) {
+  // `root` holds config, data, reports and logs. `codeRoot` holds the program files (the same folder in a development checkout and in tests).
+  const codeRoot = opts.codeRoot || root;
+  const elevatedDir = opts.elevatedDir || null;   // administrators-only folder of an installed copy: elevated results and audit lines
+  const guardianRoots = codeRoot === root ? root : [root, codeRoot];
   const P = {
     config: path.join(root, 'config', 'config.json'),
     policy: path.join(root, 'config', 'process-policy.json'),
@@ -56,9 +60,17 @@ function createApp(root, opts = {}) {
     latest: (n) => path.join(root, 'data', 'latest', n),
     key: path.join(root, 'data', 'secrets', 'gemini.dpapi'),
     reports: path.join(root, 'reports'),
-    dist: opts.dist || path.join(root, 'src', 'dashboard', 'dist'),
+    dist: opts.dist || path.join(codeRoot, 'src', 'dashboard', 'dist'),
+    elevatedAudit: elevatedDir ? path.join(elevatedDir, 'audit', 'actions.jsonl') : null,
+    elevatedResults: elevatedDir ? path.join(elevatedDir, 'results') : null,
   };
-  const ps = opts.ps || makeRunner(root);
+  const ps = opts.ps || makeRunner(codeRoot, root);
+  /** The audit trail: the user's log plus, for an installed copy, the lines elevated runs wrote to the administrators-only folder. Newest last. */
+  const tailActions = (n) => {
+    const rows = U.tailJsonl(P.actions, n);
+    if (!P.elevatedAudit) return rows;
+    return rows.concat(U.tailJsonl(P.elevatedAudit, n)).sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts)).slice(-n);
+  };
   let allowedHosts = new Set();
   let boundPort = null;
 
@@ -162,8 +174,8 @@ function createApp(root, opts = {}) {
     if (Date.now() - codeCache.at < 10000) return codeCache.mtimeMs;
     let newest = 0;
     const walk = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const f = path.join(dir, e.name); if (e.isDirectory()) walk(f); else if (e.name.endsWith('.js')) newest = Math.max(newest, fs.statSync(f).mtimeMs); } };
-    try { walk(path.join(root, 'src', 'bridge')); } catch { /* unreadable: report no change */ }
-    try { newest = Math.max(newest, fs.statSync(path.join(root, 'src', 'shared', 'action-catalog.json')).mtimeMs); } catch { /* optional */ }
+    try { walk(path.join(codeRoot, 'src', 'bridge')); } catch { /* unreadable: report no change */ }
+    try { newest = Math.max(newest, fs.statSync(path.join(codeRoot, 'src', 'shared', 'action-catalog.json')).mtimeMs); } catch { /* optional */ }
     codeCache = { at: Date.now(), mtimeMs: newest };
     return newest;
   }
@@ -211,14 +223,14 @@ function createApp(root, opts = {}) {
   const dirCount = (type, re) => { try { return fs.readdirSync(path.join(P.reports, type)).filter((n) => re.test(n)).length; } catch { return 0; } };
 
   // `root` lets the launcher confirm a bridge belongs to THIS installation before it ever considers stopping it.
-  route('GET', '/api/ping', () => ({ app: 'laptop-guardian', version: VERSION, pid: process.pid, startedAt, codeMtime: new Date(codeMtime()).toISOString(), restartNeeded: restartNeeded(), port: boundPort, root, distBuilt: fs.existsSync(path.join(P.dist, 'index.html')) }));
+  route('GET', '/api/ping', () => ({ app: 'laptop-guardian', version: VERSION, pid: process.pid, startedAt, codeMtime: new Date(codeMtime()).toISOString(), restartNeeded: restartNeeded(), port: boundPort, root: codeRoot, dataRoot: root, distBuilt: fs.existsSync(path.join(P.dist, 'index.html')) }));
 
   route('GET', '/api/status', async ({ query }) => {
     const c = config();
     const run = currentRun();
     const st = await getTasks(query.get('fresh') === '1');
     const tasks = S.assessTasks(st.tasks, c);
-    const acts = U.tailJsonl(P.actions, 400);
+    const acts = tailActions(400);
     const dayAgo = Date.now() - 86400000;
     const recent = acts.filter((a) => Date.parse(a.ts) >= dayAgo);
     const lastErr = [...acts].reverse().find((a) => a.severity === 'error');
@@ -298,7 +310,7 @@ function createApp(root, opts = {}) {
       const seen = procs.list.find((p) => String(p.name).toLowerCase() === name);
       if (seen) appearances.push({ ts: procs.ts, cpuPct: seen.cpuPct, memoryMB: seen.memoryMB, flags: seen.flags || [] });
     }
-    const actions = U.tailJsonl(P.actions, 5000).filter((a) => a.target && String(a.target).toLowerCase().includes(name)).reverse().slice(0, 100);
+    const actions = tailActions(5000).filter((a) => a.target && String(a.target).toLowerCase().includes(name)).reverse().slice(0, 100);
     return { name, appearances, actions };
   });
 
@@ -323,7 +335,7 @@ function createApp(root, opts = {}) {
   route('GET', '/api/actions', ({ query }) => {
     const limit = Math.min(Math.max(parseInt(query.get('limit') || '200', 10) || 200, 1), 2000);
     const cat = query.get('category'); const sev = query.get('severity'); const q = (query.get('q') || '').toLowerCase(); const before = query.get('before');
-    let rows = U.tailJsonl(P.actions, 20000).reverse();
+    let rows = tailActions(20000).reverse();
     if (cat) rows = rows.filter((r) => r.category === cat);
     if (sev) rows = rows.filter((r) => r.severity === sev);
     if (before) rows = rows.filter((r) => r.ts < before);
@@ -590,7 +602,7 @@ function createApp(root, opts = {}) {
       snapshot, persistentPaths: persistentPaths(), thresholds: config().network.thresholds, dnsBlocked: dnsBlocked(),
       deepEvents: deep.active() ? deep.readEvents({ limit: 2000, sinceMs: Date.now() - 120000 }) : [],
     });
-    return NO.toActionFindings(raw, { ...netCtx(), guardianRoot: root }, remediation.history(300));
+    return NO.toActionFindings(raw, { ...netCtx(), guardianRoot: guardianRoots }, remediation.history(300));
   }
   async function takeSnapshot(reason = 'manual') {
     if (snapInFlight) return snapInFlight;
@@ -683,7 +695,7 @@ function createApp(root, opts = {}) {
 
   // ---------- remediation (Action Center) ----------
   const remediation = R.createRemediation({
-    root, ps, log, tailJsonl: () => U.tailJsonl(P.actions, 5000), readJson: U.readJson, config, applySchedule, netCtx,
+    root, ps, log, tailJsonl: () => tailActions(5000), resultsDir: P.elevatedResults || undefined, guardianRoot: guardianRoots, readJson: U.readJson, config, applySchedule, netCtx,
     assessedTasks: () => S.assessTasks((schedCache && schedCache.tasks) || [], config()),
   });
   const remed = async (fn) => { try { return await fn(); } catch (e) { if (e instanceof R.RemediationError) { const h = new HttpError(e.status, e.message); h.errors = e.errors; throw h; } throw e; } };
@@ -710,7 +722,7 @@ function createApp(root, opts = {}) {
     const c = config();
     const findings = F.buildFindings({
       recs: loadRecs().items, processes: procs.processes || [], files: U.readJson(P.latest('files.json'), null), daily: U.readJson(P.latest('daily.json'), null), weekly: U.readJson(P.latest('weekly.json'), null),
-      tasks: S.assessTasks((schedCache && schedCache.tasks) || [], c), apps, revo, history: remediation.history(300), protectedDirs: c.storage.protectedDirs || [], guardianRoot: root, now: Date.now(),
+      tasks: S.assessTasks((schedCache && schedCache.tasks) || [], c), apps, revo, history: remediation.history(300), protectedDirs: c.storage.protectedDirs || [], guardianRoot: guardianRoots, now: Date.now(),
     });
     const latest = netStore.readLatest();
     const merged = [...findings, ...(latest ? computeNetFindings(latest) : [])];
@@ -871,11 +883,14 @@ function createApp(root, opts = {}) {
 module.exports = { createApp };
 
 if (require.main === module) {
-  const root = path.resolve(process.env.GUARDIAN_ROOT || path.join(__dirname, '..', '..'));
+  // An installed copy gets its folders from install.json (written by the installer); the environment cannot redirect it.
+  const codeRoot = path.resolve(__dirname, '..', '..');
+  const install = U.readInstall(codeRoot);
+  const root = install ? path.resolve(install.dataRoot) : path.resolve(process.env.GUARDIAN_ROOT || codeRoot);
   const cfg = U.mergeConfig(U.DEFAULT_CONFIG, U.readJson(path.join(root, 'config', 'config.json'), {}) || {}).value;
   const port = Number(process.env.GUARDIAN_PORT) || cfg.bridge.port;
   const dev = process.env.GUARDIAN_DEV_HOST; // e.g. 127.0.0.1:5173 when running Vite dev proxy
-  const app = createApp(root, { extraHosts: dev ? [dev] : [], autoNetwork: true });
+  const app = createApp(root, { codeRoot, elevatedDir: install ? path.resolve(install.elevatedDir) : undefined, extraHosts: dev ? [dev] : [], autoNetwork: true });
   app.on('error', (e) => { console.error(`[bridge] ${e.code === 'EADDRINUSE' ? `port ${port} already in use` : e.message}`); process.exit(1); });
   app.listen_(port, (p) => console.log(`Laptop Guardian dashboard: http://127.0.0.1:${p}/  (root: ${root})`));
 }

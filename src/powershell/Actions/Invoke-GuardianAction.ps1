@@ -29,7 +29,7 @@ $result = $null
 $runningMarker = $null
 if ($Ticket -and $Mode -eq 'Execute') {
     # Lets the dashboard tell "permission granted, still working" from "prompt never answered".
-    try { $d0 = Join-Path (Split-Path (Get-GuardianPath 'RunState')) 'action-results'; if (-not (Test-Path -LiteralPath $d0)) { New-Item -ItemType Directory -Path $d0 -Force | Out-Null }; $runningMarker = Join-Path $d0 "$Ticket.running.json"; Write-JsonFile -Path $runningMarker -Object @{ startedAt = (Get-IsoNow); action = $Action } } catch { }
+    try { $d0 = Get-GuardianPath 'ActionResults'; if (-not (Test-Path -LiteralPath $d0)) { New-Item -ItemType Directory -Path $d0 -Force | Out-Null }; $runningMarker = Join-Path $d0 "$Ticket.running.json"; Write-JsonFile -Path $runningMarker -Object @{ startedAt = (Get-IsoNow); action = $Action } } catch { }
 }
 try {
     $params = @{}
@@ -73,7 +73,7 @@ if ($Mode -eq 'Execute') {
 
 if ($Ticket) {
     try {
-        $dir = Join-Path (Split-Path (Get-GuardianPath 'RunState')) 'action-results'
+        $dir = Get-GuardianPath 'ActionResults'
         if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         Write-JsonFile -Path (Join-Path $dir "$Ticket.json") -Object $result
     } catch {

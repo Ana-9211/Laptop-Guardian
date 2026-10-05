@@ -121,6 +121,51 @@ Describe 'Audit events match the action-event schema' {
     }
 }
 
+Describe 'Installed copy versus development checkout' {
+    # The program files are copied to a temp "Program Files" with an install.json; a child PowerShell loads THAT copy.
+    function New-FakeInstall {
+        $base = Join-Path $env:TEMP ('lg-inst-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $prog = Join-Path $base 'program'; $data = Join-Path $base 'data'; $elev = Join-Path $base 'elevated'
+        New-Item -ItemType Directory -Path "$prog\src" -Force | Out-Null
+        Copy-Item (Join-Path $script:RepoRoot 'src\powershell') "$prog\src\powershell" -Recurse
+        [pscustomobject]@{ base = $base; prog = $prog; data = $data; elev = $elev }
+    }
+    function Invoke-InFakeInstall($fi, [string]$Body) {
+        $cmd = "`$env:GUARDIAN_ROOT = 'C:\decoy-from-environment';. '$($fi.prog)\src\powershell\Common\Load.ps1'; $Body"
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String
+    }
+    It 'takes every folder from install.json, ignores GUARDIAN_ROOT, and defaults to port 7878' {
+        $fi = New-FakeInstall
+        try {
+            ([pscustomobject]@{ dataRoot = $fi.data; elevatedDir = $fi.elev } | ConvertTo-Json) | Set-Content -LiteralPath (Join-Path $fi.prog 'install.json') -Encoding UTF8
+            $o = Invoke-InFakeInstall $fi "[pscustomobject]@{ data = (Get-GuardianDataRoot); code = (Get-GuardianCodeRoot); port = (Get-DefaultBridgePort); cfg = (Get-GuardianPath 'Config'); results = (Get-GuardianPath 'ActionResults'); audit = (Get-GuardianPath 'ElevatedAudit'); backups = (Get-GuardianPath 'ElevatedBackups'); roots = @(Get-GuardianRoots) } | ConvertTo-Json -Compress"
+            $j = $o | ConvertFrom-Json
+            $j.data | Should Be $fi.data
+            $j.code | Should Be $fi.prog
+            $j.port | Should Be 7878
+            $j.cfg | Should Be (Join-Path $fi.data 'config\config.json')
+            $j.results | Should Be (Join-Path $fi.elev 'results')
+            $j.audit | Should Be (Join-Path $fi.elev 'audit\actions.jsonl')
+            $j.backups | Should Be (Join-Path $fi.elev 'backups')
+            (@($j.roots) -contains $fi.data -and @($j.roots) -contains $fi.prog) | Should Be $true
+        } finally { Remove-Item $fi.base -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'refuses to guess when install.json is damaged or incomplete' {
+        $fi = New-FakeInstall
+        try {
+            Set-Content -LiteralPath (Join-Path $fi.prog 'install.json') '{ nope'
+            (Invoke-InFakeInstall $fi "Get-GuardianDataRoot") | Should Match 'damaged'
+            Set-Content -LiteralPath (Join-Path $fi.prog 'install.json') ('{ "dataRoot": "relative" , "elevatedDir": "' + ($fi.elev -replace '\\', '\\\\') + '" }')
+            (Invoke-InFakeInstall $fi "Get-GuardianDataRoot") | Should Match 'dataRoot'
+        } finally { Remove-Item $fi.base -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'a development checkout keeps everything under the data folder, with port 7879' {
+        (Get-DefaultBridgePort) | Should Be 7879
+        (Get-GuardianPath 'ActionResults') | Should Be (Join-Path (Get-GuardianRoot) 'data\state\action-results')
+        (Get-GuardianPath 'ElevatedAudit') | Should Be (Get-GuardianPath 'Actions')
+    }
+}
+
 Describe 'Shared file lock' {
     It 'is exclusive, is released afterwards, and a stale lock is broken' {
         $f = Join-Path $root 'locked.json'

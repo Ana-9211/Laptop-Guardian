@@ -7,21 +7,58 @@ $script:RunType = $null
 $script:RunEvents = New-Object System.Collections.ArrayList
 $script:RunErrors = New-Object System.Collections.ArrayList
 $script:Timings = [ordered]@{}
+$script:InstallInfo = $null
+$script:InstallInfoLoaded = $false
 
 function Get-SystemPowerShellPath {
     # Windows PowerShell by absolute path, never whatever "powershell.exe" a PATH entry happens to name (this is what elevated launches use).
     Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 }
 
-function Get-GuardianRoot {
-    if ($env:GUARDIAN_ROOT -and (Test-Path -LiteralPath $env:GUARDIAN_ROOT)) { return (Resolve-Path -LiteralPath $env:GUARDIAN_ROOT).Path }
-    # module lives in <root>/src/powershell/Common
+function Get-GuardianCodeRoot {
+    # Where the program files are (module lives in <root>/src/powershell/Common). Always derived from this file's own location, never from the environment.
     return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..\..')).Path
+}
+
+function Get-GuardianInstall {
+    <# install.json next to the program files marks an INSTALLED copy: { dataRoot, elevatedDir, ... } written by the installer.
+       Returns $null for a development checkout. A damaged file throws: guessing which folders to trust would be worse than stopping. #>
+    if ($script:InstallInfoLoaded) { return $script:InstallInfo }
+    $f = Join-Path (Get-GuardianCodeRoot) 'install.json'
+    $info = $null
+    if (Test-Path -LiteralPath $f) {
+        try { $info = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json } catch { throw "install.json is damaged ($f). Run Install-LaptopGuardian.ps1 again from an administrator PowerShell." }
+        foreach ($k in 'dataRoot', 'elevatedDir') {
+            if (-not ($info.PSObject.Properties[$k] -and [IO.Path]::IsPathRooted([string]$info.$k))) { throw "install.json has no valid '$k' ($f). Run Install-LaptopGuardian.ps1 again from an administrator PowerShell." }
+        }
+    }
+    $script:InstallInfo = $info; $script:InstallInfoLoaded = $true
+    return $info
+}
+
+function Get-GuardianDataRoot {
+    # config, data, reports and logs. An installed copy gets this from install.json, so the environment cannot redirect it.
+    $i = Get-GuardianInstall
+    if ($i) { return [string]$i.dataRoot }
+    if ($env:GUARDIAN_ROOT -and (Test-Path -LiteralPath $env:GUARDIAN_ROOT)) { return (Resolve-Path -LiteralPath $env:GUARDIAN_ROOT).Path }
+    return (Get-GuardianCodeRoot)
+}
+
+# Historical name: the folder that holds config, data, reports and logs.
+function Get-GuardianRoot { Get-GuardianDataRoot }
+
+# Guardian's own folders: the data folder and the program folder (the same folder in a development checkout). Both are protected from stop/recycle/block actions.
+function Get-GuardianRoots { @((Get-GuardianDataRoot), (Get-GuardianCodeRoot)) | Where-Object { $_ } | Select-Object -Unique }
+
+function Get-DefaultBridgePort {
+    # The installed copy and a development checkout must not fight over one port.
+    if (Get-GuardianInstall) { return 7878 } else { return 7879 }
 }
 
 function Get-GuardianPath {
     param([Parameter(Mandatory)][string]$Name)
     $r = Get-GuardianRoot
+    $inst = Get-GuardianInstall
     switch ($Name) {
         'Config'          { Join-Path $r 'config\config.json' }
         'ProcessPolicy'   { Join-Path $r 'config\process-policy.json' }
@@ -40,6 +77,11 @@ function Get-GuardianPath {
         'Logs'            { Join-Path $r 'logs' }
         'Reports'         { Join-Path $r 'reports' }
         'Root'            { $r }
+        # What an elevated run writes goes to an administrators-only folder of an installed copy (ACL set by the installer);
+        # a development checkout keeps everything under the data folder, exactly as before.
+        'ActionResults'   { if ($inst) { Join-Path ([string]$inst.elevatedDir) 'results' } else { Join-Path $r 'data\state\action-results' } }
+        'ElevatedAudit'   { if ($inst) { Join-Path ([string]$inst.elevatedDir) 'audit\actions.jsonl' } else { Join-Path $r 'data\actions\actions.jsonl' } }
+        'ElevatedBackups' { if ($inst) { Join-Path ([string]$inst.elevatedDir) 'backups' } else { Join-Path $r 'data\network' } }
         default           { throw "Unknown path name '$Name'" }
     }
 }
@@ -154,7 +196,7 @@ function Read-JsonLines {
 function Get-DefaultConfig {
     [ordered]@{
         schemaVersion = 1
-        bridge        = [ordered]@{ host = '127.0.0.1'; port = 7878 }
+        bridge        = [ordered]@{ host = '127.0.0.1'; port = (Get-DefaultBridgePort) }
         schedule      = [ordered]@{
             daily  = [ordered]@{ enabled = $true; time = '19:00' }
             weekly = [ordered]@{ enabled = $true; day = 'Saturday'; time = '02:00'; shutdownTime = '05:00'; shutdownEnabled = $true }
@@ -242,7 +284,9 @@ function Write-GuardianEvent {
     }
     if ($null -ne $Data) { $evt['data'] = $Data }   # structured detail (verification, undo recipe); never secrets
     [void]$script:RunEvents.Add($evt)
-    try { Add-JsonLine -Path (Get-GuardianPath 'Actions') -Object $evt } catch { Write-Warning "Laptop Guardian could not write the audit trail: $($_.Exception.Message)" }
+    # An elevated run of an installed copy writes to the administrators-only folder, never into a folder an ordinary program can swap for a link.
+    $auditPath = if ((Get-GuardianInstall) -and (Test-IsAdmin)) { Get-GuardianPath 'ElevatedAudit' } else { Get-GuardianPath 'Actions' }
+    try { Add-JsonLine -Path $auditPath -Object $evt } catch { Write-Warning "Laptop Guardian could not write the audit trail: $($_.Exception.Message)" }
     try {
         $logFile = Join-Path (Get-GuardianPath 'Logs') ("guardian-{0}.log" -f (Get-Date -Format 'yyyy-MM-dd'))
         $line = "{0} [{1}] {2}/{3} {4} target={5} result={6}{7}" -f $evt.ts, $Severity.ToUpper(), $Category, $Action, $Actor, $Target, $Result, $(if ($ErrorDetails) { " error=$ErrorDetails" } else { '' })

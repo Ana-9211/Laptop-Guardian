@@ -56,7 +56,7 @@ function refuseProgram(p, { guardianRoot } = {}) {
   const lower = String(p).toLowerCase();
   if (process.env.SystemRoot && lower.startsWith(process.env.SystemRoot.toLowerCase())) return 'Protected: programs in the Windows directory are never blocked.';
   for (const d of [`${process.env.ProgramData}\\Microsoft\\Windows Defender`, `${process.env.ProgramFiles}\\Windows Defender`, `${process.env['ProgramFiles(x86)']}\\Windows Defender`]) { if (d && !d.startsWith('undefined') && lower.startsWith(d.toLowerCase())) return 'Protected: Microsoft Defender components are never blocked.'; }
-  if (guardianRoot && lower.startsWith(guardianRoot.toLowerCase())) return 'Protected: Laptop Guardian\'s own programs are never blocked.';
+  if ([].concat(guardianRoot || []).filter(Boolean).some((g) => lower.startsWith(String(g).toLowerCase()))) return 'Protected: Laptop Guardian\'s own programs are never blocked.';
   return null;
 }
 

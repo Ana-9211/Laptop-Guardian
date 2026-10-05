@@ -23,10 +23,12 @@ Describe 'Launcher helpers' {
         $n = Find-NodeExe; $n | Should Not BeNullOrEmpty
         ((Get-NodeMajor $n) -ge 22) | Should Be $true
     }
-    It 'reads the bridge port from config and falls back to 7878' {
+    It 'reads the bridge port from config and falls back to the default for a checkout (7879; an installed copy uses 7878)' {
         $r = New-LauncherRoot -Port 18123; (Get-BridgePort -Root $r) | Should Be 18123
+        Remove-Item "$r\config\config.json"; (Get-BridgePort -Root $r) | Should Be 7879
+        Set-Content "$r\config\config.json" '{ not json'; (Get-BridgePort -Root $r) | Should Be 7879
+        Set-Content (Join-Path $r 'install.json') ('{ "dataRoot": "' + ($r -replace '\\', '\\') + '", "elevatedDir": "' + ($r -replace '\\', '\\') + '" }')
         Remove-Item "$r\config\config.json"; (Get-BridgePort -Root $r) | Should Be 7878
-        Set-Content "$r\config\config.json" '{ not json'; (Get-BridgePort -Root $r) | Should Be 7878
         Remove-Item $r -Recurse -Force
     }
     It 'returns $null when nothing answers on the port' { (Get-BridgePing -Port (Get-FreePort) -TimeoutSec 1) | Should BeNullOrEmpty }
