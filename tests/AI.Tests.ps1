@@ -6,7 +6,7 @@ $env:GUARDIAN_TEST = '1'
 $env:GUARDIAN_GEMINI_BASE = "http://127.0.0.1:$port/v1beta"
 $job = Start-MockGemini -Port $port -ModeFile $modeFile
 $cfg = Get-GuardianConfig; $cfg.ai.enabled = $true
-$fakeKey = 'AIzaSyFAKEKEYFORTESTING1234567890abcd'
+$fakeKey = 'FAKE-TEST-VALUE-ONLY'
 
 function New-Rec {
     $p = New-FakeProcess -Name 'bigapp' -Mem 4000 -Flags @('high-memory') -PathClass 'other' -Path 'D:\Apps\bigapp.exe'
@@ -37,9 +37,9 @@ Describe 'Privacy scrubbing' {
         $t | Should Not Match '0123456789abcdef0123456789abcdef'
     }
     It 'evidence sent to AI contains no command-line arguments or file contents' {
-        $x = New-Rec; $x.Proc.commandLine = 'app.exe --api-key=SECRET123 C:\Users\me\secret.docx'
+        $x = New-Rec; $x.Proc.commandLine = 'app.exe --mode=diagnostic C:\Users\TestUser\secret.docx'
         $e = New-ProcessEvidence -Rec $x.Rec -Proc $x.Proc | ConvertTo-Json -Depth 5
-        $e | Should Not Match 'SECRET123'
+        $e | Should Not Match 'diagnostic'
         $e | Should Not Match 'secret\.docx'
     }
 }
