@@ -1,0 +1,5 @@
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"Metric","type":"object",
+ "required":["ts","runType","cpuPct","ramPct","diskFreeGB","processCount","flaggedCount","recommendationCount","actionCount","errorCount","startupCount","serviceFailures","healthScore"],
+ "properties":{"ts":{"type":"string"},"runType":{"enum":["daily","weekly"]},"cpuPct":{"type":["number","null"]},"ramPct":{"type":"number"},
+  "diskFreeGB":{"type":["number","null"]},"processCount":{"type":"integer"},"flaggedCount":{"type":"integer"},"recommendationCount":{"type":"integer"},
+  "actionCount":{"type":"integer"},"errorCount":{"type":"integer"},"startupCount":{"type":"integer"},"serviceFailures":{"type":"integer"},"healthScore":{"type":"integer"}}}

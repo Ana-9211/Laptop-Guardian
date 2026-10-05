@@ -1,0 +1,10 @@
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"Recommendation","type":"object",
+ "required":["id","kind","title","status","risk","severity","confidence","source","firstSeen","lastSeen","occurrences","whatIsIt","whyFlagged","suggestedAction","consequences"],
+ "properties":{
+  "id":{"type":"string"},"kind":{"enum":["process","file","system","storage","security","startup","service"]},"title":{"type":"string"},
+  "status":{"enum":["open","dismissed","ignored","resolved","actioned"]},"risk":{"enum":["LOW","MEDIUM","HIGH","UNKNOWN"]},
+  "severity":{"enum":["info","low","medium","high","critical"]},"confidence":{"type":"number","minimum":0,"maximum":1},"source":{"enum":["deterministic","ai"]},
+  "occurrences":{"type":"integer"},"whyFlagged":{"type":"array","items":{"type":"string"}},
+  "suggestedAction":{"enum":["Leave running","Review","Stop temporarily","Disable startup","Disable scheduled task","Uninstall associated application","Investigate further"]},
+  "stopCommand":{"type":["object","null"],"required":["command","explains","risk","requiresAdmin","reversible"]},
+  "preventRestart":{"type":["object","null"],"required":["command","explains","risk","requiresAdmin","reversible"]}}}

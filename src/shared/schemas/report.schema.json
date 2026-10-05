@@ -1,0 +1,12 @@
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"Report","type":"object",
+ "required":["schema","type","id","generatedAt","durationSec","status","healthScore","host","summary","sections","recommendations","actions","errors","ai"],
+ "properties":{
+  "schema":{"enum":["guardian.report/1"]},"type":{"enum":["daily","weekly"]},"id":{"type":"string"},"status":{"enum":["complete","partial","failed"]},
+  "healthScore":{"type":"integer","minimum":0,"maximum":100},"incomplete":{"type":"array","items":{"type":"string"}},
+  "summary":{"type":"object","required":["headline","bullets"]},
+  "sections":{"type":"object","required":["system","storage","processes","services","startup","defender","firewall","windowsHealth","network","cleanup","files"],
+   "properties":{"system":{"type":"object","required":["os","build","uptimeHours","cpu","ram","disks"]},
+    "processes":{"type":"object","required":["total","flagged","persistent","highResource","topCpu","topMemory"]},
+    "cleanup":{"type":"object","required":["performed","safeMode","items","totalFreedMB"]},
+    "windowsHealth":{"type":"object","required":["pendingReboot","windowsUpdate","eventErrors","sfc","dism"]}}},
+  "recommendations":{"type":"array"},"actions":{"type":"array"},"errors":{"type":"array"},"ai":{"type":"object","required":["enabled","used"]}}}

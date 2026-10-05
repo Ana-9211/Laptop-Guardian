@@ -1,0 +1,48 @@
+export const fmtNum = (v: number | null | undefined, d = 1) => (v == null || Number.isNaN(v) ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: d }));
+export const fmtMB = (mb: number | null | undefined) => {
+  if (mb == null) return '—';
+  if (mb >= 1024 * 1024) return `${(mb / 1024 / 1024).toFixed(1)} TB`;
+  if (mb >= 1024) return `${(mb / 1024).toFixed(mb >= 10240 ? 0 : 1)} GB`;
+  return `${Math.round(mb)} MB`;
+};
+export const fmtDate = (s?: string | null) => {
+  if (!s) return '—';
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+export const fmtDay = (s?: string | null) => {
+  if (!s) return '—';
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+export const fmtFull = (s?: string | null) => {
+  if (!s) return '—';
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+};
+export const ago = (s?: string | null) => {
+  if (!s) return '—';
+  const ms = Date.now() - new Date(s).getTime();
+  if (Number.isNaN(ms)) return '—';
+  const m = Math.round(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
+};
+export const until = (s?: string | null) => {
+  if (!s) return '—';
+  const ms = new Date(s).getTime() - Date.now();
+  if (Number.isNaN(ms)) return '—';
+  const h = Math.round(ms / 3600000);
+  if (h < 1) return `in ${Math.max(1, Math.round(ms / 60000))} min`;
+  if (h < 48) return `in ${h} h`;
+  return `in ${Math.round(h / 24)} d`;
+};
+export const pct = (v: number | null | undefined, d = 0) => (v == null ? '—' : `${v.toFixed(d)}%`);
+export const clampN = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+export const riskTone = (r?: string) => (r === 'HIGH' ? 'crit' : r === 'MEDIUM' ? 'warn' : r === 'LOW' ? 'ok' : '');
+export const sevTone = (s?: string) => (s === 'critical' || s === 'high' || s === 'error' ? 'crit' : s === 'medium' || s === 'warning' ? 'warn' : s === 'low' ? 'info' : '');
+export const scoreTone = (s?: number) => (s == null ? '' : s >= 85 ? 'ok' : s >= 70 ? 'warn' : 'crit');
+export const basename = (p?: string | null) => (p ? p.split(/[\\/]/).pop() || p : '');

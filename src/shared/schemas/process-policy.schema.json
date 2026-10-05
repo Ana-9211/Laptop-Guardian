@@ -1,0 +1,4 @@
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"ProcessPolicy","type":"object","required":["blacklist","whitelist","ignored"],
+ "properties":{"blacklist":{"type":"array","items":{"$ref":"#/definitions/entry"}},"whitelist":{"type":"array","items":{"$ref":"#/definitions/entry"}},"ignored":{"type":"array","items":{"$ref":"#/definitions/entry"}}},
+ "definitions":{"entry":{"type":"object","required":["id","name","reason","addedAt","enabled","action"],
+  "properties":{"id":{"type":"string"},"name":{"type":"string"},"path":{"type":["string","null"]},"enabled":{"type":"boolean"},"action":{"enum":["terminate","none"]},"terminatedCount":{"type":"integer"}}}}}
