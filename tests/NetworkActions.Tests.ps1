@@ -73,6 +73,19 @@ Describe 'Firewall rules: ownership and lifecycle (all mocked)' {
         $s.Group | Should Be 'Laptop Guardian'; $s.Name | Should Match '^LG-\d+-[0-9a-f]{6}$'; $s.Action | Should Be 'Block'; $s.Direction | Should Be 'Outbound'; $s.Program | Should Be $prog; $s.Description | Should Match 'Review or remove after'
         $r.undo.action | Should Be 'firewall.remove-rule'; $r.undo.params.name | Should Be $s.Name
     }
+    It 'allow-program never applies to public networks, refuses temp/Downloads paths and warns about user-writable folders' {
+        $global:T_Rules = @(); $global:T_Created = @(); . Set-Fw
+        $dir = Join-Path $env:LOCALAPPDATA ('lg-allow-' + [guid]::NewGuid().ToString('N').Substring(0, 6)); New-Item -ItemType Directory -Path $dir | Out-Null
+        $exe = Join-Path $dir 'tool.exe'; Set-Content $exe 'x'
+        try {
+            $v = Run 'firewall.allow-program' @{ path = $exe; direction = 'Inbound' } 'Validate'
+            (@($v.warnings) -join ' ') | Should Match 'folder your account can change'
+            $ok = Run 'firewall.allow-program' @{ path = $exe; direction = 'Inbound' }
+            ($ok.errors -join '; ') | Should BeNullOrEmpty
+            (@($global:T_Created[0].Profile) -join ',') | Should Be 'Private,Domain'
+            (First (Run 'firewall.allow-program' @{ path = $prog; direction = 'Inbound' })) | Should Match 'temporary or Downloads'
+        } finally { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
     It 'refuses an identical rule, a protected program and rules beyond the cap' {
         $global:T_Rules = @(); $global:T_Created = @(); . Set-Fw
         $r0 = Run 'firewall.block-program' @{ path = $prog; direction = 'Outbound' }; ($r0.errors -join '; ') | Should BeNullOrEmpty

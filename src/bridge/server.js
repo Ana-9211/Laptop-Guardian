@@ -4,6 +4,9 @@
  * Security model: Host allowlist, same-origin + custom-header on mutations, no CORS, fixed PowerShell scripts only.
  */
 const http = require('http');
+const crypto = require('crypto');
+const { Readable } = require('stream');
+const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const U = require('./lib/util');
@@ -37,7 +40,7 @@ const LISTS = ['blacklist', 'whitelist', 'ignored'];
 const REC_STATUSES = ['open', 'dismissed', 'ignored', 'resolved', 'actioned'];
 
 class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, extra) { super(message); this.status = status; if (extra) this.extra = extra; }
 }
 
 function createApp(root, opts = {}) {
@@ -119,7 +122,7 @@ function createApp(root, opts = {}) {
     return { enabled: c.ai.enabled, keyConfigured: fs.existsSync(P.key), model: c.ai.model };
   }
 
-  function csvEscape(v) { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+  const csvEscape = U.csvCell;
   function flatten(obj, prefix = '', out = []) {
     if (obj === null || obj === undefined) { out.push([prefix, '']); return out; }
     if (typeof obj !== 'object') { out.push([prefix, obj]); return out; }
@@ -142,6 +145,10 @@ function createApp(root, opts = {}) {
 
   // ---------- live status ----------
   const startedAt = U.localIso();
+  // Per-start session token. Every /api request except /api/ping must carry it as a Bearer token. `token: false` disables it (tests of other features only).
+  const token = opts.token === false ? null : (opts.token || crypto.randomBytes(32).toString('hex'));
+  const digest = (v) => crypto.createHash('sha256').update(String(v)).digest();
+  const tokenOk = (header) => { if (!token) return true; const m = /^Bearer ([A-Za-z0-9_-]{16,200})$/.exec(String(header || '')); return !!m && crypto.timingSafeEqual(digest(m[1]), digest(token)); };
   const startedMs = Date.now();
   // Newest modification time among the bridge's own code. A newer file than the process start means this bridge runs old code.
   let codeCache = { at: 0, mtimeMs: 0 };
@@ -365,15 +372,30 @@ function createApp(root, opts = {}) {
   });
 
   route('GET', '/api/config', () => ({ ...config(), _ai: aiStatus() }));
-  route('PUT', '/api/config', ({ body }) => {
+  // Cancels a pending Windows shutdown. A fixed command with no inputs: the same as typing `shutdown /a`.
+  const abortShutdown = opts.abortShutdown || (() => new Promise((resolve) => execFile(path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'shutdown.exe'), ['/a'], { windowsHide: true, timeout: 10000 }, (err, out, errText) => resolve({ ok: !err, text: String(errText || out || (err && err.message) || '').trim() }))));
+  route('POST', '/api/shutdown/cancel', async () => {
+    const r = await abortShutdown();
+    log({ category: 'shutdown', action: 'shutdown:cancelled', result: r.ok ? 'success' : 'skipped', actor: 'user', reason: r.ok ? 'Pending shutdown cancelled from the dashboard.' : `Nothing was cancelled: ${r.text || 'no shutdown was pending'}` });
+    return { cancelled: r.ok, message: r.ok ? 'The pending shutdown was cancelled.' : 'No shutdown was pending, so nothing needed cancelling.' };
+  });
+
+  route('PUT', '/api/config', ({ body: rawBody }) => {
+    const { _confirmRisky, ...body } = rawBody || {};
     const net = body && body.network;
     const cur = config().network || {};
     const flips = (k) => net && net[k] && 'enabled' in net[k] && net[k].enabled !== (cur[k] || {}).enabled;
     need(!(flips('deep') || flips('dnsFiltering')), 'Deep Network Guard and DNS filtering are switched on or off only from Network Guard, with their own confirmation.', 400);
-    const m = U.mergeConfig(config(), body);
+    const before = config();
+    const m = U.mergeConfig(before, body);
     need(m.errors.length === 0, m.errors.join('; '));
+    const risky = U.riskyChanges(before, m.value);
+    if (risky.length && _confirmRisky !== true) {
+      log({ category: 'config', action: 'config.risky-refused', target: Object.keys(body).join(','), result: 'skipped', severity: 'warning', reason: `needs confirmation: ${risky.join(' ')}` });
+      throw new HttpError(409, 'This change lowers a safety margin and needs your confirmation.', { needsConfirmation: risky });
+    }
     U.writeJsonAtomic(P.config, m.value);
-    log({ category: 'config', action: 'config.update', target: Object.keys(body).join(','), reason: 'settings changed in dashboard' });
+    log({ category: 'config', action: risky.length ? 'config.risky-update' : 'config.update', target: Object.keys(body).join(','), reason: risky.length ? `confirmed: ${risky.join(' ')}` : 'settings changed in dashboard', severity: risky.length ? 'warning' : 'info' });
     if (net) { try { deep.prune(); netStore.prune(); } catch { /* retention is applied again on the next write */ } }
     return m.value;
   });
@@ -443,8 +465,8 @@ function createApp(root, opts = {}) {
   // ---- AI ----
   route('GET', '/api/ai/status', () => aiStatus());
   route('POST', '/api/ai/key', async ({ body }) => {
-    const key = str(body.key, 'key', 200).trim();
-    need(/^[A-Za-z0-9_-]{20,200}$/.test(key), 'key has an unexpected format');
+    const key = str(body.key, 'key', 128).trim();
+    need(/^[A-Za-z0-9_-]{20,128}$/.test(key), 'key has an unexpected format');
     const r = await ps.run('Actions/Set-GeminiKey.ps1', [], { stdin: key });
     if (r.missing) throw new HttpError(501, r.error);
     need(r.ok && r.data?.success !== false, r.error || r.data?.error || 'could not store key', 500);
@@ -619,10 +641,14 @@ function createApp(root, opts = {}) {
   route('GET', '/api/network/current', () => currentView());
   route('POST', '/api/network/snapshot', async () => { await takeSnapshot('manual'); return currentView(); });
   route('GET', '/api/network/history', ({ query }) => ({ items: netStore.readHistory(query.get('range') || '30') }));
+  let dnsLogCache = { at: 0, value: null };
   route('GET', '/api/network/dns-log', async () => {
+    if (dnsLogCache.value && Date.now() - dnsLogCache.at < 30000) return dnsLogCache.value;
     const r = await ps.run('Network/Get-DnsHistory.ps1', ['-Max', '300'], { timeoutMs: 60000 });
     if (r.missing) throw new HttpError(501, r.error);
-    return r.ok && r.data ? r.data : { available: false, reason: r.error || 'DNS log unavailable', items: [] };
+    const value = r.ok && r.data ? r.data : { available: false, reason: r.error || 'DNS log unavailable', items: [] };
+    if (r.ok) dnsLogCache = { at: Date.now(), value };
+    return value;
   });
   route('GET', '/api/network/deep', () => deepView());
   route('POST', '/api/network/deep/start', ({ body }) => {
@@ -638,10 +664,10 @@ function createApp(root, opts = {}) {
     return deepView();
   });
   route('GET', '/api/network/deep/events', ({ query }) => ({ items: deep.readEvents({ limit: Math.min(Math.max(parseInt(query.get('limit') || '300', 10) || 300, 1), 2000) }) }));
-  route('GET', '/api/network/deep/export', ({ query }) => {
-    const fmt = query.get('format') || 'jsonl'; need(['jsonl', 'csv'].includes(fmt), 'format must be jsonl or csv');
+  route('POST', '/api/network/deep/export', ({ body }) => {
+    const fmt = body.format || 'jsonl'; need(['jsonl', 'csv'].includes(fmt), 'format must be jsonl or csv');
     log({ category: 'network', action: 'network.deep.export', result: 'success', actor: 'user', reason: `exported as ${fmt}` });
-    return { __raw: deep.exportData(fmt), type: fmt === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson; charset=utf-8', filename: `laptop-guardian-network-events.${fmt}` };
+    return { __stream: deep.exportStream(fmt), type: fmt === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson; charset=utf-8', filename: `laptop-guardian-network-events.${fmt}` };
   });
   route('POST', '/api/network/deep/delete', ({ body }) => {
     need(body.confirm === true, 'confirm:true required');
@@ -708,6 +734,8 @@ function createApp(root, opts = {}) {
   function securityHeaders(res, extra = {}) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     res.setHeader('Cache-Control', 'no-store');
     for (const [k, v] of Object.entries(extra)) res.setHeader(k, v);
   }
@@ -767,6 +795,10 @@ function createApp(root, opts = {}) {
         return serveStatic(req, res, url.pathname);
       }
       const mutating = method !== 'GET' && method !== 'HEAD';
+      // Browsers label cross-site requests; refuse anything that is not from this page or typed by the user.
+      const fetchSite = req.headers['sec-fetch-site'];
+      need(!fetchSite || fetchSite === 'same-origin' || fetchSite === 'none', 'cross-site request refused', 403);
+      if (url.pathname !== '/api/ping') need(tokenOk(req.headers.authorization), 'missing or invalid session token. Open Laptop Guardian from its shortcut.', 401);
       if (mutating) {
         need(req.headers['x-guardian'] === '1', 'missing X-Guardian header', 403);
         const origin = req.headers.origin;
@@ -782,6 +814,10 @@ function createApp(root, opts = {}) {
       try { r.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]); }); } catch { throw new HttpError(400, 'malformed URL encoding'); }
       const body = mutating ? await readBody(req) : {};
       const out = await r.handler({ params, query: url.searchParams, body });
+      if (out && out.__stream) {
+        securityHeaders(res, { 'Content-Type': out.type, ...(out.filename ? { 'Content-Disposition': `attachment; filename="${out.filename}"` } : {}) });
+        res.writeHead(200); return Readable.from(out.__stream).pipe(res);
+      }
       if (out && out.__raw !== undefined) {
         const h = { 'Content-Type': out.type };
         if (out.filename) h['Content-Disposition'] = `attachment; filename="${out.filename}"`;
@@ -793,13 +829,17 @@ function createApp(root, opts = {}) {
     } catch (e) {
       const status = e instanceof HttpError ? e.status : 500;
       if (!(e instanceof HttpError)) console.error('[bridge] unhandled', e);
-      if (!res.headersSent) sendJson(res, status, { error: e instanceof HttpError ? e.message : 'internal error', ...(e && e.errors ? { errors: e.errors } : {}) });
+      if (!res.headersSent) sendJson(res, status, { error: e instanceof HttpError ? e.message : 'internal error', ...(e && e.errors ? { errors: e.errors } : {}), ...(e && e.extra ? e.extra : {}) });
       else res.end();
     }
   }
 
   const server = http.createServer((req, res) => { handle(req, res); });
   server.requestTimeout = 120000;
+  server.headersTimeout = 15000;
+  server.keepAliveTimeout = 5000;
+  server.maxConnections = 64;
+  server.token = token;
   server.listen_ = (port, cb) => {
     server.listen(port, '127.0.0.1', () => {
       const actual = server.address().port;
@@ -814,7 +854,11 @@ function createApp(root, opts = {}) {
       }
       server.on('close', () => { netTimers.forEach(clearTimeout); netTimers.forEach(clearInterval); deep.stop(); });
       if (opts.pidFile !== false) {
-        try { U.writeJsonAtomic(P.bridgePid, { app: 'laptop-guardian', pid: process.pid, port: actual, startedAt, version: VERSION }); } catch { /* best effort */ }
+        try {
+          U.writeJsonAtomic(P.bridgePid, { app: 'laptop-guardian', pid: process.pid, port: actual, startedAt, version: VERSION, token });
+          // Restrict the file to the current user (it holds the session token). Best effort; the launcher also works without it.
+          if (process.platform === 'win32' && process.env.USERNAME) execFile(path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'icacls.exe'), [P.bridgePid, '/inheritance:r', '/grant:r', (process.env.USERDOMAIN ? process.env.USERDOMAIN + String.fromCharCode(92) : '') + process.env.USERNAME + ':F'], { windowsHide: true }, () => {});
+        } catch { /* best effort */ }
         const clear = () => { try { const cur = U.readJson(P.bridgePid); if (cur && cur.pid === process.pid) fs.unlinkSync(P.bridgePid); } catch { /* ignore */ } };
         server.on('close', clear); process.once('exit', clear);
       }

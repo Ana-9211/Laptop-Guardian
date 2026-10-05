@@ -109,6 +109,7 @@ function pendingShutdown(actions, now = Date.now()) {
   const rel = (actions || []).filter((a) => /^shutdown:/.test(a.action || ''));
   for (let i = rel.length - 1; i >= 0; i--) {
     const a = rel[i];
+    if (a.action === 'shutdown:cancelled' && a.result === 'success') return null;
     if (a.action !== 'shutdown:initiated' || a.result !== 'success') continue;
     const m = /in (\d+) s/.exec(a.reason || '');
     const at = Date.parse(a.ts) + (m ? Number(m[1]) * 1000 : 0);

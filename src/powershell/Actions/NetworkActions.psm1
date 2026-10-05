@@ -22,7 +22,7 @@ function Get-OptProp { param($Obj, [string]$Name) if ($null -ne $Obj -and ($Obj.
 function Test-AdminNet { Test-IsAdmin }
 
 # ---------- thin wrappers over Windows (mocked in tests; never called with user-controlled strings) ----------
-function Get-GuardianFwRules { @(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Where-Object { $_.DisplayGroup -eq $script:RuleGroup -and $_.Name -like "$($script:RulePrefix)*" }) }
+function Get-GuardianFwRules { @(Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.DisplayGroup -eq $script:RuleGroup -and $_.Name -like "$($script:RulePrefix)*" }) }
 function Get-FwRuleByName { param([string]$Name) Get-NetFirewallRule -Name $Name -ErrorAction SilentlyContinue }
 function Get-FwRuleDetail {
     param($Rule)
@@ -58,7 +58,7 @@ function Test-ProgramTarget {
     if ((Get-ProtectedProcessNames) -contains $name) { return "Protected: '$name' is a Windows, security or Guardian program and is never blocked." }
     if ($env:SystemRoot -and $full.StartsWith($env:SystemRoot, [StringComparison]::OrdinalIgnoreCase)) { return 'Protected: programs in the Windows directory are never blocked.' }
     foreach ($d in @("$env:ProgramData\Microsoft\Windows Defender", "$env:ProgramFiles\Windows Defender", "$env:ProgramFiles\Windows Defender Advanced Threat Protection", "${env:ProgramFiles(x86)}\Windows Defender")) { if ($d -and $full.StartsWith($d, [StringComparison]::OrdinalIgnoreCase)) { return 'Protected: Microsoft Defender components are never blocked.' } }
-    $root = if ($env:GUARDIAN_ROOT) { $env:GUARDIAN_ROOT } else { '' }
+    $root = Get-GuardianRoot   # not the environment variable: it is lost when the action runs elevated through RunAs
     if ($root -and $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return 'Protected: Laptop Guardian''s own programs are never blocked.' }
     return $null
 }
@@ -146,8 +146,15 @@ function Test-FirewallCreate {
         $d = Get-FwRuleDetail $r
         if ((Get-RuleSpecKey ([string]$r.Direction) ([string]$r.Action) $d.program $(if ($d.protocol -in 'Any', '') { '' } else { $d.protocol }) $(if ($d.localPort -in 'Any', '') { '' } else { $d.localPort }) $(if ($d.remoteAddress -in 'Any', '') { '' } else { $d.remoteAddress })) -eq $key) { return New-RemResult -Ok $false -Errors @("An identical Guardian rule already exists ($($r.Name)).") }
     }
-    if (-not (Test-AdminNet)) { return New-RemResult -Ok $false -NeedsAdmin $true -NeedsElevation $true -Errors @('Creating a firewall rule needs administrator permission.') }
-    return New-RemResult -Ok $true -NeedsAdmin $true -IdentityKey (Get-StringKey @('fwc', $Kind, $key)) -Details ([ordered]@{ key = $key; guardianRules = $existing.Count })
+    $warn = @()
+    if ($Kind -eq 'allow-program') {
+        $pp = [string]$P.path
+        $tmp = @($env:TEMP, (Join-Path $env:USERPROFILE 'Downloads')) | Where-Object { $_ }
+        foreach ($t in $tmp) { if ($pp.StartsWith($t.TrimEnd([char]92) + [char]92, [StringComparison]::OrdinalIgnoreCase)) { return New-RemResult -Ok $false -Errors @('Guardian will not allow a program that lives in a temporary or Downloads folder through the firewall.') } }
+        if ($env:USERPROFILE -and $pp.StartsWith($env:USERPROFILE.TrimEnd([char]92) + [char]92, [StringComparison]::OrdinalIgnoreCase)) { $warn += 'This program is in a folder your account can change, so other software running as you could replace it. Allow it only if you trust it.' }
+    }
+    if (-not (Test-AdminNet)) { return New-RemResult -Ok $false -NeedsAdmin $true -NeedsElevation $true -Warnings $warn -Errors @('Creating a firewall rule needs administrator permission.') }
+    return New-RemResult -Ok $true -NeedsAdmin $true -Warnings $warn -IdentityKey (Get-StringKey @('fwc', $Kind, $key)) -Details ([ordered]@{ key = $key; guardianRules = $existing.Count })
 }
 function Invoke-FirewallCreate {
     param([hashtable]$P, [string]$Kind)
@@ -155,7 +162,8 @@ function Invoke-FirewallCreate {
     $dur = if ($P.ContainsKey('duration') -and $P.duration) { [string]$P.duration } else { 'permanent' }
     $expires = Get-ExpiryIso $dur
     $note = "Created by Laptop Guardian $(Get-IsoNow). $(if ($expires) { "Review or remove after $expires." } else { 'No expiry.' })"
-    $spec = @{ Name = $name; Group = $script:RuleGroup; Profile = 'Any'; Enabled = 'True'; Description = $note }
+    # Block rules protect every network. An allow rule opens a door, so it never applies on public networks.
+    $spec = @{ Name = $name; Group = $script:RuleGroup; Profile = $(if ($Kind -like 'allow*') { @('Private', 'Domain') } else { 'Any' }); Enabled = 'True'; Description = $note }
     switch ($Kind) {
         'block-program' { $spec += @{ DisplayName = "Laptop Guardian: block $([IO.Path]::GetFileName([string]$P.path)) ($($P.direction))"; Direction = [string]$P.direction; Action = 'Block'; Program = [string]$P.path } }
         'allow-program' { $spec += @{ DisplayName = "Laptop Guardian: allow $([IO.Path]::GetFileName([string]$P.path)) ($($P.direction))"; Direction = [string]$P.direction; Action = 'Allow'; Program = [string]$P.path } }
@@ -224,7 +232,12 @@ function Format-HostsText {
 function Update-GuardianHostsBlockFile {
     <# Adds or removes domains inside the managed block of ONE hosts file; backs it up first. Returns the resulting domain list. #>
     param([Parameter(Mandatory)][string]$Path, [string[]]$Add = @(), [string[]]$Remove = @(), [switch]$RemoveAll, [string]$BackupDir)
-    $text = if (Test-Path -LiteralPath $Path) { [IO.File]::ReadAllText($Path) } else { '' }
+    $enc = New-Object Text.UTF8Encoding($false); $text = ''
+    if (Test-Path -LiteralPath $Path) {
+        # Keep the file's own encoding (a BOM, or UTF-16, is preserved rather than silently rewritten as UTF-8).
+        $sr = New-Object IO.StreamReader($Path, $enc, $true)
+        try { $text = $sr.ReadToEnd(); $enc = $sr.CurrentEncoding } finally { $sr.Dispose() }
+    }
     $parts = Get-HostsParts -Text $text
     $set = New-Object System.Collections.Generic.List[string]
     foreach ($d in $parts.Domains) { if (-not $set.Contains($d)) { $set.Add($d) } }
@@ -239,7 +252,14 @@ function Update-GuardianHostsBlockFile {
         if (-not (Test-Path -LiteralPath $orig)) { [IO.File]::WriteAllText($orig, $text) }
         [IO.File]::WriteAllText((Join-Path $BackupDir ('hosts.before-{0:yyyyMMdd-HHmmss}' -f (Get-Date))), $text)
     }
-    [IO.File]::WriteAllText($Path, $new, (New-Object Text.UTF8Encoding($false)))
+    # Write a temporary file next to it and swap it in, so a crash can never leave a half-written hosts file.
+    $tmp = "$Path.lg-new"
+    try {
+        [IO.File]::WriteAllText($tmp, $new, $enc)
+        if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [IO.File]::Move($tmp, $Path) }
+    } finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } }
+    # Programs may hold old answers: flush the resolver cache, but only when the REAL hosts file was edited.
+    if ($Path -ieq (Get-HostsFilePath)) { try { Clear-DnsClientCache -ErrorAction Stop } catch { } }
     return @($set)
 }
 function Get-HostsDomains { param([string]$Path) $t = if (Test-Path -LiteralPath $Path) { [IO.File]::ReadAllText($Path) } else { '' }; return @((Get-HostsParts -Text $t).Domains) }

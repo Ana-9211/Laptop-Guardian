@@ -23,7 +23,7 @@ function Get-FileSignatureInfo {
 }
 function Get-DnsCacheTable { @(Get-DnsClientCache -ErrorAction SilentlyContinue) }
 function Get-FirewallProfileTable { @(Get-NetFirewallProfile -ErrorAction SilentlyContinue) }
-function Get-GuardianRuleTable { @(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Where-Object { $_.DisplayGroup -eq $script:RuleGroup }) }
+function Get-GuardianRuleTable { @(Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.DisplayGroup -eq $script:RuleGroup }) }
 function Get-RuleFilters {
     param($Rule)
     $app = Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $Rule -ErrorAction SilentlyContinue

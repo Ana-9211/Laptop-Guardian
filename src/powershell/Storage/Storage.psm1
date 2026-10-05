@@ -32,9 +32,9 @@ function Get-CleanupTargets {
         @{ kind = 'crashDumps'; path = (Join-Path $local 'Microsoft\Windows\WER\ReportArchive'); requiresAdmin = $false },
         @{ kind = 'crashDumps'; path = (Join-Path $local 'Microsoft\Windows\WER\ReportQueue'); requiresAdmin = $false },
         @{ kind = 'caches'; path = (Join-Path $local 'Microsoft\Windows\INetCache'); requiresAdmin = $false },
-        @{ kind = 'caches'; path = (Join-Path $local 'D3DSCache'); requiresAdmin = $false },
-        @{ kind = 'temp'; path = (Join-Path $env:SystemRoot 'Temp'); requiresAdmin = $true },
-        @{ kind = 'crashDumps'; path = (Join-Path $env:SystemRoot 'Minidump'); requiresAdmin = $true }
+        @{ kind = 'caches'; path = (Join-Path $local 'D3DSCache'); requiresAdmin = $false }
+        # %SystemRoot%\Temp and Minidump are deliberately not cleaned: deleting inside folders that ordinary users can write to,
+        # from an elevated run, would let a junction planted there redirect the delete.
     )
     foreach ($x in $t) {
         if (-not $x.path) { continue }
@@ -115,11 +115,16 @@ function Invoke-SafeCleanup {
     $total = 0L
     foreach ($t in (Get-CleanupTargets -Admin $admin)) {
         if (-not $enabled[$t.kind]) { continue }
+        if (-not $dry -and (Test-PathHasReparse -Path $t.path)) { [void](Write-GuardianEvent -Category cleanup -Action "cleanup:$($t.kind)" -Target $t.path -Result skipped -Severity warning -Reason 'The folder or one of its parents is a junction/symlink; nothing was deleted.'); continue }
         $w = [Guardian.FsWalker]::Walk($t.path, @(), 0, $older, 100000, [datetime]::UtcNow.AddSeconds(60))
         $freed = 0L; $deleted = 0; $failed = 0
         foreach ($e in $w.Entries) {
             if ($dry) { $freed += $e.Size; $deleted++; continue }
-            try { Remove-Item -LiteralPath $e.Path -Force -ErrorAction Stop; $freed += $e.Size; $deleted++ } catch { $failed++ }   # in use / denied: skip silently
+            try {
+                $item = Get-Item -LiteralPath $e.Path -Force -ErrorAction Stop
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $failed++; continue }   # never follow or delete links
+                Remove-Item -LiteralPath $e.Path -Force -ErrorAction Stop; $freed += $e.Size; $deleted++
+            } catch { $failed++ }   # in use / denied: skip silently
         }
         $total += $freed
         $result = if ($dry) { 'would-delete' } elseif ($failed -gt 0 -and $deleted -eq 0) { 'failed' } else { 'deleted' }

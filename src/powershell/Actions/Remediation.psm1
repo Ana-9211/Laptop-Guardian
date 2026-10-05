@@ -297,6 +297,8 @@ function Test-FileRecycle {
     if (Test-PathHasReparse -Path (Split-Path -Parent $path)) { return New-RemResult -Ok $false -Errors @('The path passes through a junction or symbolic link; refusing.') }
     $candModified = Get-OptionalProp $cand 'lastModified'
     if ($candModified -and ([math]::Abs(($item.LastWriteTime - [datetime]$candModified).TotalSeconds) -gt 2)) { return New-RemResult -Ok $false -Errors @('The file changed since it was analysed. Re-scan, then review again.') }
+    $binProblem = Test-RecycleBinSafe -Path $path -SizeBytes ([int64]$item.Length)
+    if ($binProblem) { return New-RemResult -Ok $false -Errors @($binProblem) }
     $ageDays = [int]((Get-Date) - $item.LastWriteTime).TotalDays
     return New-RemResult -Ok $true -IdentityKey (Get-StringKey @($path, $item.Length, $item.LastWriteTimeUtc.ToString('o'))) -Details ([ordered]@{ path = $path; sizeBytes = [int64]$item.Length; ageDays = $ageDays; classification = [string]$cand.classification; reason = $(if (Get-OptionalProp $cand 'whyFlagged') { (@($cand.whyFlagged) -join ' ') } else { '' }) })
 }
@@ -305,7 +307,7 @@ function Invoke-FileRecycle {
     $cfg = Get-GuardianConfig
     try { [void](Move-FileToRecycle -Path ([string]$P.path) -ProtectedDirs @($cfg.storage.protectedDirs)) } catch { return New-RemResult -Ok $false -Errors @($_.Exception.Message) }
     if (Test-Path -LiteralPath ([string]$P.path)) { return New-RemResult -Ok $false -Errors @('The file is still there after the request.') }
-    return New-RemResult -Ok $true -Verified $true -Message 'Moved to the Recycle Bin. Open the Recycle Bin and choose Restore to undo.' -Details ([ordered]@{ sizeBytes = $Validated.details.sizeBytes })
+    return New-RemResult -Ok $true -Verified $true -Message $(if ([string]$cfg.cleanup.recycleBin -eq 'always') { 'Moved to the Recycle Bin and confirmed there. Your setting empties the Recycle Bin on every run, so restore it soon or it will be gone for good.' } else { 'Moved to the Recycle Bin and confirmed there. Open the Recycle Bin and choose Restore to undo.' }) -Details ([ordered]@{ sizeBytes = $Validated.details.sizeBytes })
 }
 
 # ---------- admin maintenance actions ----------

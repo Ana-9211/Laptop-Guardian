@@ -59,12 +59,25 @@ export default function Settings() {
   const upd = (fn: (x: Draft) => void) => setD((cur) => { const n = clone(cur!); fn(n); return n; });
   const keyOn = cfgQ.data?._ai?.keyConfigured;
 
+  /** Saves settings. When the bridge says a change lowers a safety margin it is asked about first and only then re-sent as confirmed. Returns false while that question is open. */
+  const putConfig = async (body: Record<string, unknown>, confirmed = false): Promise<boolean> => {
+    try { await api.put('/api/config', confirmed ? { ...body, _confirmRisky: true } : body); return true; } catch (e) {
+      const err = e as ApiError;
+      if (!err.needsConfirmation.length) throw e;
+      confirm({
+        title: 'Lower a safety margin?', confirmLabel: 'Apply this change', danger: true,
+        body: <><p>This change reduces a protection:</p><ul>{err.needsConfirmation.map((t) => <li key={t}>{t}</li>)}</ul></>,
+        onConfirm: async () => { try { await api.put('/api/config', { ...body, _confirmRisky: true }); toast('ok', 'Settings saved.'); cfgQ.reload(); ov.reload(); } catch (e2) { toast('error', (e2 as ApiError).message); if (cfgQ.data) setD(clone(cfgQ.data)); } },
+      });
+      return false;
+    }
+  };
   const save = async (immediate?: Partial<Config>) => {
     setBusy('save');
     try {
       const body = strip(immediate ? { ...d, ...immediate } as Config : d) as Record<string, unknown>;
       const { schedule, ...rest } = body;
-      await api.put('/api/config', rest);
+      if (!(await putConfig(rest))) return;
       // Task Scheduler is only touched when the schedule itself changed, so unrelated saves can never alter the tasks.
       if (JSON.stringify(schedule) === JSON.stringify(cfgQ.data?.schedule)) toast('ok', 'Settings saved.');
       else {
@@ -78,9 +91,9 @@ export default function Settings() {
     } catch (e) { toast('error', (e as ApiError).message); } finally { setBusy(''); }
   };
   /** Safety toggles apply immediately: they are the user's brake. */
-  const safety = async (k: keyof Config['safety'], v: boolean) => {
+  const safety = async (k: keyof Config['safety'], v: boolean, confirmed = false) => {
     upd((x) => { x.safety[k] = v; });
-    try { await api.put('/api/config', { safety: { [k]: v } }); toast('ok', 'Safety setting applied.'); cfgQ.reload(); ov.reload(); } catch (e) { toast('error', (e as ApiError).message); upd((x) => { x.safety[k] = !v; }); }
+    try { if (await putConfig({ safety: { [k]: v } }, confirmed)) { toast('ok', 'Safety setting applied.'); cfgQ.reload(); ov.reload(); } else upd((x) => { x.safety[k] = !v; }); } catch (e) { toast('error', (e as ApiError).message); upd((x) => { x.safety[k] = !v; }); }
   };
   const aiCall = async (name: string, fn: () => Promise<void>) => { setBusy(name); try { await fn(); } catch (e) { toast('error', (e as ApiError).message); } finally { setBusy(''); } };
   const saveKey = () => aiCall('key', async () => { await api.post('/api/ai/key', { key }); setKey(''); setShow(false); toast('ok', 'API key stored, encrypted for your Windows account.'); cfgQ.reload(); ov.reload(); });
@@ -96,7 +109,7 @@ export default function Settings() {
         <header className="card-head"><Icon name="shield" /><h2>Safety</h2>{d.safety.safeMode ? <Badge tone="accent" dot>Safe mode on</Badge> : <Badge tone="warn" dot>Safe mode off</Badge>}</header>
         <div className="card-body stack-lg">
           <div className="safety-banner">
-            <Switch checked={d.safety.safeMode} onChange={(v) => (v ? safety('safeMode', true) : confirm({ title: 'Turn off safe mode?', confirmLabel: 'Turn off safe mode', danger: true, body: 'Agents will be allowed to perform the cleanup and blacklisted-process termination you configured. Unknown processes and personal files are still never touched automatically.', onConfirm: () => safety('safeMode', false) }))}
+            <Switch checked={d.safety.safeMode} onChange={(v) => (v ? safety('safeMode', true) : confirm({ title: 'Turn off safe mode?', confirmLabel: 'Turn off safe mode', danger: true, body: 'Agents will be allowed to perform the cleanup and blacklisted-process termination you configured. Unknown processes and personal files are still never touched automatically.', onConfirm: () => safety('safeMode', false, true) }))}
               label={<b>Safe mode</b>} hint="Observe and recommend only. No process is terminated and nothing is cleaned automatically." />
           </div>
           <div className="grid g2">

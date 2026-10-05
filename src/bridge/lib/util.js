@@ -57,6 +57,13 @@ function uid(prefix = '') {
   return prefix + crypto.randomBytes(6).toString('hex');
 }
 
+/** One CSV cell. A text value that starts with = + - @ (or a tab/CR) would run as a formula in a spreadsheet, so it is prefixed with an apostrophe. */
+function csvCell(v) {
+  let s = String(v ?? '');
+  if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 function localIso(d = new Date()) {
   const pad = (n, l = 2) => String(n).padStart(l, '0');
   const off = -d.getTimezoneOffset();
@@ -99,7 +106,7 @@ const TIME_KEYS = new Set(['schedule.daily.time', 'schedule.weekly.time', 'sched
 const RANGES = {
   'bridge.port': [1024, 65535], 'ai.maxRequestsPerRun': [0, 500], 'ai.maxProcessesPerRun': [0, 100], 'ai.dailyTokenBudget': [0, 50_000_000],
   'network.snapshot.everyMinutes': [5, 1440], 'network.snapshot.retentionDays': [1, 365], 'network.snapshot.maxMB': [1, 500],
-  'network.deep.retentionDays': [1, 90], 'network.deep.maxMB': [5, 2000], 'network.deep.sampleSec': [2, 60],
+  'network.deep.retentionDays': [1, 90], 'network.deep.maxMB': [5, 500], 'network.deep.sampleSec': [2, 60],
   'network.thresholds.burstConnections': [5, 100000], 'network.thresholds.burstDestinations': [5, 100000], 'network.thresholds.unknownDestinations': [2, 1000],
   'network.thresholds.persistentDestinations': [2, 1000], 'network.thresholds.newConnectionsPerMinute': [5, 100000],
 };
@@ -137,6 +144,23 @@ function mergeConfig(base, patch, defaults = DEFAULT_CONFIG, prefix = '') {
   return { value: out, errors };
 }
 
+/** Settings changes that lower a safety margin. They are applied only after an explicit confirmation (see PUT /api/config). */
+function riskyChanges(before, after) {
+  const out = [];
+  const b = before || {}; const a = after || {};
+  if (b.safety && a.safety) {
+    if (b.safety.safeMode !== false && a.safety.safeMode === false) out.push('Turn Safe Mode off: agents may then clean files and end blacklisted processes on their own.');
+    if (!b.safety.autoKillBlacklisted && a.safety.autoKillBlacklisted) out.push('Automatically terminate blacklisted processes (effective when Safe Mode is off).');
+    if (b.safety.requireConfirmation !== false && a.safety.requireConfirmation === false) out.push('Stop requiring confirmation for destructive actions.');
+  }
+  if (b.storage && a.storage) {
+    const gone = (b.storage.protectedDirs || []).filter((d) => !(a.storage.protectedDirs || []).includes(d));
+    if (gone.length) out.push(`Stop protecting ${gone.length} folder(s): ${gone.slice(0, 3).join(', ')}${gone.length > 3 ? ', ...' : ''}.`);
+  }
+  if (b.cleanup && a.cleanup && b.cleanup.recycleBin !== 'always' && a.cleanup.recycleBin === 'always') out.push('Empty the Recycle Bin permanently on every run. Items moved there by Guardian could then no longer be restored.');
+  return out;
+}
+
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 function nextRun(time, day, from = new Date()) {
   const [h, m] = time.split(':').map(Number);
@@ -150,4 +174,5 @@ function nextRun(time, day, from = new Date()) {
   return localIso(d);
 }
 
-module.exports = { readJson, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };
+module.exports = {
+  csvCell, riskyChanges, readJson, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };

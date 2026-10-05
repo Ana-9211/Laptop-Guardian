@@ -183,8 +183,8 @@ test('deep export (jsonl and csv), delete, start and stop', async () => {
   const h = deepHarness({ outputs: [NETSTAT([rowA, rowU]), NETSTAT([])] });
   try {
     await h.d.tick(); await h.d.tick();
-    assert.strictEqual(h.d.exportData('jsonl').split('\n').length, 4);
-    const csv = h.d.exportData('csv'); assert.match(csv.split('\n')[0], /^ts,type,proto,localAddress/); assert.strictEqual(csv.split('\n').length, 5);
+    assert.strictEqual(h.d.exportData('jsonl').trim().split('\n').length, 4);
+    const csv = h.d.exportData('csv'); assert.match(csv.split('\n')[0], /^ts,type,proto,localAddress/); assert.strictEqual(csv.trim().split('\n').length, 5);
     assert.strictEqual(h.d.start().active, true); assert.strictEqual(h.d.stop().active, false);
     assert.strictEqual(h.d.deleteAll().deletedFiles, 1); assert.strictEqual(h.d.readEvents().length, 0); assert.strictEqual(h.d.status().storageBytes, 0);
   } finally { h.clean(); }
@@ -240,8 +240,8 @@ test('HTTP: Deep Network Guard is opt-in, needs confirmation and acknowledgement
     assert.strictEqual(on.status, 200); assert.strictEqual(on.json.active, true); assert.ok(on.json.startedAt);
     assert.strictEqual(b.readConfig().network.deep.enabled, true);
     assert.strictEqual((await b.get('/api/status')).json.network.deepActive, true);
-    const exp = await b.get('/api/network/deep/export?format=csv'); assert.strictEqual(exp.status, 200); assert.match(exp.text, /^ts,type,proto/);
-    assert.strictEqual((await b.get('/api/network/deep/export?format=zip')).status, 400);
+    const exp = await b.post('/api/network/deep/export', { format: 'csv' }); assert.strictEqual(exp.status, 200); assert.match(exp.text, /^ts,type,proto/);
+    assert.strictEqual((await b.post('/api/network/deep/export', { format: 'zip' })).status, 400);
     assert.strictEqual((await b.post('/api/network/deep/delete', {})).status, 400);
     assert.strictEqual((await b.post('/api/network/deep/delete', { confirm: true })).status, 200);
     const off = await b.post('/api/network/deep/stop', {}); assert.strictEqual(off.json.active, false); assert.strictEqual(b.readConfig().network.deep.enabled, false);
@@ -314,4 +314,24 @@ test('HTTP: a failed or timed-out snapshot never overwrites the last good one', 
     assert.strictEqual((await b.post('/api/network/snapshot', {})).status, 502);
     assert.strictEqual(fs.readFileSync(latest, 'utf8'), before);
   } finally { b.close(); }
+});
+
+test('CSV cells that would run as spreadsheet formulas are neutralised', () => {
+  const { csvCell } = require('../src/bridge/lib/util');
+  assert.strictEqual(csvCell('=HYPERLINK("x")'), '"\'=HYPERLINK(""x"")"');
+  assert.strictEqual(csvCell('@SUM(A1)'), "'@SUM(A1)");
+  assert.strictEqual(csvCell('+1'), "'+1"); assert.strictEqual(csvCell('-1'), "'-1");
+  assert.strictEqual(csvCell(-5), '-5', 'real numbers stay numbers');
+  assert.strictEqual(csvCell('plain'), 'plain'); assert.strictEqual(csvCell('a,b'), '"a,b"');
+});
+
+test('deep sampling: a busy tick never tracks a connection whose open event was not recorded, and saturation is visible', async () => {
+  const rows = Array.from({ length: 600 }, (_, i) => `  TCP    192.168.1.20:${40000 + i}     203.0.113.${(i % 200) + 1}:443        ESTABLISHED     100`);
+  const h = deepHarness({ outputs: [rows.join('\n'), rows.join('\n')] });
+  await h.d.tick();
+  assert.strictEqual(h.d._open.size, 500, 'only recorded opens are tracked');
+  assert.ok(h.d.status().droppedConnections >= 100);
+  await h.d.tick();
+  assert.strictEqual(h.d._open.size, 500 + 100, 'the remainder is picked up on the next sample');
+  h.clean();
 });

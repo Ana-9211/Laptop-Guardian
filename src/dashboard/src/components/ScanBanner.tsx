@@ -2,16 +2,16 @@ import { useStatus } from '../state/StatusProvider';
 import { useTicker } from '../state/useTicker';
 import { CLOCK_TICK_MS } from '../config';
 import { ago, fmtDate } from '../format';
-import { Badge, CopyButton, Icon, Sep, useToast } from './ui';
-import { network, reloadAllQueries } from '../api';
+import { Badge, Icon, Sep, useToast } from './ui';
+import { useState } from 'react';
+import { network, reloadAllQueries, shutdown } from '../api';
 import { fmtElapsed } from './StatusBar';
-
-const CANCEL_SHUTDOWN = 'shutdown /a';
 
 /** Live view of an active scan, the "scan finished" summary, a stale run marker, and any pending shutdown. */
 export function ScanBanner() {
   const { status: s, live, dismissFinished, check } = useStatus();
   const toast = useToast();
+  const [cancelling, setCancelling] = useState(false);
   useTicker(CLOCK_TICK_MS.fast);
   if (!s) return null;
   const scan = live.scan;
@@ -38,8 +38,8 @@ export function ScanBanner() {
       )}
       {s.shutdown.pending && (
         <div className="notice warn banner" role="alert">
-          <Icon name="warn" /><div className="grow"><b>Shutdown scheduled for {fmtDate(s.shutdown.pending.at)}.</b> Laptop Guardian finished the weekly run. To cancel, run this in a terminal:</div>
-          <code className="mono">{CANCEL_SHUTDOWN}</code><CopyButton text={CANCEL_SHUTDOWN} />
+          <Icon name="warn" /><div className="grow"><b>Shutdown scheduled for {fmtDate(s.shutdown.pending.at)}.</b> Laptop Guardian finished the weekly run. Windows closes open programs when it shuts down, so save your work or cancel it.</div>
+          <button className="btn sm primary" disabled={cancelling} onClick={() => { setCancelling(true); shutdown.cancel().then((r) => { toast(r.cancelled ? 'ok' : 'info', r.message); void check(true); }).catch((e: Error) => toast('error', e.message)).finally(() => setCancelling(false)); }}>{cancelling ? 'Cancelling...' : 'Cancel shutdown'}</button>
         </div>
       )}
       {running && (
@@ -50,7 +50,7 @@ export function ScanBanner() {
               <Badge tone={scheduled ? 'info' : ''}>{scheduled ? 'Scheduled run' : running.type === 'weekly' ? 'Manual run, no shutdown' : 'Manual run'}</Badge>
               {running.stepName && <Badge tone="outline">Phase: {running.stepName}</Badge>}<span className="small muted">{fmtElapsed(elapsed)} elapsed</span></div>
             {la && <div className="small t2 trunc">Latest: <span className="mono">{la.action}</span>{la.target ? <><Sep />{la.target}</> : null}<Sep />{ago(la.ts)}</div>}
-            {running.type === 'weekly' && running.shutdownPossible && <div className="small warn-text">This scheduled run may shut the laptop down at {fmtDate(s.shutdown.target)}. Cancel any time with <code>{CANCEL_SHUTDOWN}</code>.</div>}
+            {running.type === 'weekly' && running.shutdownPossible && <div className="small warn-text">This scheduled run may shut the laptop down at {fmtDate(s.shutdown.target)}. If it does, you can cancel it from this window.</div>}
           </div>
           <a className="btn sm" href="#/logs">Open log</a>
         </div>

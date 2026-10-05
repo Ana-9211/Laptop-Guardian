@@ -33,7 +33,7 @@ async function startBridge({ ps, days = 20, opts = {}, withDist = true } = {}) {
   const port = await new Promise((r) => app.listen_(0, r));
   const req = (method, p, body, headers = MUTATION_HEADERS) => new Promise((resolve, reject) => {
     const data = body !== undefined ? JSON.stringify(body) : undefined;
-    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { Host: `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, ...(method === 'GET' ? {} : headers) } }, (res) => {
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { Host: `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}`, Authorization: `Bearer ${app.token}`, ...(method === 'GET' ? {} : headers) } }, (res) => {
       const chunks = []; res.on('data', (c) => chunks.push(c));
       res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8'); let json = null; try { json = JSON.parse(text); } catch { /* not json */ } resolve({ status: res.statusCode, json, text }); });
     });

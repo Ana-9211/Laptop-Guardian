@@ -1,3 +1,4 @@
+import './api'; // reads the session token from the URL fragment before anything else looks at the address
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
