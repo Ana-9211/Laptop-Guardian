@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS  Laptop Guardian daily audit. Observes, analyses, recommends; acts only within explicit user policy.
 .PARAMETER Fast        Shorter sampling/timeouts (used by installer smoke test).
@@ -6,12 +6,13 @@
 .PARAMETER SkipDefenderScan  Do not trigger a Defender update/quick scan.
 #>
 [CmdletBinding()]
-param([switch]$Fast, [switch]$NoAI, [switch]$SkipDefenderScan, [switch]$SkipNetwork)
+param([switch]$Scheduled, [switch]$Fast, [switch]$NoAI, [switch]$SkipDefenderScan, [switch]$SkipNetwork)
 
 . "$PSScriptRoot\Common\Load.ps1"
 Initialize-GuardianDirectories
 Start-RunContext -RunType 'daily'
 $started = Get-Date
+$runMode = if ($Scheduled) { 'scheduled' } else { 'manual' }
 $config = Get-GuardianConfig
 $exit = 0
 
@@ -19,7 +20,7 @@ if (-not (Enter-GuardianLock -Name 'daily')) { Write-Host 'Another daily run is 
 $prevRun = (Get-RunState).running
 if ($prevRun -and $prevRun.type -eq 'daily') { [void](Write-GuardianEvent -Category scan -Action 'run:previous-interrupted' -Severity warning -Result failure -Reason "Previous $($prevRun.type) run (phase '$($prevRun.phase)', started $($prevRun.startedAt)) never finished: machine shutdown, crash or kill. Recovering.") }
 try {
-    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'daily'; phase = 'collecting'; startedAt = (Get-IsoNow) })
+    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'daily'; mode = $runMode; pid = $PID; phase = 'collecting'; startedAt = (Get-IsoNow) })
     [void](Write-GuardianEvent -Category scan -Action 'daily:scan-started' -Result started -Reason "safeMode=$($config.safety.safeMode) admin=$(Test-IsAdmin)")
     if ($config.safety.automationPaused) { [void](Write-GuardianEvent -Category scan -Action 'automation:paused' -Result skipped -Reason 'Automation paused; observation only') }
 

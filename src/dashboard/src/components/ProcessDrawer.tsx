@@ -4,15 +4,15 @@ import type { ActionEvent, Process, Recommendation } from '../types';
 import { Badge, CommandBlock, Drawer, KV, RiskBadge, TextCommand, useConfirm, useToast, Card, Skeleton, Icon } from './ui';
 import { ConfirmDialog } from './ui';
 import { ActionTimeline } from './common';
-import { fmtFull, fmtMB, pct } from '../format';
-import { useOverview } from '../App';
+import { fmtFull, fmtMB, pct, NA } from '../format';
+import { useOverview } from '../state/overview';
 
 /** Adds a process to blacklist / whitelist / ignored with a user-supplied reason. */
 export function PolicyDialog({ list, name, path, recId, onClose, onDone }: { list: 'blacklist' | 'whitelist' | 'ignored'; name: string; path?: string | null; recId?: string | null; onClose: () => void; onDone: () => void }) {
   const [reason, setReason] = useState('');
   const toast = useToast();
   const copy = {
-    blacklist: { title: `Blacklist ${name}?`, verb: 'Add to blacklist', danger: true, body: <>Future daily runs will <b>automatically terminate</b> <code>{name}</code>{path ? <> when it runs from <code>{path}</code></> : <> wherever it runs</>}. Unsaved work in it will be lost. Automation does nothing while Safe mode or “Pause automation” is on. You can remove or temporarily disable the entry on the Blacklist page.</> },
+    blacklist: { title: `Blacklist ${name}?`, verb: 'Add to blacklist', danger: true, body: <>Future daily runs will <b>automatically terminate</b> <code>{name}</code>{path ? <> when it runs from <code>{path}</code></> : <> wherever it runs</>}. Unsaved work in it will be lost. Automation does nothing while Safe mode or &quot;Pause automation&quot; is on. You can remove or temporarily disable the entry on the Blacklist page.</> },
     whitelist: { title: `Whitelist ${name}?`, verb: 'Add to whitelist', danger: false, body: <>Laptop Guardian will stop flagging and recommending <code>{name}</code>. It will still be listed in the process table.</> },
     ignored: { title: `Ignore ${name}?`, verb: 'Ignore recommendation', danger: false, body: <>This recommendation is hidden from the inbox. The process is not changed and will reappear in the process table.</> },
   }[list];
@@ -68,7 +68,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
     <>
       <Drawer onClose={onClose}
         title={<span className="row" style={{ gap: 10 }}>{proc.name}<span className="muted num" style={{ fontSize: 13, fontWeight: 400 }}>PID {proc.pid}</span></span>}
-        sub={<span className="row tight">{proc.signed ? <Badge tone="ok" dot>Signed · {proc.publisher}</Badge> : <Badge tone="warn" dot>Unsigned</Badge>}<Badge>{proc.classification || 'unclassified'}</Badge>{proc.persistent && <Badge tone="info">Persistent</Badge>}{proc.policy && proc.policy !== 'none' && <Badge tone={proc.policy === 'blacklist' ? 'crit' : 'accent'}>{proc.policy}</Badge>}</span>}
+        sub={<span className="row tight">{proc.signed ? <Badge tone="ok" dot>Signed - {proc.publisher}</Badge> : <Badge tone="warn" dot>Unsigned</Badge>}<Badge>{proc.classification || 'unclassified'}</Badge>{proc.persistent && <Badge tone="info">Persistent</Badge>}{proc.policy && proc.policy !== 'none' && <Badge tone={proc.policy === 'blacklist' ? 'crit' : 'accent'}>{proc.policy}</Badge>}</span>}
         footer={<>
           <button className="btn danger" onClick={kill}><Icon name="x" size={13} />Kill once</button>
           <button className="btn danger" onClick={() => setDlg('blacklist')} disabled={proc.policy === 'blacklist'}><Icon name="blacklist" size={13} />Blacklist</button>
@@ -91,11 +91,11 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
           <KV items={[['Process', proc.name], ['PID', proc.pid], ['Executable', <code key="p">{proc.path || 'inaccessible'}</code>], ['Command line', proc.commandLine ? <code key="c">{proc.commandLine}</code> : 'inaccessible'], ['Publisher', proc.publisher || 'none'], ['Signature', proc.signature], ['User', proc.user], ['Started', fmtFull(proc.startTime)], ['Path class', proc.pathClass], ['Instances', proc.instances]]} />
         </Section>
         <Section title="Resource usage">
-          <div className="grid g3"><div><div className="muted small">CPU</div><b className="num">{pct(proc.cpuPct, 1)}</b></div><div><div className="muted small">Memory</div><b className="num">{fmtMB(proc.memoryMB)}</b></div><div><div className="muted small">CPU time</div><b className="num">{proc.cpuSeconds != null ? `${Math.round(proc.cpuSeconds)} s` : '—'}</b></div></div>
+          <div className="grid g3"><div><div className="muted small">CPU</div><b className="num">{pct(proc.cpuPct, 1)}</b></div><div><div className="muted small">Memory</div><b className="num">{fmtMB(proc.memoryMB)}</b></div><div><div className="muted small">CPU time</div><b className="num">{proc.cpuSeconds != null ? `${Math.round(proc.cpuSeconds)} s` : NA}</b></div></div>
           {flags.length > 0 && <div className="row tight" style={{ marginTop: 10 }}>{flags.map((f) => <Badge key={f} tone={/cpu|memory|unusual|unsigned|no-pub|blacklisted/.test(f) ? 'warn' : ''}>{f}</Badge>)}</div>}
         </Section>
         <Section title="Parent, startup and services">
-          <KV items={[['Parent', proc.parentName ? `${proc.parentName} (PID ${proc.parentPid})` : proc.parentPid ?? '—'], ['Services', (proc.services || []).join(', ') || 'none'], ['Scheduled tasks', (proc.scheduledTasks || []).join(', ') || 'none'],
+          <KV items={[['Parent', proc.parentName ? `${proc.parentName} (PID ${proc.parentPid})` : proc.parentPid ?? NA], ['Services', (proc.services || []).join(', ') || 'none'], ['Scheduled tasks', (proc.scheduledTasks || []).join(', ') || 'none'],
             ['Startup mechanisms', mech.length ? <div key="m" className="stack" style={{ gap: 4 }}>{mech.map((m, i) => <div key={i}><Badge>{m.kind}</Badge> <b>{m.name}</b> <span className="muted">{m.location}</span></div>)}</div> : 'none found']]} />
           <div className="small muted" style={{ marginTop: 8 }}>{mech.length ? 'This process can restart after it is stopped.' : 'No restart mechanism was identified. It may be launched by another program.'}</div>
         </Section>
@@ -103,7 +103,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
         {rec?.preventRestart && <CommandBlock title="Prevent it from restarting" cmd={rec.preventRestart} />}
         {rec && !rec.stopCommand && !rec.preventRestart && <div className="notice">No verified stop or prevent-restart procedure is available for this recommendation.</div>}
         {rec?.consequences && <Section title="Consequences"><p className="t2">{rec.consequences}</p></Section>}
-        <Section title="AI analysis" actions={ai && <Badge tone="info">{ai.model || 'Gemini'} · validated</Badge>}>
+        <Section title="AI analysis" actions={ai && <Badge tone="info">{ai.model || 'Gemini'} - validated</Badge>}>
           {ai ? (
             <div className="stack">
               <div className="row tight"><RiskBadge risk={ai.risk} /><Badge tone="outline">AI confidence {Math.round((ai.confidence ?? 0) * 100)}%</Badge>{ai.classification && <Badge>{ai.classification}</Badge>}</div>
@@ -116,7 +116,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
           ) : (
             <div className="stack">
               <p className="t2">No AI analysis for this process. Local analysis above is deterministic and works without Gemini.</p>
-              {rec && <div className="row"><button className="btn" disabled={!aiOn || aiBusy} onClick={() => confirm({ title: 'Send to Gemini?', confirmLabel: 'Send metadata', body: <div className="stack"><p>This sends <b>structured metadata only</b> about this process to Google’s Gemini API: name, path, publisher, signature, CPU/memory, startup and service associations.</p><p>No file contents, documents or credentials are sent. The response is validated locally and can never run commands.</p></div>, onConfirm: analyze })}>{aiBusy ? 'Analyzing…' : 'Analyze with Gemini'}</button>{!aiOn && <span className="small muted">Enable AI and add a key in Settings.</span>}</div>}
+              {rec && <div className="row"><button className="btn" disabled={!aiOn || aiBusy} onClick={() => confirm({ title: 'Send to Gemini?', confirmLabel: 'Send metadata', body: <div className="stack"><p>This sends <b>structured metadata only</b> about this process to Google&apos;s Gemini API: name, path, publisher, signature, CPU/memory, startup and service associations.</p><p>No file contents, documents or credentials are sent. The response is validated locally and can never run commands.</p></div>, onConfirm: analyze })}>{aiBusy ? 'Analyzing...' : 'Analyze with Gemini'}</button>{!aiOn && <span className="small muted">Enable AI and add a key in Settings.</span>}</div>}
               {aiBusy && <Skeleton h={40} />}
             </div>
           )}
@@ -126,7 +126,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
             {hist.loading ? <Skeleton h={60} /> : hist.error ? <div className="notice crit">{hist.error.message}</div> : (
               <div className="stack">
                 <div className="small muted">Appeared in {hist.data?.appearances.length || 0} recent daily reports as a top resource user.</div>
-                {hist.data?.appearances.slice(0, 8).map((a) => <div key={a.ts} className="row spread small"><span>{fmtFull(a.ts)}</span><span className="num">{pct(a.cpuPct, 1)} CPU · {fmtMB(a.memoryMB)}</span></div>)}
+                {hist.data?.appearances.slice(0, 8).map((a) => <div key={a.ts} className="row spread small"><span>{fmtFull(a.ts)}</span><span className="num">{pct(a.cpuPct, 1)} CPU - {fmtMB(a.memoryMB)}</span></div>)}
                 <b>Actions</b>
                 {hist.data?.actions.length ? <ActionTimeline rows={hist.data.actions} max={10} /> : <div className="muted small">No logged actions target this process.</div>}
               </div>

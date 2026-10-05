@@ -1,9 +1,11 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { api, ApiError, useQuery } from '../api';
+import { api, ApiError, bridge, useQuery } from '../api';
 import type { Config, Policy } from '../types';
 import { Badge, Card, ErrorState, Icon, PageHead, SkeletonCards, Switch, useConfirm, useToast } from '../components/ui';
-import { useOverview } from '../App';
+import { useOverview } from '../state/overview';
 import { fmtDate } from '../format';
+import { useStatus } from '../state/StatusProvider';
+import { ScheduleRepairNotice } from '../components/ScheduleRepair';
 
 type Draft = Config;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -23,6 +25,7 @@ export default function Settings() {
   const usage = useQuery<{ requests: { ts: string; model: string; kind: string; ok: boolean; promptTokens: number; outputTokens: number; error?: string }[]; totals: { requests: number; failures: number; tokensToday: number; tokensAll: number } }>('/api/ai/usage');
   const pol = useQuery<Policy>('/api/policy');
   const ov = useOverview();
+  const { check } = useStatus();
   const toast = useToast();
   const { confirm, node } = useConfirm();
   const [d, setD] = useState<Draft | null>(null);
@@ -50,8 +53,15 @@ export default function Settings() {
       const body = strip(immediate ? { ...d, ...immediate } as Config : d) as Record<string, unknown>;
       const { schedule, ...rest } = body;
       await api.put('/api/config', rest);
-      const r = await api.put<{ registered: boolean; warning?: string }>('/api/schedule', schedule);
-      toast(r.registered ? 'ok' : 'warn', r.registered ? 'Settings saved and schedule updated.' : `Settings saved. Schedule not re-registered: ${r.warning || 'Scheduler unavailable'}.`);
+      // Task Scheduler is only touched when the schedule itself changed, so unrelated saves can never alter the tasks.
+      if (JSON.stringify(schedule) === JSON.stringify(cfgQ.data?.schedule)) toast('ok', 'Settings saved.');
+      else {
+        const r = await bridge.saveSchedule(schedule);
+        if (r.needsElevation) toast('warn', 'Settings saved. Daily and Weekly run with administrator rights, so applying the new schedule needs your permission. Use the button in the Schedule section.');
+        else if (!r.registered) toast('warn', `Settings saved. The schedule was not applied: ${r.message || 'Task Scheduler is unavailable'}.`);
+        else toast('ok', 'Settings saved and schedule updated.');
+        void check(true);
+      }
       cfgQ.reload(); ov.reload();
     } catch (e) { toast('error', (e as ApiError).message); } finally { setBusy(''); }
   };
@@ -89,18 +99,18 @@ export default function Settings() {
       {/* Gemini */}
       <Card title="Gemini (AI analysis)" actions={<Badge tone={d.ai.enabled && keyOn ? 'info' : ''} dot>{d.ai.enabled ? (keyOn ? 'Enabled' : 'Needs key') : 'Off'}</Badge>}>
         <div className="stack-lg">
-          <div className="notice"><b>Privacy.</b> When enabled, Laptop Guardian sends <b>structured metadata only</b> to Google’s Gemini API: process names, paths, publishers, signatures, resource numbers, and aggregated findings. It never sends file contents, documents, passwords or tokens. Responses are schema-validated and can never run commands. Without AI everything still works.</div>
+          <div className="notice"><b>Privacy.</b> When enabled, Laptop Guardian sends <b>structured metadata only</b> to Google&apos;s Gemini API: process names, paths, publishers, signatures, resource numbers, and aggregated findings. It never sends file contents, documents, passwords or tokens. Responses are schema-validated and can never run commands. Without AI everything still works.</div>
           <Switch checked={d.ai.enabled} onChange={(v) => upd((x) => { x.ai.enabled = v; })} label="Enable AI analysis" />
           <form className="grid g2" onSubmit={(e) => { e.preventDefault(); if (key) saveKey(); }} autoComplete="off">
             <Field label="API key" hint={keyOn ? 'A key is stored, encrypted with Windows DPAPI for your account. It is never shown again, never sent to this page and never committed to Git.' : 'Get a key from Google AI Studio. It is stored encrypted for your Windows account only.'}>
               <div className="row" style={{ flexWrap: 'nowrap' }}>
-                <input type={show ? 'text' : 'password'} autoComplete="off" spellCheck={false} placeholder={keyOn ? '••••••••••••••••••••  (stored)' : 'Paste API key'} value={key} onChange={(e) => setKey(e.target.value)} style={{ flex: 1, fontFamily: 'var(--mono)' }} aria-label="Gemini API key" />
+                <input type={show ? 'text' : 'password'} autoComplete="off" spellCheck={false} placeholder={keyOn ? 'Key stored (hidden)' : 'Paste API key'} value={key} onChange={(e) => setKey(e.target.value)} style={{ flex: 1, fontFamily: 'var(--mono)' }} aria-label="Gemini API key" />
                 <button type="button" className="btn icon-btn" aria-label={show ? 'Hide key' : 'Show key'} aria-pressed={show} onClick={() => setShow(!show)}><Icon name={show ? 'eyeoff' : 'eye'} /></button>
               </div>
             </Field>
             <div className="row" style={{ alignSelf: 'end' }}>
               <button type="submit" className="btn primary" disabled={!key || busy === 'key'}><Icon name="lock" size={13} />{keyOn ? 'Replace key' : 'Save key'}</button>
-              <button type="button" className="btn" disabled={!keyOn || busy === 'test'} onClick={test}>{busy === 'test' ? 'Testing…' : 'Test connection'}</button>
+              <button type="button" className="btn" disabled={!keyOn || busy === 'test'} onClick={test}>{busy === 'test' ? 'Testing...' : 'Test connection'}</button>
               {keyOn && <button type="button" className="btn danger" onClick={removeKey}>Remove key</button>}
             </div>
           </form>
@@ -116,9 +126,9 @@ export default function Settings() {
             <h3 style={{ marginBottom: 6 }}>Request history</h3>
             {usage.data ? (<>
               <div className="row small t2" style={{ gap: 18 }}><span>{usage.data.totals.requests} requests</span><span>{usage.data.totals.failures} failed</span><span>{usage.data.totals.tokensToday.toLocaleString()} tokens today</span><span>{usage.data.totals.tokensAll.toLocaleString()} tokens total</span></div>
-              {usage.data.requests.length === 0 ? <div className="small muted" style={{ marginTop: 6 }}>No requests yet. Gemini token pricing varies by model; check Google’s current rates.</div> : (
+              {usage.data.requests.length === 0 ? <div className="small muted" style={{ marginTop: 6 }}>No requests yet. Gemini token pricing varies by model; check the current Google rates.</div> : (
                 <div className="table-wrap" style={{ maxHeight: 200, marginTop: 8, border: '1px solid var(--line)', borderRadius: 6 }}><table className="t"><thead><tr><th>Time</th><th>Model</th><th>Kind</th><th>Result</th><th className="r">Tokens</th></tr></thead><tbody>{usage.data.requests.slice(0, 20).map((r, i) => <tr key={i}><td className="small">{fmtDate(r.ts)}</td><td className="mono">{r.model}</td><td>{r.kind}</td><td><Badge tone={r.ok ? 'ok' : 'crit'} dot>{r.ok ? 'ok' : r.error || 'failed'}</Badge></td><td className="r num">{(r.promptTokens || 0) + (r.outputTokens || 0)}</td></tr>)}</tbody></table></div>)}
-            </>) : <div className="small muted">Loading…</div>}
+            </>) : <div className="small muted">Loading...</div>}
           </div>
         </div>
       </Card>
@@ -135,7 +145,8 @@ export default function Settings() {
             <div className="stack"><Switch checked={d.schedule.weekly.shutdownEnabled} onChange={(v) => upd((x) => { x.schedule.weekly.shutdownEnabled = v; })} label={<b>Weekly shutdown</b>} />
               <Field label="Target shutdown time" hint="Unfinished work is recorded as incomplete when this is reached."><input type="time" value={d.schedule.weekly.shutdownTime} onChange={(e) => upd((x) => { x.schedule.weekly.shutdownTime = e.target.value; })} /></Field></div>
           </div>
-          <div className="small muted">Scheduling uses Windows Task Scheduler; no Guardian process stays running. Saving re-registers the tasks. The laptop must be on (or wake for the task) at these times.{ov.data && <> Next: daily {fmtDate(ov.data.next.daily)} · weekly {fmtDate(ov.data.next.weekly)}.</>}</div>
+          <ScheduleRepairNotice />
+          <div className="small muted">Scheduling uses Windows Task Scheduler; no Guardian process stays running. Saving a changed schedule updates the tasks; elevated tasks are never downgraded and need your permission to change. The laptop must be on (or wake for the task) at these times.{ov.data && <> Next: daily {fmtDate(ov.data.next.daily)} - weekly {fmtDate(ov.data.next.weekly)}.</>}</div>
         </div>
       </Card>
 
@@ -147,7 +158,7 @@ export default function Settings() {
             <Switch checked={d.cleanup.tempFiles} onChange={(v) => upd((x) => { x.cleanup.tempFiles = v; })} label="Clean temporary files" hint="Deletes files in user and Windows temp folders older than the age below. Apps using a temp file at that moment are skipped." />
             <Switch checked={d.cleanup.crashDumps} onChange={(v) => upd((x) => { x.cleanup.crashDumps = v; })} label="Clean crash dumps" hint="Removes minidumps and memory dumps. You lose the data used to diagnose a past blue screen." />
             <Switch checked={d.cleanup.caches} onChange={(v) => upd((x) => { x.cleanup.caches = v; })} label="Clean known safe caches" hint="Windows thumbnail and error-report caches. Rebuilt automatically; the first use afterwards may be slightly slower." />
-            <Field label="Recycle Bin" hint="“Never” is safest: Guardian will not empty the Recycle Bin."><select value={d.cleanup.recycleBin} onChange={(e) => upd((x) => { x.cleanup.recycleBin = e.target.value; })}><option value="never">Never empty</option><option value="older-than-30-days">Empty items older than 30 days</option><option value="always">Empty on every run (not recommended)</option></select></Field>
+            <Field label="Recycle Bin" hint="Never is safest: Guardian will not empty the Recycle Bin."><select value={d.cleanup.recycleBin} onChange={(e) => upd((x) => { x.cleanup.recycleBin = e.target.value; })}><option value="never">Never empty</option><option value="older-than-30-days">Empty items older than 30 days</option><option value="always">Empty on every run (not recommended)</option></select></Field>
             <Field label="Only clean temp files older than (days)"><input type="number" min={0} max={365} value={d.cleanup.tempMinAgeDays} onChange={(e) => upd((x) => { x.cleanup.tempMinAgeDays = +e.target.value; })} /></Field>
           </div>
         </div>
@@ -156,7 +167,7 @@ export default function Settings() {
       {/* Process policies */}
       <Card title="Process policies">
         <div className="stack">
-          {pol.data ? <div className="row" style={{ gap: 20 }}><span><b className="num">{pol.data.blacklist.length}</b> <a href="#/blacklist">blacklisted</a></span><span><b className="num">{pol.data.whitelist.length}</b> <a href="#/whitelist">whitelisted</a></span><span><b className="num">{pol.data.ignored.length}</b> ignored recommendations</span></div> : <div className="small muted">Loading…</div>}
+          {pol.data ? <div className="row" style={{ gap: 20 }}><span><b className="num">{pol.data.blacklist.length}</b> <a href="#/blacklist">blacklisted</a></span><span><b className="num">{pol.data.whitelist.length}</b> <a href="#/whitelist">whitelisted</a></span><span><b className="num">{pol.data.ignored.length}</b> ignored recommendations</span></div> : <div className="small muted">Loading...</div>}
           <Switch checked={d.safety.autoKillBlacklisted} onChange={(v) => safety('autoKillBlacklisted', v)} label="Automatically terminate blacklisted processes" hint="Only entries on your blacklist. Unknown processes are never terminated automatically." />
           <div className="grid g4">
             <Field label="Flag CPU above (%)"><input type="number" min={1} max={100} value={d.thresholds.cpuPct} onChange={(e) => upd((x) => { x.thresholds.cpuPct = +e.target.value; })} /></Field>
@@ -187,7 +198,7 @@ export default function Settings() {
       </Card>
 
       <div style={{ position: 'sticky', bottom: 0, background: 'var(--bg)', borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', gap: 10, alignItems: 'center', zIndex: 10 }}>
-        <button className="btn primary" disabled={!dirty || busy === 'save'} onClick={() => save()}>{busy === 'save' ? 'Saving…' : 'Save changes'}</button>
+        <button className="btn primary" disabled={!dirty || busy === 'save'} onClick={() => save()}>{busy === 'save' ? 'Saving...' : 'Save changes'}</button>
         <button className="btn" disabled={!dirty} onClick={() => setD(clone(cfgQ.data!))}>Discard</button>
         <span className="small muted">{dirty ? 'You have unsaved changes.' : 'All changes saved.'}</span>
       </div>

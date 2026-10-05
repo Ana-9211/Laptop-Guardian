@@ -3,7 +3,7 @@ import { api, ApiError, useQuery } from '../api';
 import type { Recommendation } from '../types';
 import { Badge, Card, CommandBlock, Drawer, Empty, ErrorState, KV, PageHead, RiskBadge, SearchBox, SkeletonCards, Tabs, useToast } from '../components/ui';
 import { RecCard } from '../components/common';
-import { go } from '../App';
+import { go } from '../router';
 import { fmtFull } from '../format';
 
 type Tab = 'open' | 'dismissed' | 'ignored' | 'actioned' | 'resolved' | 'all';
@@ -16,7 +16,7 @@ export default function Recommendations() {
   const [risk, setRisk] = useState('');
   const [text, setText] = useState('');
   const [sel, setSel] = useState<Recommendation | null>(null);
-  const items = q.data?.items || [];
+  const items = useMemo(() => q.data?.items ?? [], [q.data]);
   const kinds = useMemo(() => [...new Set(items.map((i) => i.kind))], [items]);
   const count = (s: Tab) => (s === 'all' ? items.length : items.filter((i) => i.status === s).length);
   const rows = items.filter((i) => (tab === 'all' || i.status === tab) && (!kind || i.kind === kind) && (!risk || i.risk === risk) && (!text || `${i.title} ${i.whatIsIt}`.toLowerCase().includes(text.toLowerCase())))

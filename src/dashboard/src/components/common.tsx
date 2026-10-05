@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { api, ApiError } from '../api';
+import { bridge, ApiError } from '../api';
 import type { ActionEvent, Recommendation } from '../types';
 import { ago, fmtDate, riskTone, sevTone } from '../format';
-import { Badge, RiskBadge, useToast, Icon } from './ui';
+import { Badge, RiskBadge, Sep, useToast, Icon } from './ui';
+import { useStatus } from '../state/StatusProvider';
 
 export function RecCard({ rec, onOpen }: { rec: Recommendation; onOpen?: (r: Recommendation) => void }) {
   return (
@@ -14,7 +15,7 @@ export function RecCard({ rec, onOpen }: { rec: Recommendation; onOpen?: (r: Rec
       <div className="small t2" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{rec.whatIsIt || rec.whyFlagged?.[0]}</div>
       <div className="row tight small muted">
         <Badge tone="outline">{rec.kind}</Badge>
-        <span>{rec.suggestedAction}</span><span>·</span>
+        <span>{rec.suggestedAction}</span><Sep />
         <span>{(rec.consecutiveDays ?? 0) > 1 ? `${rec.consecutiveDays} days in a row` : `seen ${ago(rec.lastSeen)}`}</span>
       </div>
     </button>
@@ -31,7 +32,7 @@ export function ActionTimeline({ rows, max = 8 }: { rows: ActionEvent[]; max?: n
           <div style={{ minWidth: 0 }}>
             <div className="row tight"><b className="mono" style={{ fontSize: 12.5 }}>{a.action}</b>{a.target && <span className="t2 trunc" style={{ maxWidth: 260 }}>{a.target}</span>}
               {a.result && a.result !== 'success' && <Badge tone={a.result === 'failure' || a.result === 'timeout' ? 'crit' : ''}>{a.result}</Badge>}</div>
-            <div className="small muted">{fmtDate(a.ts)} · {a.actor || 'agent'} · {a.category}{a.reason ? ` · ${a.reason}` : ''}</div>
+            <div className="small muted">{fmtDate(a.ts)}<Sep />{a.actor || 'agent'}<Sep />{a.category}{a.reason ? <><Sep />{a.reason}</> : null}</div>
           </div>
         </div>
       ))}
@@ -41,20 +42,22 @@ export function ActionTimeline({ rows, max = 8 }: { rows: ActionEvent[]; max?: n
 
 export function useRun() {
   const toast = useToast();
+  const { expectScan } = useStatus();
   const [busy, setBusy] = useState<string | null>(null);
   const start = async (kind: 'daily' | 'weekly', after?: () => void) => {
     setBusy(kind);
     try {
-      await api.post(`/api/scan/${kind}`, kind === 'weekly' ? { noShutdown: true } : {});
+      await bridge.startScan(kind);
       toast('ok', `${kind === 'daily' ? 'Daily' : 'Weekly'} scan started${kind === 'weekly' ? ' without shutdown' : ''}. Results appear when it finishes.`);
       after?.();
+      expectScan(); // the agent writes its run marker a moment after launching
     } catch (e) { toast('error', (e as ApiError).message); } finally { setBusy(null); }
   };
   return { busy, start };
 }
 export function RunButtons({ onStarted }: { onStarted?: () => void }) {
   const { busy, start } = useRun();
-  return <button className="btn" disabled={!!busy} onClick={() => start('daily', onStarted)}><Icon name="play" size={13} />{busy === 'daily' ? 'Starting…' : 'Run daily scan'}</button>;
+  return <button className="btn" disabled={!!busy} onClick={() => start('daily', onStarted)}><Icon name="play" size={13} />{busy === 'daily' ? 'Starting...' : 'Run daily scan'}</button>;
 }
 
 export function Meter({ value, warn = 70, crit = 90 }: { value: number; warn?: number; crit?: number }) {

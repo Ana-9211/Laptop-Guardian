@@ -8,8 +8,16 @@ const fs = require('fs');
 const path = require('path');
 const U = require('./lib/util');
 const { makeRunner } = require('./lib/ps');
+const S = require('./lib/status');
+
+const VERSION = '1.1.0';
 
 const MAX_BODY = 64 * 1024;
+const SCHED_CACHE_MS = 30000; // how long Task Scheduler rows are served before a background refresh
+const SCHED_WAITING_MS = 5000; // faster refresh while a UAC prompt is outstanding
+const SCHED_READ_RETRIES = 2;
+const ELEVATION_WAIT_MS = 120000; // how long the UI waits for the user to answer the UAC prompt
+const ELEVATION_TIMEOUT_MS = 120000;
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
@@ -34,6 +42,7 @@ function createApp(root, opts = {}) {
     metrics: path.join(root, 'data', 'metrics', 'metrics.jsonl'),
     recs: path.join(root, 'data', 'recommendations', 'recommendations.json'),
     runState: path.join(root, 'data', 'state', 'run-state.json'),
+    bridgePid: path.join(root, 'data', 'state', 'bridge.json'),
     aiUsage: path.join(root, 'data', 'state', 'ai-usage.jsonl'),
     ignoredFiles: path.join(root, 'data', 'state', 'ignored-files.json'),
     latest: (n) => path.join(root, 'data', 'latest', n),
@@ -41,8 +50,9 @@ function createApp(root, opts = {}) {
     reports: path.join(root, 'reports'),
     dist: opts.dist || path.join(root, 'src', 'dashboard', 'dist'),
   };
-  const ps = makeRunner(root);
+  const ps = opts.ps || makeRunner(root);
   let allowedHosts = new Set();
+  let boundPort = null;
 
   const config = () => U.mergeConfig(U.DEFAULT_CONFIG, U.readJson(P.config, {}) || {}).value;
   const policy = () => {
@@ -123,6 +133,98 @@ function createApp(root, opts = {}) {
     routes.push({ method, re, keys, handler });
   };
 
+  // ---------- live status ----------
+  const startedAt = U.localIso();
+  const isAlive = opts.isAlive || ((pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } });
+  const currentRun = () => S.sanitizeRun(U.readJson(P.runState, {}) || {}, isAlive);
+  const mtimeCache = new Map();
+  /** readJson that only re-parses when the file's mtime/size changed (status polls must stay cheap). */
+  function cachedJson(file, fallback = null) {
+    try {
+      const st = fs.statSync(file); const key = `${st.mtimeMs}:${st.size}`; const hit = mtimeCache.get(file);
+      if (hit && hit.key === key) return hit.value;
+      const value = U.readJson(file, fallback); mtimeCache.set(file, { key, value }); return value;
+    } catch { return fallback; }
+  }
+  // Reading Task Scheduler costs a PowerShell start (~3-4 s). Polls never wait for it: they get the cached rows (or
+  // `pending: true` on a cold start) while one shared background query refreshes them. Only `fresh` waits.
+  // The cache keeps the last GOOD read (`okAt`) so a failed query shows old rows plus an honest error, never a fake "just now".
+  let schedCache = null; // { at, okAt, tasks, error }
+  let schedInFlight = null;
+  let schedGen = 0; // bumped whenever the tasks are changed; a read that started before the change is discarded
+  let elevationRequestedAt = null;
+  async function readTasks() {
+    for (let attempt = 0; ; attempt++) {
+      const gen = schedGen;
+      const r = await ps.run('Scheduler.ps1', ['-Action', 'Status', '-Json']);
+      if (gen === schedGen || attempt >= SCHED_READ_RETRIES) return r;
+    }
+  }
+  function storeTasks(tasks) { schedCache = { at: Date.now(), okAt: Date.now(), tasks, error: null }; return schedCache; }
+  function queryTasks() {
+    if (schedInFlight) return schedInFlight;
+    schedInFlight = readTasks().then((r) => {
+      if (r.missing || !r.ok) return (schedCache = { at: Date.now(), okAt: schedCache?.okAt ?? null, tasks: schedCache?.tasks || [], error: r.error || 'scheduler query failed' });
+      return storeTasks(Array.isArray(r.data) ? r.data : (r.data.tasks || []));
+    }).finally(() => { schedInFlight = null; });
+    return schedInFlight;
+  }
+  async function getTasks(fresh = false) {
+    if (fresh) return queryTasks();
+    if (!schedCache) { void queryTasks(); return { at: Date.now(), okAt: null, tasks: [], error: null, pending: true }; }
+    if (Date.now() - schedCache.at >= (elevationRequestedAt ? SCHED_WAITING_MS : SCHED_CACHE_MS)) void queryTasks();
+    return schedCache;
+  }
+  const dirCount = (type, re) => { try { return fs.readdirSync(path.join(P.reports, type)).filter((n) => re.test(n)).length; } catch { return 0; } };
+
+  // `root` lets the launcher confirm a bridge belongs to THIS installation before it ever considers stopping it.
+  route('GET', '/api/ping', () => ({ app: 'laptop-guardian', version: VERSION, pid: process.pid, startedAt, port: boundPort, root, distBuilt: fs.existsSync(path.join(P.dist, 'index.html')) }));
+
+  route('GET', '/api/status', async ({ query }) => {
+    const c = config();
+    const run = currentRun();
+    const st = await getTasks(query.get('fresh') === '1');
+    const tasks = S.assessTasks(st.tasks, c);
+    const acts = U.tailJsonl(P.actions, 400);
+    const dayAgo = Date.now() - 86400000;
+    const recent = acts.filter((a) => Date.parse(a.ts) >= dayAgo);
+    const lastErr = [...acts].reverse().find((a) => a.severity === 'error');
+    const recs = loadRecs().items.filter((r) => r.status === 'open');
+    const daily = cachedJson(P.latest('daily.json')); const weekly = cachedJson(P.latest('weekly.json'));
+    const procs = cachedJson(P.latest('processes.json'), null); const files = cachedJson(P.latest('files.json'), null);
+    const shutdownGates = c.schedule.weekly.enabled && c.schedule.weekly.shutdownEnabled && c.safety.weeklyShutdown && !c.safety.automationPaused;
+    const worst = tasks.some((t) => t.level === 'crit') ? 'crit' : tasks.some((t) => t.level === 'warn') ? 'warn' : tasks.some((t) => t.level === 'info' && t.status !== 'never-run' && t.status !== 'off') ? 'info' : 'ok';
+    return {
+      now: U.localIso(),
+      bridge: { ok: true, pid: process.pid, version: VERSION, startedAt, port: boundPort, uptimeSec: Math.round(process.uptime()) },
+      run,
+      lastAction: acts.length ? acts[acts.length - 1] : null,
+      actions24h: { total: recent.length, warnings: recent.filter((a) => a.severity === 'warning').length, errors: recent.filter((a) => a.severity === 'error').length, lastError: lastErr ? { ts: lastErr.ts, action: lastErr.action, error: lastErr.error || lastErr.reason } : null },
+      reports: {
+        daily: daily ? { id: daily.id, generatedAt: daily.generatedAt, status: daily.status, healthScore: daily.healthScore } : null,
+        weekly: weekly ? { id: weekly.id, generatedAt: weekly.generatedAt, status: weekly.status, healthScore: weekly.healthScore } : null,
+        counts: { daily: dirCount('daily', RE_DAILY), weekly: dirCount('weekly', RE_WEEKLY) },
+      },
+      snapshots: { processes: procs ? { generatedAt: procs.generatedAt, count: (procs.processes || []).length } : null, files: files ? { generatedAt: files.generatedAt, candidates: (files.candidates || []).length } : null },
+      schedule: {
+        tasks, fetchedAt: st.okAt ? new Date(st.okAt).toISOString() : null, error: st.error, pending: !!st.pending, level: st.error ? 'warn' : st.pending ? 'info' : worst,
+        elevationPending: elevationPending(tasks),
+      },
+      next: {
+        daily: c.schedule.daily.enabled ? U.nextRun(c.schedule.daily.time) : null,
+        weekly: c.schedule.weekly.enabled ? U.nextRun(c.schedule.weekly.time, c.schedule.weekly.day) : null,
+      },
+      shutdown: {
+        armed: shutdownGates, target: shutdownGates ? U.nextRun(c.schedule.weekly.shutdownTime, c.schedule.weekly.day) : null,
+        pending: S.pendingShutdown(acts.filter((a) => a.category === 'shutdown')), cancelCommand: 'shutdown /a',
+        note: 'Only the scheduled weekly run can start a shutdown. Manual and dashboard runs never do.',
+      },
+      safety: c.safety, ai: aiStatus(),
+      openRecommendations: recs.length,
+      attention: S.buildAttention({ daily, tasks, run, openRecs: recs.length, highRiskRecs: recs.filter((r) => r.risk === 'HIGH').length, config: c, stale: run.stale }),
+    };
+  });
+
   route('GET', '/api/overview', () => {
     const c = config();
     const recs = loadRecs().items;
@@ -134,7 +236,7 @@ function createApp(root, opts = {}) {
         weekly: c.schedule.weekly.enabled ? U.nextRun(c.schedule.weekly.time, c.schedule.weekly.day) : null,
         shutdown: c.schedule.weekly.enabled && c.schedule.weekly.shutdownEnabled && c.safety.weeklyShutdown ? U.nextRun(c.schedule.weekly.shutdownTime, c.schedule.weekly.day === 'Saturday' ? 'Saturday' : c.schedule.weekly.day) : null,
       },
-      safety: c.safety, ai: aiStatus(), run: U.readJson(P.runState, {}),
+      safety: c.safety, ai: aiStatus(), run: currentRun(),
       openRecommendations: recs.filter((r) => r.status === 'open').length,
     };
   });
@@ -347,7 +449,7 @@ function createApp(root, opts = {}) {
   route('GET', '/api/ai/status', () => aiStatus());
   route('POST', '/api/ai/key', async ({ body }) => {
     const key = str(body.key, 'key', 200).trim();
-    need(/^[A-Za-z0-9_\-]{20,200}$/.test(key), 'key has an unexpected format');
+    need(/^[A-Za-z0-9_-]{20,200}$/.test(key), 'key has an unexpected format');
     const r = await ps.run('Actions/Set-GeminiKey.ps1', [], { stdin: key });
     if (r.missing) throw new HttpError(501, r.error);
     need(r.ok && r.data?.success !== false, r.error || r.data?.error || 'could not store key', 500);
@@ -387,9 +489,9 @@ function createApp(root, opts = {}) {
   });
 
   // ---- scan / schedule ----
-  route('GET', '/api/run', () => U.readJson(P.runState, {}) || {});
+  route('GET', '/api/run', () => currentRun());
   const launchScan = (kind, args) => {
-    const st = U.readJson(P.runState, {}) || {};
+    const st = currentRun();
     need(!st.running, `a ${st.running?.type} run is already in progress`, 409);
     const r = ps.launch(`${kind}.ps1`, args);
     if (r.missing) throw new HttpError(501, r.error);
@@ -397,23 +499,60 @@ function createApp(root, opts = {}) {
     return { started: true };
   };
   route('POST', '/api/scan/daily', () => launchScan('Daily', []));
-  route('POST', '/api/scan/weekly', ({ body }) => launchScan('Weekly', ['-NoShutdown']));
+  route('POST', '/api/scan/weekly', () => launchScan('Weekly', ['-NoShutdown']));
 
-  route('GET', '/api/schedule', async () => {
-    const r = await ps.run('Scheduler.ps1', ['-Action', 'Status', '-Json']);
-    if (r.missing) throw new HttpError(501, r.error);
-    need(r.ok, r.error || 'scheduler query failed', 500);
-    return { tasks: Array.isArray(r.data) ? r.data : (r.data.tasks || []), config: config().schedule };
+  route('GET', '/api/schedule', async ({ query }) => {
+    const st = await (query.get('fresh') === '1' || !schedCache ? queryTasks() : getTasks());
+    need(!(st.error && !st.tasks.length), st.error || 'scheduler query failed', /not installed/.test(st.error || '') ? 501 : 500);
+    return { tasks: st.tasks, assessed: S.assessTasks(st.tasks, config()), config: config().schedule, fetchedAt: st.okAt ? new Date(st.okAt).toISOString() : null, warning: st.error || undefined };
   });
+
+  /** True while a UAC request is outstanding and the tasks still need the repair it was asked for. */
+  function elevationPending(assessed) {
+    if (!elevationRequestedAt) return null;
+    const waiting = Date.now() - elevationRequestedAt < ELEVATION_WAIT_MS && assessed.some((t) => t.repair.needed);
+    if (!waiting) { elevationRequestedAt = null; return null; }
+    return { since: new Date(elevationRequestedAt).toISOString() };
+  }
+
+  let schedApplying = false;
+  /**
+   * The ONLY place that changes Task Scheduler. `elevate:false` registers as the current (standard) user and never replaces
+   * an elevated Daily/Weekly task (the script reports `needsElevation` instead). `elevate:true` asks Windows for a UAC prompt
+   * to run that same fixed Register action; it never runs anything else.
+   */
+  async function applySchedule({ elevate = false } = {}) {
+    need(!schedApplying, 'a schedule change is already in progress', 409);
+    schedApplying = true;
+    try {
+      schedGen++;
+      const args = ['-Action', 'Register', '-Json'].concat(elevate ? ['-Elevate'] : []);
+      const r = await ps.run('Scheduler.ps1', args, { timeoutMs: elevate ? ELEVATION_TIMEOUT_MS : 60000 });
+      if (r.missing) return { registered: false, needsElevation: false, elevationRequested: false, message: r.error, report: [] };
+      const d = r.data || {};
+      const ok = r.ok && d.ok !== false;
+      if (elevate) { if (d.elevationRequested) elevationRequestedAt = Date.now(); if (schedCache) schedCache.at = 0; }
+      else if (Array.isArray(d.tasks) && d.tasks.length) storeTasks(d.tasks); else if (schedCache) schedCache.at = 0;
+      const message = d.message || r.error || (ok ? '' : 'scheduler failed');
+      log({ category: 'config', action: elevate ? 'schedule.elevate' : 'schedule.register', result: ok ? 'success' : 'failure', error: ok ? null : message, reason: message || null });
+      return { registered: ok && !elevate, needsElevation: !!d.needsElevation, elevationRequested: !!d.elevationRequested, message, report: d.report || [] };
+    } finally { schedApplying = false; }
+  }
+
   route('PUT', '/api/schedule', async ({ body }) => {
+    const before = config().schedule;
     const m = U.mergeConfig(config(), { schedule: body });
     need(m.errors.length === 0, m.errors.join('; '));
+    const changed = JSON.stringify(m.value.schedule) !== JSON.stringify(before);
+    if (!changed) return { saved: true, changed: false, registered: false, needsElevation: false, elevationRequested: false, message: 'Schedule unchanged; Task Scheduler was not touched.', report: [], schedule: m.value.schedule };
     U.writeJsonAtomic(P.config, m.value);
     log({ category: 'config', action: 'schedule.update', reason: JSON.stringify(body).slice(0, 200) });
-    const r = await ps.run('Scheduler.ps1', ['-Action', 'Register', '-Json']);
-    if (r.missing) return { saved: true, registered: false, warning: r.error, schedule: m.value.schedule };
-    log({ category: 'config', action: 'schedule.register', result: r.ok ? 'success' : 'failure', error: r.ok ? null : r.error });
-    return { saved: true, registered: r.ok, warning: r.ok ? undefined : r.error, schedule: m.value.schedule };
+    return { saved: true, changed: true, ...(await applySchedule()), schedule: m.value.schedule };
+  });
+
+  route('POST', '/api/schedule/apply', async ({ body }) => {
+    need(body.elevate === undefined || typeof body.elevate === 'boolean', 'elevate must be boolean');
+    return applySchedule({ elevate: body.elevate === true });
   });
 
   // ---------- request pipeline ----------
@@ -512,6 +651,13 @@ function createApp(root, opts = {}) {
   server.listen_ = (port, cb) => {
     server.listen(port, '127.0.0.1', () => {
       const actual = server.address().port;
+      boundPort = actual;
+      void queryTasks(); // warm the Task Scheduler cache so the first dashboard poll is instant
+      if (opts.pidFile !== false) {
+        try { U.writeJsonAtomic(P.bridgePid, { app: 'laptop-guardian', pid: process.pid, port: actual, startedAt, version: VERSION }); } catch { /* best effort */ }
+        const clear = () => { try { const cur = U.readJson(P.bridgePid); if (cur && cur.pid === process.pid) fs.unlinkSync(P.bridgePid); } catch { /* ignore */ } };
+        server.on('close', clear); process.once('exit', clear);
+      }
       allowedHosts = new Set([`127.0.0.1:${actual}`, `localhost:${actual}`]);
       if (opts.extraHosts) opts.extraHosts.forEach((h) => allowedHosts.add(h));
       cb && cb(actual);

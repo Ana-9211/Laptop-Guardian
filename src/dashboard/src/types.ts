@@ -65,7 +65,39 @@ export interface Safety { safeMode: boolean; requireConfirmation: boolean; autoK
 export interface Overview {
   daily: Report | null; weekly: Report | null; metrics: Metric[]; next: { daily: string | null; weekly: string | null; shutdown: string | null };
   safety: Safety; ai: { enabled: boolean; keyConfigured: boolean; model: string };
-  run: { lastDaily?: Any; lastWeekly?: Any; running?: { type: string; phase?: string; startedAt?: string } | null }; openRecommendations: number;
+  run: RunInfo; openRecommendations: number;
+}
+export type Level = 'ok' | 'info' | 'warn' | 'crit';
+export interface TaskRow {
+  kind: 'daily' | 'weekly' | 'dashboard'; name: string; state: string; status: string; level: Level; summary: string; issues: string[];
+  nextRun: string | null; lastRun: string | null; runLevel: string | null; trigger: string | null;
+  lastResult: { code: number | null; hex: string | null; text: string; kind: string };
+  /** needed: the task no longer matches Settings or can be improved; requiresElevation: only an administrator (UAC) registration can fix it. */
+  repair: { needed: boolean; requiresElevation: boolean };
+}
+export interface ScheduleApplyResult {
+  registered: boolean; needsElevation: boolean; elevationRequested: boolean; message: string;
+  report: { kind: string; outcome: string; detail?: string }[];
+}
+export interface ScheduleSaveResult extends ScheduleApplyResult { saved: boolean; changed: boolean }
+export interface AttentionItem { id: string; level: Exclude<Level, 'ok'>; title: string; detail: string; href: string | null; cta: string | null }
+export interface RunInfo {
+  lastDaily?: Any; lastWeekly?: Any; stale?: { type: string; phase?: string; startedAt?: string } | null;
+  running?: { type: string; phase?: string; startedAt?: string; mode?: 'scheduled' | 'manual'; shutdownPossible?: boolean; elapsedSec?: number | null } | null;
+}
+export interface StatusData {
+  now: string;
+  bridge: { ok: boolean; pid: number; version: string; startedAt: string; port: number; uptimeSec: number };
+  run: RunInfo;
+  lastAction: ActionEvent | null;
+  actions24h: { total: number; warnings: number; errors: number; lastError: { ts: string; action: string; error?: string | null } | null };
+  reports: { daily: { id: string; generatedAt: string; status: string; healthScore?: number } | null; weekly: { id: string; generatedAt: string; status: string; healthScore?: number } | null; counts: { daily: number; weekly: number } };
+  snapshots: { processes: { generatedAt: string | null; count: number } | null; files: { generatedAt: string | null; candidates: number } | null };
+  schedule: { tasks: TaskRow[]; fetchedAt: string | null; error: string | null; pending?: boolean; level: Level; elevationPending: { since: string } | null };
+  next: { daily: string | null; weekly: string | null };
+  shutdown: { armed: boolean; target: string | null; pending: { at: string; initiatedAt: string; cancelCommand: string } | null; cancelCommand: string; note: string };
+  safety: Safety; ai: { enabled: boolean; keyConfigured: boolean; model: string }; openRecommendations: number;
+  attention: AttentionItem[];
 }
 export interface Config {
   schemaVersion: number; bridge: { host: string; port: number };

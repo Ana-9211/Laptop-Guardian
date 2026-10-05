@@ -5,7 +5,7 @@ const crypto = require('crypto');
 
 function readJson(file, fallback = null) {
   try {
-    const t = fs.readFileSync(file, 'utf8').replace(/^﻿/, '');
+    const t = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
     return JSON.parse(t);
   } catch {
     return fallback;
@@ -32,7 +32,7 @@ function tailJsonl(file, maxLines = 500, maxBytes = 4 * 1024 * 1024) {
     if (size > len) text = text.slice(text.indexOf('\n') + 1); // drop partial first line
     const out = [];
     for (const line of text.split('\n')) {
-      const s = line.trim().replace(/^﻿/, '');
+      const s = line.trim().replace(/^\uFEFF/, '');
       if (!s) continue;
       try { out.push(JSON.parse(s)); } catch { /* skip corrupt line */ }
     }

@@ -1,4 +1,4 @@
-. "$PSScriptRoot\Helpers.ps1"
+﻿. "$PSScriptRoot\Helpers.ps1"
 # End-to-end in a COPY of the repo: install (sandbox task folder) -> real daily scan -> bridge API -> uninstall. Slow (~2-3 min).
 $copy = Join-Path $env:TEMP ('guardian-e2e-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
 $folder = '\LaptopGuardianE2E\'
@@ -11,7 +11,7 @@ function Get-Status($url, $headers = @{}) { try { [int](Invoke-WebRequest $url -
 
 Describe 'Install -> scan -> dashboard -> uninstall' {
     It 'installer completes (sandbox task folder, safe test scan)' {
-        $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $copy 'Install-LaptopGuardian.ps1') -SkipBuild -TaskFolder $folder 2>&1 | Out-String
+        $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $copy 'Install-LaptopGuardian.ps1') -SkipBuild -SkipShortcuts -TaskFolder $folder 2>&1 | Out-String
         $out | Should Match 'Installed\. Dashboard'
         (Test-Path (Join-Path $copy 'config\config.json')) | Should Be $true
         (Test-Path (Join-Path $copy 'config\process-policy.json')) | Should Be $true

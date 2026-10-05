@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS  Laptop Guardian weekly deep analysis (Saturday 02:00), ends with a controlled Windows shutdown.
 .PARAMETER NoShutdown  Never initiate shutdown (also used by dashboard "run now").
@@ -13,6 +13,7 @@ param([switch]$NoShutdown, [switch]$Scheduled, [switch]$Fast, [switch]$NoAI, [sw
 Initialize-GuardianDirectories
 Start-RunContext -RunType 'weekly'
 $started = Get-Date
+$runMode = if ($Scheduled) { 'scheduled' } else { 'manual' }
 $config = Get-GuardianConfig
 $exit = 0
 $phases = New-Object System.Collections.ArrayList
@@ -40,7 +41,7 @@ function Invoke-Phase {
 
 $ctx = $null; $fileData = $null; $onBattery = $false; $incomplete = New-Object System.Collections.ArrayList; $briefing = $null; $patterns = @()
 try {
-    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; phase = 'preflight'; startedAt = (Get-IsoNow) })
+    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; mode = $runMode; shutdownPossible = (-not $NoShutdown -and $Scheduled.IsPresent); pid = $PID; phase = 'preflight'; startedAt = (Get-IsoNow) })
     [void](Write-GuardianEvent -Category scan -Action 'weekly:started' -Result started -Reason "deadline=$($deadline.ToString('HH:mm')) safeMode=$($config.safety.safeMode) admin=$(Test-IsAdmin)")
 
     # ---------- Phase 1: preflight ----------
@@ -59,7 +60,7 @@ try {
     }
 
     # ---------- Phase 2: deep analysis ----------
-    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; phase = 'analysis'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
+    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; mode = $runMode; shutdownPossible = (-not $NoShutdown -and $Scheduled.IsPresent); pid = $PID; phase = 'analysis'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
     $heavyOk = (-not $onBattery) -and (-not $Fast)
     Invoke-Phase 'system-collection' {
         $script:ctx = Invoke-Collection -Config $config -Type weekly -SkipDefenderScan -NoAI -Fast:$Fast -SkipNetwork:$false
@@ -137,7 +138,7 @@ try {
     }
 
     # ---------- Phase 3: AI ----------
-    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; phase = 'ai'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
+    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; mode = $runMode; shutdownPossible = (-not $NoShutdown -and $Scheduled.IsPresent); pid = $PID; phase = 'ai'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
     $recurring = @()
     Invoke-Phase 'ai-analysis' {
         $script:patterns = @(Get-RecurringPatterns -Days 7 -Recommendations $script:ctx.Recs)
@@ -162,7 +163,7 @@ try {
     }
 
     # ---------- Phase 4: report ----------
-    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; phase = 'report'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
+    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; mode = $runMode; shutdownPossible = (-not $NoShutdown -and $Scheduled.IsPresent); pid = $PID; phase = 'report'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
     $id = Get-IsoWeekId
     $report = $null
     Invoke-Phase 'report' {
@@ -194,7 +195,7 @@ catch {
 # ---------- Phase 5: shutdown preparation ----------
 $sdResult = [pscustomobject]@{ planned = $null; initiated = $false; reason = 'not evaluated'; delaySec = 0 }
 try {
-    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; phase = 'shutdown-prep'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
+    Set-RunState -Key 'running' -Value ([pscustomobject]@{ type = 'weekly'; mode = $runMode; shutdownPossible = (-not $NoShutdown -and $Scheduled.IsPresent); pid = $PID; phase = 'shutdown-prep'; startedAt = $started.ToString('yyyy-MM-ddTHH:mm:sszzz') })
     $finalStatus = if ($exit -ne 0) { 'failed' } elseif (@($incomplete).Count) { 'incomplete' } else { 'complete' }
     $id = Get-IsoWeekId
     [void](Write-GuardianEvent -Category scan -Action 'weekly:finished' -Result $(if ($exit -eq 0) { 'success' } else { 'failure' }) -Reason "status=$finalStatus; unfinished: $(@($incomplete) -join '; ')")

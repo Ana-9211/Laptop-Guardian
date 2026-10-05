@@ -4,8 +4,8 @@ import { api, ApiError, useQuery } from '../api';
 import type { ActionEvent, Policy, PolicyEntry } from '../types';
 import { Badge, Card, Col, DataTable, Drawer, Empty, ErrorState, Icon, PageHead, useOverlay, SkeletonCards, useConfirm, useToast } from '../components/ui';
 import { ActionTimeline } from '../components/common';
-import { fmtDate, fmtFull } from '../format';
-import { useOverview } from '../App';
+import { fmtDate, fmtFull, NA } from '../format';
+import { useOverview } from '../state/overview';
 import { PolicyDialog } from '../components/ProcessDrawer';
 
 export function PolicyPage({ list }: { list: 'blacklist' | 'whitelist' }) {
@@ -40,8 +40,8 @@ export function PolicyPage({ list }: { list: 'blacklist' | 'whitelist' }) {
     { key: 'reason', label: 'Reason', render: (e) => <span className="t2" style={{ minWidth: 160, maxWidth: 260, display: 'inline-block' }}>{e.reason || <span className="muted">none given</span>}</span> },
     ...(isBl ? [
       { key: 'act', label: 'Automatic action', render: () => <Badge tone={s?.safeMode || s?.automationPaused || !s?.autoKillBlacklisted ? 'warn' : 'crit'}>{s?.safeMode || s?.automationPaused || !s?.autoKillBlacklisted ? 'Terminate (held)' : 'Terminate daily'}</Badge> },
-      { key: 'count', label: 'Terminated', sort: (e: PolicyEntry) => e.terminatedCount || 0, render: (e: PolicyEntry) => <span className="num">{e.terminatedCount || 0}×</span>, align: 'r' as const },
-      { key: 'last', label: 'Last', sort: (e: PolicyEntry) => e.lastTerminatedAt || '', render: (e: PolicyEntry) => <span className="small t2 nowrap">{e.lastTerminatedAt ? fmtDate(e.lastTerminatedAt) : '—'}</span> },
+      { key: 'count', label: 'Terminated', sort: (e: PolicyEntry) => e.terminatedCount || 0, render: (e: PolicyEntry) => <span className="num">{e.terminatedCount || 0}x</span>, align: 'r' as const },
+      { key: 'last', label: 'Last', sort: (e: PolicyEntry) => e.lastTerminatedAt || '', render: (e: PolicyEntry) => <span className="small t2 nowrap">{e.lastTerminatedAt ? fmtDate(e.lastTerminatedAt) : NA}</span> },
     ] : []),
     { key: 'path', label: 'Executable path', render: (e) => <span className="path trunc" style={{ display: 'inline-block', maxWidth: 200, verticalAlign: 'middle' }} title={e.path || ''}>{e.path || 'any path'}</span> },
     { key: 'status', label: 'Policy status', sort: (e) => (e.enabled ? 1 : 0), render: (e) => { const paused = e.disabledUntil && Date.parse(e.disabledUntil) > Date.now(); return paused ? <Badge tone="warn" dot>Paused until {fmtDate(e.disabledUntil)}</Badge> : <Badge tone={e.enabled ? 'ok' : ''} dot>{e.enabled ? 'Active' : 'Disabled'}</Badge>; } },
@@ -94,9 +94,12 @@ function AddDialog({ list, name, setName, onClose, onNext }: { list: string; nam
 function PolicyHistory({ entry, onClose }: { entry: PolicyEntry; onClose: () => void }) {
   const q = useQuery<ActionEvent[]>(`/api/actions?q=${encodeURIComponent(entry.name)}&limit=100`);
   return (
-    <Drawer title={entry.name} sub={`Policy history · added ${fmtFull(entry.addedAt)}`} onClose={onClose}>
+    <Drawer title={entry.name} sub={`Policy history - added ${fmtFull(entry.addedAt)}`} onClose={onClose}>
       <Card title="Entry"><div className="mono-block">{JSON.stringify(entry, null, 2)}</div></Card>
       <Card title="Related actions">{!q.data ? <SkeletonCards n={1} /> : q.data.length ? <ActionTimeline rows={q.data} max={50} /> : <Empty title="No related actions" />}</Card>
     </Drawer>
   );
 }
+
+export const BlacklistPage = () => <PolicyPage list="blacklist" />;
+export const WhitelistPage = () => <PolicyPage list="whitelist" />;
