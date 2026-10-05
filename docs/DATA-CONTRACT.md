@@ -1,6 +1,6 @@
 # Laptop Guardian data contract
 
-Root = install dir (e.g. `C:\Users\Anagha\LaptopGuardian`). All JSON UTF-8 (no BOM), camelCase keys, timestamps ISO-8601 local with offset. Writers: PowerShell agents + bridge. Readers: bridge -> dashboard. Dashboard must be defensive: any field may be missing/null.
+Root = install dir (e.g. `C:\Users\You\LaptopGuardian`). All JSON UTF-8 (no BOM), camelCase keys, timestamps ISO-8601 local with offset. Writers: PowerShell agents + bridge. Readers: bridge -> dashboard. Dashboard must be defensive: any field may be missing/null.
 
 ## Files
 

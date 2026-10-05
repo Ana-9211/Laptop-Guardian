@@ -21,24 +21,24 @@ const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const PROCS = [
   ['chrome', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'Google LLC', 'known-app', 'program-files', 14],
   ['msedge', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'Microsoft Corporation', 'known-app', 'program-files', 9],
-  ['Code', 'C:\\Users\\Anagha\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe', 'Microsoft Corporation', 'known-app', 'user-appdata', 7],
+  ['Code', 'C:\\Users\\TestUser\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe', 'Microsoft Corporation', 'known-app', 'user-appdata', 7],
   ['node', 'C:\\Program Files\\nodejs\\node.exe', 'OpenJS Foundation', 'known-app', 'program-files', 3],
   ['explorer', 'C:\\Windows\\explorer.exe', 'Microsoft Windows', 'windows', 'system', 1],
   ['svchost', 'C:\\Windows\\System32\\svchost.exe', 'Microsoft Windows', 'windows', 'system', 22],
   ['MsMpEng', 'C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18\\MsMpEng.exe', 'Microsoft Corporation', 'windows', 'system', 1],
   ['SearchIndexer', 'C:\\Windows\\System32\\SearchIndexer.exe', 'Microsoft Windows', 'windows', 'system', 1],
-  ['OneDrive', 'C:\\Users\\Anagha\\AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe', 'Microsoft Corporation', 'known-app', 'user-appdata', 1],
-  ['Teams', 'C:\\Users\\Anagha\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe', 'Microsoft Corporation', 'known-app', 'user-appdata', 4],
-  ['Discord', 'C:\\Users\\Anagha\\AppData\\Local\\Discord\\app-1.0.9\\Discord.exe', 'Discord Inc.', 'known-app', 'user-appdata', 5],
-  ['Spotify', 'C:\\Users\\Anagha\\AppData\\Roaming\\Spotify\\Spotify.exe', 'Spotify AB', 'known-app', 'user-appdata', 4],
+  ['OneDrive', 'C:\\Users\\TestUser\\AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe', 'Microsoft Corporation', 'known-app', 'user-appdata', 1],
+  ['Teams', 'C:\\Users\\TestUser\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe', 'Microsoft Corporation', 'known-app', 'user-appdata', 4],
+  ['Discord', 'C:\\Users\\TestUser\\AppData\\Local\\Discord\\app-1.0.9\\Discord.exe', 'Discord Inc.', 'known-app', 'user-appdata', 5],
+  ['Spotify', 'C:\\Users\\TestUser\\AppData\\Roaming\\Spotify\\Spotify.exe', 'Spotify AB', 'known-app', 'user-appdata', 4],
   ['AdobeUpdateService', 'C:\\Program Files (x86)\\Common Files\\Adobe\\AdobeGCClient\\AdobeUpdateService.exe', 'Adobe Inc.', 'third-party', 'program-files', 1],
   ['OneApp.IGCC.WinService', 'C:\\Windows\\System32\\DriverStore\\FileRepository\\igcc\\OneApp.IGCC.WinService.exe', 'Intel Corporation', 'third-party', 'system', 1],
-  ['updater', 'C:\\Users\\Anagha\\AppData\\Local\\Temp\\7zS4F2A\\updater.exe', null, 'unknown', 'temp', 1],
-  ['helper_svc', 'C:\\Users\\Anagha\\AppData\\Roaming\\HelperTool\\helper_svc.exe', null, 'unknown', 'user-appdata', 1],
+  ['updater', 'C:\\Users\\TestUser\\AppData\\Local\\Temp\\7zS4F2A\\updater.exe', null, 'unknown', 'temp', 1],
+  ['helper_svc', 'C:\\Users\\TestUser\\AppData\\Roaming\\HelperTool\\helper_svc.exe', null, 'unknown', 'user-appdata', 1],
   ['SteamWebHelper', 'C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win7x64\\steamwebhelper.exe', 'Valve Corp.', 'known-app', 'program-files', 3],
   ['RtkAudUService64', 'C:\\Windows\\System32\\DriverStore\\FileRepository\\realtek\\RtkAudUService64.exe', 'Realtek Semiconductor Corp.', 'third-party', 'system', 1],
   ['python', 'C:\\Python314\\python.exe', 'Python Software Foundation', 'known-app', 'program-files', 2],
-  ['ollama', 'C:\\Users\\Anagha\\AppData\\Local\\Programs\\Ollama\\ollama.exe', 'Ollama', 'known-app', 'user-appdata', 1],
+  ['ollama', 'C:\\Users\\TestUser\\AppData\\Local\\Programs\\Ollama\\ollama.exe', 'Ollama', 'known-app', 'user-appdata', 1],
 ];
 
 function makeProcess(rand, p, i, now) {
@@ -65,7 +65,7 @@ function makeProcess(rand, p, i, now) {
     parentPid: name === 'explorer' ? 1 : 4200, parentName: name === 'explorer' ? 'userinit' : 'explorer', cpuPct: cpu, cpuSeconds: Math.round(rand() * 9000), memoryMB: mem,
     startTime: localIso(new Date(now - rand() * 86400000 * 2)), publisher, signature: signed ? 'Valid' : 'NotSigned', signed,
     services: svc, startupEntries: startup, scheduledTasks: name === 'AdobeUpdateService' ? ['\\Adobe Acrobat Update Task'] : startup.filter((s) => s.kind === 'task').map((s) => s.location),
-    persistent, user: cls === 'windows' ? 'NT AUTHORITY\\SYSTEM' : 'ANAGHA\\Anagha', pathClass, classification: cls, instances, flags, policy: 'none', recommendationId: null,
+    persistent, user: cls === 'windows' ? 'NT AUTHORITY\\SYSTEM' : 'TESTUSER\\TestUser', pathClass, classification: cls, instances, flags, policy: 'none', recommendationId: null,
   };
 }
 
@@ -81,7 +81,7 @@ function makeFixtures(dir, days = 45, seed = 42) {
   config.ai.enabled = true;
   w('config/config.json', config);
   w('config/cleanup-policy.json', { tempFiles: { enabled: true, minAgeDays: 2 }, crashDumps: { enabled: true }, caches: { enabled: true, targets: ['Windows\\Temp', 'INetCache'] } });
-  const bl = { id: 'p_bl1', name: 'updater', path: 'C:\\Users\\Anagha\\AppData\\Local\\Temp\\7zS4F2A\\updater.exe', reason: 'Re-launches from Temp every login; no publisher.', addedAt: localIso(new Date(now - 20 * 86400000)), addedBy: 'user', enabled: true, action: 'terminate', terminatedCount: 14, lastTerminatedAt: localIso(new Date(now - 86400000)), disabledUntil: null };
+  const bl = { id: 'p_bl1', name: 'updater', path: 'C:\\Users\\TestUser\\AppData\\Local\\Temp\\7zS4F2A\\updater.exe', reason: 'Re-launches from Temp every login; no publisher.', addedAt: localIso(new Date(now - 20 * 86400000)), addedBy: 'user', enabled: true, action: 'terminate', terminatedCount: 14, lastTerminatedAt: localIso(new Date(now - 86400000)), disabledUntil: null };
   const bl2 = { id: 'p_bl2', name: 'AdobeUpdateService', path: null, reason: 'Not needed outside active Adobe sessions.', addedAt: localIso(new Date(now - 9 * 86400000)), addedBy: 'user', enabled: false, action: 'terminate', terminatedCount: 3, lastTerminatedAt: localIso(new Date(now - 6 * 86400000)), disabledUntil: null };
   w('config/process-policy.json', {
     blacklist: [bl, bl2],
@@ -128,17 +128,17 @@ function makeFixtures(dir, days = 45, seed = 42) {
 
   // files
   const files = [
-    ['C:\\Users\\Anagha\\Downloads\\Win11_24H2_English_x64.iso', 5400, 'Windows installer image', 'installer', 'LIKELY_UNNECESSARY', 'Old installer ISO; the system is already installed.', 210],
-    ['C:\\Users\\Anagha\\Downloads\\VSCodeSetup-x64-1.88.exe', 98, 'Visual Studio Code installer', 'installer', 'LIKELY_UNNECESSARY', 'Installer for software that is already installed.', 140],
+    ['C:\\Users\\TestUser\\Downloads\\Win11_24H2_English_x64.iso', 5400, 'Windows installer image', 'installer', 'LIKELY_UNNECESSARY', 'Old installer ISO; the system is already installed.', 210],
+    ['C:\\Users\\TestUser\\Downloads\\VSCodeSetup-x64-1.88.exe', 98, 'Visual Studio Code installer', 'installer', 'LIKELY_UNNECESSARY', 'Installer for software that is already installed.', 140],
     ['C:\\Windows\\Minidump\\051524-9843-01.dmp', 280, 'Kernel crash dump', 'crash-dump', 'REVIEW', 'Crash dump from a previous blue screen.', 90],
-    ['C:\\Users\\Anagha\\Videos\\screen-recording-raw.mkv', 3200, 'Large video file', 'large', 'REVIEW', 'Largest personal file; not modified in 8 months.', 240],
-    ['C:\\Users\\Anagha\\Documents\\backup-2023.zip', 1900, 'Archive', 'archive', 'REVIEW', 'Archive older than 365 days.', 700],
-    ['C:\\Users\\Anagha\\Downloads\\dataset (1).csv', 640, 'Possible duplicate of dataset.csv', 'duplicate', 'REVIEW', 'Identical hash to dataset.csv in the same folder.', 60],
-    ['C:\\Users\\Anagha\\Downloads\\unconfirmed 482113.crdownload', 760, 'Abandoned browser download', 'abandoned-download', 'LIKELY_UNNECESSARY', 'Partial download untouched for 40 days.', 40],
-    ['C:\\Users\\Anagha\\Documents\\thesis-final-v7.docx', 12, 'Personal document', 'old', 'KEEP', 'Old but a personal document. Guardian never recommends deleting these.', 800],
+    ['C:\\Users\\TestUser\\Videos\\screen-recording-raw.mkv', 3200, 'Large video file', 'large', 'REVIEW', 'Largest personal file; not modified in 8 months.', 240],
+    ['C:\\Users\\TestUser\\Documents\\backup-2023.zip', 1900, 'Archive', 'archive', 'REVIEW', 'Archive older than 365 days.', 700],
+    ['C:\\Users\\TestUser\\Downloads\\dataset (1).csv', 640, 'Possible duplicate of dataset.csv', 'duplicate', 'REVIEW', 'Identical hash to dataset.csv in the same folder.', 60],
+    ['C:\\Users\\TestUser\\Downloads\\unconfirmed 482113.crdownload', 760, 'Abandoned browser download', 'abandoned-download', 'LIKELY_UNNECESSARY', 'Partial download untouched for 40 days.', 40],
+    ['C:\\Users\\TestUser\\Documents\\thesis-final-v7.docx', 12, 'Personal document', 'old', 'KEEP', 'Old but a personal document. Guardian never recommends deleting these.', 800],
   ].map(([p, mb, what, cat, cls, why, age], i) => ({
     id: `f${i}${Buffer.from(p).toString('hex').slice(0, 14)}`, path: p, name: path.win32.basename(p), sizeMB: mb, lastModified: localIso(new Date(now - age * 86400000)), lastAccessed: null, ageDays: age,
-    extension: path.win32.extname(p), classification: cls, category: cat, whatIsIt: what, whyFlagged: [why], duplicateOf: cat === 'duplicate' ? 'C:\\Users\\Anagha\\Downloads\\dataset.csv' : null,
+    extension: path.win32.extname(p), classification: cls, category: cat, whatIsIt: what, whyFlagged: [why], duplicateOf: cat === 'duplicate' ? 'C:\\Users\\TestUser\\Downloads\\dataset.csv' : null,
     referencedBySoftware: cat === 'crash-dump' ? false : null, ifDeleted: cls === 'KEEP' ? 'Not recommended for deletion.' : 'Moves to the Recycle Bin; restorable until it is emptied.', risk: cls === 'KEEP' ? 'HIGH' : cls === 'REVIEW' ? 'MEDIUM' : 'LOW',
     recommendedAction: cls === 'LIKELY_UNNECESSARY' ? 'Move to Recycle Bin after review' : cls === 'KEEP' ? 'Keep' : 'Review', ignored: false,
   }));
@@ -146,7 +146,7 @@ function makeFixtures(dir, days = 45, seed = 42) {
     generatedAt: localIso(new Date(now - 3 * 86400000)),
     drives: [{ drive: 'C:', totalGB: 475.7, freeGB: 118.4, type: 'SSD' }],
     candidates: files, largest: files.slice().sort((a, b) => b.sizeMB - a.sizeMB).slice(0, 6).map((f) => ({ path: f.path, sizeMB: f.sizeMB, lastModified: f.lastModified })),
-    duplicates: [{ hash: 'a41c9e07', sizeMB: 640, files: ['C:\\Users\\Anagha\\Downloads\\dataset.csv', 'C:\\Users\\Anagha\\Downloads\\dataset (1).csv'] }],
+    duplicates: [{ hash: 'a41c9e07', sizeMB: 640, files: ['C:\\Users\\TestUser\\Downloads\\dataset.csv', 'C:\\Users\\TestUser\\Downloads\\dataset (1).csv'] }],
     downloads: { count: 214, sizeGB: 21.4, oldCount: 87 },
   });
 
@@ -178,7 +178,7 @@ function makeFixtures(dir, days = 45, seed = 42) {
     const topMem = procs.slice().sort((a, b) => b.memoryMB - a.memoryMB).slice(0, 5);
     const report = {
       schema: 'guardian.report/1', type: 'daily', id, generatedAt: m.ts, durationSec: Math.round(80 + rand() * 90), status: d === 13 ? 'partial' : 'complete', incomplete: d === 13 ? ['Defender quick scan timed out'] : [],
-      healthScore: m.healthScore, host: { name: 'ANAGHA-LAPTOP', user: 'Anagha', os: 'Windows 11 Home Single Language', build: '10.0.26200' },
+      healthScore: m.healthScore, host: { name: 'TEST-LAPTOP', user: 'TestUser', os: 'Windows 11 Home Single Language', build: '10.0.26200' },
       summary: { headline: m.healthScore >= 85 ? 'System healthy' : 'A few items need review', bullets: [`CPU averaged ${cpu}% and RAM ${ramPct}%.`, `${flagged} processes flagged; ${m.recommendationCount} open recommendations.`, `Free disk space ${m.diskFreeGB} GB (${m.diskFreePct}%).`] },
       sections: {
         system: { os: 'Windows 11 Home Single Language', build: '10.0.26200', uptimeHours: r1(5 + rand() * 90), bootTime: localIso(new Date(ts - 36 * 3600000)), cpu: { name: 'Intel(R) Core(TM) i7-1355U', cores: 10, logical: 12, usagePct: cpu }, ram: { totalGB: ramTotal, usedGB: m.ramUsedGB, freeGB: r1(ramTotal - m.ramUsedGB), usedPct: ramPct }, pagefile: { sizeMB: 4096, usedMB: Math.round(300 + rand() * 900) }, disks: [{ drive: 'C:', fs: 'NTFS', type: 'SSD', totalGB: diskTotal, freeGB: m.diskFreeGB, usedPct: m.diskUsedPct, freePct: m.diskFreePct, health: 'Healthy' }], battery: { present: true, pct: m.batteryPct, charging: rand() > 0.5, onAC: rand() > 0.4 }, temperature: { available: false, celsius: null }, load: r1(cpu / 100 * 12) },
@@ -190,7 +190,7 @@ function makeFixtures(dir, days = 45, seed = 42) {
         firewall: { profiles: ['Domain', 'Private', 'Public'].map((n) => ({ name: n, enabled: true, defaultInbound: 'Block', defaultOutbound: 'Allow' })), problems: [] },
         windowsHealth: { pendingReboot: d === 2, windowsUpdate: { pendingCount: d < 3 ? 2 : 0, lastInstalled: localIso(new Date(now - 6 * 86400000)), status: 'Up to date' }, eventErrors: { system: errs, application: Math.round(rand() * 6), top: [{ source: 'DistributedCOM', id: 10016, count: 4 + Math.round(rand() * 10), message: 'The application-specific permission settings do not grant Local Activation permission.' }, { source: 'Service Control Manager', id: 7023, count: Math.round(rand() * 3), message: 'The Windows Search service terminated with an error.' }] }, sfc: { ran: false, result: 'skipped (weekly)' }, dism: { ran: false, result: 'skipped (weekly)', detail: '' }, componentStore: { reclaimable: null } },
         network: { adapters: [{ name: 'Wi-Fi', status: 'Up', speed: '866 Mbps', type: 'Wireless' }, { name: 'Ethernet', status: 'Disconnected', speed: '0 bps', type: 'Ethernet' }], gateway: '192.168.1.1', dnsServers: ['192.168.1.1', '1.1.1.1'], internet: true, dnsOk: true, gatewayOk: true, latencyMs: r1(10 + rand() * 25) },
-        cleanup: { performed: true, safeMode: false, items: [{ kind: 'temp', path: 'C:\\Users\\Anagha\\AppData\\Local\\Temp', freedMB: Math.round(100 + rand() * 500), result: 'success' }, { kind: 'cache', path: 'C:\\Windows\\Temp', freedMB: Math.round(20 + rand() * 80), result: 'success' }], totalFreedMB: Math.round(150 + rand() * 500) },
+        cleanup: { performed: true, safeMode: false, items: [{ kind: 'temp', path: 'C:\\Users\\TestUser\\AppData\\Local\\Temp', freedMB: Math.round(100 + rand() * 500), result: 'success' }, { kind: 'cache', path: 'C:\\Windows\\Temp', freedMB: Math.round(20 + rand() * 80), result: 'success' }], totalFreedMB: Math.round(150 + rand() * 500) },
         files: { candidateCount: files.length, reclaimableGB: 8.4 },
       },
       recommendations: recs.filter((r) => r.status === 'open').map((r) => r.id), actions: [], errors: errs > 5 ? [{ ts: m.ts, source: 'Windows event log', message: `${errs} System errors in the last 24 hours` }] : [],

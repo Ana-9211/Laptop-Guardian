@@ -19,7 +19,7 @@ A local-first Windows auditing, monitoring, recommendation and reporting platfor
 ## Quick start
 
 ```powershell
-cd C:\Users\Anagha\Documents\LaptopGuardian
+cd C:\Users\You\Documents\LaptopGuardian
 # Recommended: elevated so the scheduled tasks can run SFC / DISM / filesystem scans
 .\Install-LaptopGuardian.ps1 -Elevate          # UAC prompt, then installs
 # or, without elevation (tasks run with limited rights; heavy Windows integrity checks are skipped)
