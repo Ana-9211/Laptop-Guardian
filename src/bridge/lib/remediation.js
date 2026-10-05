@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const protectedTargets = require('./protected');
+const netguard = require('./netguard');
 
 const CATALOG = require('../../shared/action-catalog.json');
 const PLAN_TTL_MS = 10 * 60 * 1000;
@@ -18,7 +19,10 @@ const ACTION_SCRIPT = 'Actions/Invoke-GuardianAction.ps1';
 const ELEVATE_SCRIPT = 'Actions/Request-ElevatedAction.ps1';
 const TICKET_RE = /^[0-9a-f]{32}$/;
 const MAX_HISTORY = 500;
-const REQUIRED_ACKS = { 'process.stop': ['unsaved-work'], 'app.revo-launch': ['unsaved-work'], 'service.disable': ['dependent-programs'] };
+const REQUIRED_ACKS = {
+  'process.stop': ['unsaved-work'], 'app.revo-launch': ['unsaved-work'], 'service.disable': ['dependent-programs'],
+  'firewall.block-program': ['connectivity'], 'firewall.block-port': ['connectivity'], 'firewall.block-remote': ['connectivity'], 'dns.block-domain': ['dns-limits'],
+};
 
 const byId = new Map(CATALOG.actions.map((a) => [a.id, a]));
 const regex = (name) => new RegExp(CATALOG.patterns[name]);
@@ -82,6 +86,8 @@ function createRemediation(deps) {
       if (c.protected) return `Protected path: ${c.reason}.`;
     }
     if ((spec.id === 'task.disable' || spec.id === 'task.enable') && /^\\(Microsoft|LaptopGuardian)(\\|$)/i.test(params.taskPath)) return 'Protected: Windows and Laptop Guardian scheduled tasks are never changed by Guardian.';
+    const net = netguard.staticRefusal(spec.id, params, { ...(deps.netCtx ? deps.netCtx() : {}), guardianRoot: guardianRoot() });
+    if (net) return net;
     return null;
   }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ExecResponse, Finding, HistoryItem, Plan, RevoInfo, ScheduleApplyResult, ScheduleSaveResult, StatusData } from './types';
+import type { DeepStatus, ExecResponse, Finding, HistoryItem, NetworkCurrent, Plan, RevoInfo, ScheduleApplyResult, ScheduleSaveResult, StatusData } from './types';
 
 export class ApiError extends Error {
   status: number;
@@ -49,6 +49,16 @@ export const remediation = {
   execute: (token: string, acknowledged: string[]) => api.post<ExecResponse>('/api/remediation/execute', { token, confirm: true, acknowledged }),
   result: (ticket: string) => api.get<ExecResponse>(`/api/remediation/result/${ticket}`),
   undo: (eventId: string) => api.post<Plan>('/api/remediation/undo', { eventId }),
+};
+
+/** Network Guard. Deep capture and DNS filtering have their own confirmed endpoints and cannot be switched on from settings. */
+export const network = {
+  current: () => api.get<NetworkCurrent>('/api/network/current'),
+  snapshot: () => api.post<NetworkCurrent>('/api/network/snapshot'),
+  deepStart: () => api.post<DeepStatus>('/api/network/deep/start', { confirm: true, acknowledged: true }),
+  deepStop: () => api.post<DeepStatus>('/api/network/deep/stop'),
+  deepDelete: () => api.post<{ deletedFiles: number }>('/api/network/deep/delete', { confirm: true }),
+  dnsFiltering: (enabled: boolean) => api.post<NetworkCurrent['dns']>('/api/network/dns-filtering', { confirm: true, enabled, acknowledged: enabled }),
 };
 
 export interface Query<T> {

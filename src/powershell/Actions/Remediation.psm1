@@ -4,6 +4,8 @@
 # before acting, protected targets are refused, and the outcome is verified by reading the system back.
 # Nothing here ever runs a string supplied by a user, a recommendation, or an AI model.
 Set-StrictMode -Version 2.0
+Import-Module (Join-Path $PSScriptRoot 'RemHelpers.psm1') -Force -DisableNameChecking -Global
+Import-Module (Join-Path $PSScriptRoot 'NetworkActions.psm1') -Force -DisableNameChecking -Global
 
 $script:CatalogPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'shared\action-catalog.json'
 $script:Catalog = $null
@@ -17,14 +19,6 @@ function Get-ActionSpec {
     param([string]$Id)
     $c = Get-ActionCatalog
     return @($c.actions | Where-Object { $_.id -eq $Id })[0]
-}
-
-function New-RemResult {
-    param([bool]$Ok, [string]$Message = '', [string[]]$Errors = @(), [bool]$NeedsAdmin = $false, [bool]$NeedsElevation = $false, [string]$IdentityKey = '', $Details = $null, $Undo = $null, [bool]$Verified = $false, [string]$Action = '', [string]$Mode = '')
-    [pscustomobject]@{
-        ok = $Ok; action = $Action; mode = $Mode; message = $Message; errors = @($Errors); needsAdmin = $NeedsAdmin; needsElevation = $NeedsElevation
-        identityKey = $IdentityKey; verified = $Verified; details = $Details; undo = $Undo
-    }
 }
 
 function Test-ActionParams {
@@ -60,7 +54,6 @@ function Get-LiveProcessInfo {
     $start = $null; try { $start = $p.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss') } catch { }
     [pscustomobject]@{ Name = $p.ProcessName; Path = $path; StartTime = $start; CommandLine = $cmd }
 }
-function Get-OptionalProp { param($Obj, [string]$Name) if ($null -ne $Obj -and ($Obj.PSObject.Properties.Name -contains $Name)) { $Obj.$Name } else { $null } }
 function Test-AdminNow { Test-IsAdmin }
 function Get-GuardianRootPath { if ($env:GUARDIAN_ROOT) { $env:GUARDIAN_ROOT } else { Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) } }
 
@@ -157,8 +150,6 @@ function Get-RevoInfo {
 # ---------- protections ----------
 $script:RemoveRefusePattern = '(?i)(defender|windows security|antivirus|anti-virus|firewall|endpoint|malware|\bdriver\b|chipset|firmware|\bbios\b|\.net (framework|runtime|desktop)|visual c\+\+|webview2|windows (update|defender|subsystem)|microsoft (edge|store|update health))'
 $script:ProtectedTaskPathRx = '^\\(Microsoft|LaptopGuardian)(\\|$)'
-
-function Get-StringKey { param([string[]]$Parts) return (($Parts | ForEach-Object { [string]$_ }) -join '|') }
 
 # ---------- process.stop ----------
 function Test-ProcessStop {
@@ -434,6 +425,18 @@ function Get-RemediationHandler {
         'firewall.enable-profile' { return @{ V = { param($p) Test-FirewallEnable $p }; E = { param($p, $v) Invoke-FirewallEnable $p } } }
         'dns.flush' { return @{ V = { param($p) Test-DnsFlush }; E = { param($p, $v) Invoke-DnsFlush } } }
         'app.revo-launch' { return @{ V = { param($p) Test-RevoLaunch $p }; E = { param($p, $v) Invoke-RevoLaunch $p $v } } }
+        'firewall.block-program' { return @{ V = { param($p) Test-FirewallCreate $p 'block-program' }; E = { param($p, $v) Invoke-FirewallCreate $p 'block-program' } } }
+        'firewall.allow-program' { return @{ V = { param($p) Test-FirewallCreate $p 'allow-program' }; E = { param($p, $v) Invoke-FirewallCreate $p 'allow-program' } } }
+        'firewall.block-port' { return @{ V = { param($p) Test-FirewallCreate $p 'block-port' }; E = { param($p, $v) Invoke-FirewallCreate $p 'block-port' } } }
+        'firewall.block-remote' { return @{ V = { param($p) Test-FirewallCreate $p 'block-remote' }; E = { param($p, $v) Invoke-FirewallCreate $p 'block-remote' } } }
+        'firewall.remove-rule' { return @{ V = { param($p) Test-FirewallManage $p 'remove' }; E = { param($p, $v) Invoke-FirewallManage $p 'remove' } } }
+        'firewall.disable-rule' { return @{ V = { param($p) Test-FirewallManage $p 'disable' }; E = { param($p, $v) Invoke-FirewallManage $p 'disable' } } }
+        'firewall.enable-rule' { return @{ V = { param($p) Test-FirewallManage $p 'enable' }; E = { param($p, $v) Invoke-FirewallManage $p 'enable' } } }
+        'dns.block-domain' { return @{ V = { param($p) Test-DnsBlock $p 'block' }; E = { param($p, $v) Invoke-DnsBlock $p 'block' } } }
+        'dns.unblock-domain' { return @{ V = { param($p) Test-DnsBlock $p 'unblock' }; E = { param($p, $v) Invoke-DnsBlock $p 'unblock' } } }
+        'dns.rollback' { return @{ V = { param($p) Test-DnsRollback }; E = { param($p, $v) Invoke-DnsRollback } } }
+        'deep.dnslog-enable' { return @{ V = { param($p) Test-DnsLogChange $true }; E = { param($p, $v) Invoke-DnsLogChange $true } } }
+        'deep.dnslog-disable' { return @{ V = { param($p) Test-DnsLogChange $false }; E = { param($p, $v) Invoke-DnsLogChange $false } } }
         'app.verify-removed' { return @{ V = { param($p) Test-AppVerify $p }; E = { param($p, $v) Invoke-AppVerify $p } } }
         default { return $null }
     }

@@ -15,7 +15,7 @@ foreach ($f in $files) {
 }
 if (-not $SkipNode -and (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Host "`n=== bridge.test.js (node --test) ===" -ForegroundColor Cyan
-    & node --test (Join-Path $here 'bridge.test.js') (Join-Path $here 'status.test.js') (Join-Path $here 'schedule.test.js') (Join-Path $here 'state.test.js') (Join-Path $here 'remediation.test.js')
+    & node --test (Join-Path $here 'bridge.test.js') (Join-Path $here 'status.test.js') (Join-Path $here 'schedule.test.js') (Join-Path $here 'state.test.js') (Join-Path $here 'remediation.test.js') (Join-Path $here 'network.test.js')
     if ($LASTEXITCODE -ne 0) { $failed++ }
 }
 if ($failed -gt 0) { Write-Host "`nFAILED: $failed" -ForegroundColor Red; exit 1 } else { Write-Host "`nALL TESTS PASSED" -ForegroundColor Green; exit 0 }

@@ -12,7 +12,11 @@
     "startupName": "^[^\\u0000-\\u001f\\\\/]{1,200}$",
     "appName": "^[^<>|\"?*\\u0000-\\u001f\\\\/]{1,200}$",
     "isoTime": "^[0-9T:.+\\-Z]{0,40}$",
-    "token": "^[0-9a-f]{32}$"
+    "token": "^[0-9a-f]{32}$",
+    "ruleName": "^LG-[0-9]{6,12}-[0-9a-f]{6}$",
+    "port": "^[0-9]{1,5}$",
+    "remote": "^[0-9A-Fa-f:.]{2,45}(/[0-9]{1,3})?$",
+    "domain": "^[A-Za-z0-9.-]{4,253}$"
   },
   "actions": [
     {
@@ -304,6 +308,262 @@
       "summary": "Re-registers Guardian's own Daily, Weekly and Dashboard scheduled tasks from your Settings.",
       "consequences": "Fixes tasks that drifted from Settings or lack the scheduled-run marker. Elevated tasks are never downgraded; changing them asks Windows for permission.",
       "undo": "Change the schedule in Settings and save again."
+    },
+    {
+      "long": false,
+      "id": "firewall.block-program",
+      "category": "firewall",
+      "label": "Block program",
+      "risk": "MEDIUM",
+      "admin": true,
+      "reversible": true,
+      "undoId": "firewall.remove-rule",
+      "params": {
+        "path": {
+          "pattern": "absPath"
+        },
+        "direction": {
+          "enum": [
+            "Outbound",
+            "Inbound"
+          ]
+        },
+        "duration": {
+          "enum": [
+            "1h",
+            "24h",
+            "7d",
+            "permanent"
+          ],
+          "optional": true
+        }
+      },
+      "summary": "Creates ONE Windows Firewall rule in the \"Laptop Guardian\" group that blocks {direction} network traffic for the program {path}. Other rules are not touched.",
+      "consequences": "That program cannot use the network in that direction until you remove or disable the rule. Updates, sync or sign-in in that program may stop working.",
+      "undo": "Remove or disable the rule from Network Guard, Firewall (the rule is listed with its expiry)."
+    },
+    {
+      "long": false,
+      "id": "firewall.allow-program",
+      "category": "firewall",
+      "label": "Allow program",
+      "risk": "MEDIUM",
+      "admin": true,
+      "reversible": true,
+      "undoId": "firewall.remove-rule",
+      "params": {
+        "path": {
+          "pattern": "absPath"
+        },
+        "direction": {
+          "enum": [
+            "Outbound",
+            "Inbound"
+          ]
+        },
+        "duration": {
+          "enum": [
+            "1h",
+            "24h",
+            "7d",
+            "permanent"
+          ],
+          "optional": true
+        }
+      },
+      "summary": "Creates ONE Windows Firewall rule in the \"Laptop Guardian\" group that allows {direction} traffic for the reviewed program {path}.",
+      "consequences": "Windows lets that program through the firewall in that direction. Only allow programs you trust.",
+      "undo": "Remove or disable the rule from Network Guard, Firewall."
+    },
+    {
+      "long": false,
+      "id": "firewall.block-port",
+      "category": "firewall",
+      "label": "Block port",
+      "risk": "MEDIUM",
+      "admin": true,
+      "reversible": true,
+      "undoId": "firewall.remove-rule",
+      "params": {
+        "port": {
+          "pattern": "port"
+        },
+        "protocol": {
+          "enum": [
+            "TCP",
+            "UDP"
+          ]
+        },
+        "duration": {
+          "enum": [
+            "1h",
+            "24h",
+            "7d",
+            "permanent"
+          ],
+          "optional": true
+        }
+      },
+      "summary": "Creates ONE Windows Firewall rule in the \"Laptop Guardian\" group that blocks INBOUND {protocol} connections to local port {port} from all profiles.",
+      "consequences": "Other computers can no longer reach whatever listens on that port. Local use on this laptop is not affected.",
+      "undo": "Remove or disable the rule from Network Guard, Firewall."
+    },
+    {
+      "long": false,
+      "id": "firewall.block-remote",
+      "category": "firewall",
+      "label": "Block address",
+      "risk": "MEDIUM",
+      "admin": true,
+      "reversible": true,
+      "undoId": "firewall.remove-rule",
+      "params": {
+        "remote": {
+          "pattern": "remote"
+        },
+        "duration": {
+          "enum": [
+            "1h",
+            "24h",
+            "7d",
+            "permanent"
+          ],
+          "optional": true
+        }
+      },
+      "summary": "Creates ONE Windows Firewall rule in the \"Laptop Guardian\" group that blocks OUTBOUND traffic to {remote} for every program.",
+      "consequences": "Nothing on this laptop can reach that address. Guardian refuses ranges that would cut off your gateway, DNS or DHCP server.",
+      "undo": "Remove or disable the rule from Network Guard, Firewall."
+    },
+    {
+      "long": false,
+      "id": "firewall.remove-rule",
+      "category": "firewall",
+      "label": "Remove rule",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": false,
+      "params": {
+        "name": {
+          "pattern": "ruleName"
+        }
+      },
+      "summary": "Deletes the Laptop Guardian firewall rule {name}. Guardian refuses any rule that is not in its own group with its own name prefix.",
+      "consequences": "Traffic that the rule blocked or allowed is handled by the remaining firewall rules again.",
+      "undo": "Create the rule again from Network Guard if you want it back."
+    },
+    {
+      "long": false,
+      "id": "firewall.disable-rule",
+      "category": "firewall",
+      "label": "Disable rule",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": true,
+      "undoId": "firewall.enable-rule",
+      "params": {
+        "name": {
+          "pattern": "ruleName"
+        }
+      },
+      "summary": "Turns the Laptop Guardian firewall rule {name} off without deleting it.",
+      "consequences": "The rule stops having any effect until you enable it again.",
+      "undo": "Enable the rule again from Network Guard, Firewall."
+    },
+    {
+      "long": false,
+      "id": "firewall.enable-rule",
+      "category": "firewall",
+      "label": "Enable rule",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": true,
+      "undoId": "firewall.disable-rule",
+      "params": {
+        "name": {
+          "pattern": "ruleName"
+        }
+      },
+      "summary": "Turns the Laptop Guardian firewall rule {name} back on.",
+      "consequences": "The rule takes effect again.",
+      "undo": "Disable the rule again."
+    },
+    {
+      "long": false,
+      "id": "dns.block-domain",
+      "category": "network",
+      "label": "Block domain",
+      "risk": "MEDIUM",
+      "admin": true,
+      "reversible": true,
+      "undoId": "dns.unblock-domain",
+      "params": {
+        "domain": {
+          "pattern": "domain"
+        }
+      },
+      "summary": "Adds \"0.0.0.0 {domain}\" inside the Laptop Guardian section of the Windows hosts file, so this exact host name stops resolving.",
+      "consequences": "Programs on this laptop cannot reach that name. Wildcards are not supported, and programs that use their own encrypted DNS (DoH) can bypass the hosts file. Needs DNS filtering to be switched on.",
+      "undo": "Unblock the domain, or roll back all DNS blocks, from Network Guard, DNS."
+    },
+    {
+      "long": false,
+      "id": "dns.unblock-domain",
+      "category": "network",
+      "label": "Unblock domain",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": true,
+      "undoId": "dns.block-domain",
+      "params": {
+        "domain": {
+          "pattern": "domain"
+        }
+      },
+      "summary": "Removes {domain} from the Laptop Guardian section of the hosts file.",
+      "consequences": "The name resolves normally again once the DNS cache is flushed.",
+      "undo": "Block the domain again."
+    },
+    {
+      "long": false,
+      "id": "dns.rollback",
+      "category": "network",
+      "label": "Roll back all DNS blocks",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": false,
+      "params": {},
+      "summary": "Removes the whole Laptop Guardian section from the hosts file, restoring it to its text before Guardian added anything. Lines outside the section are never changed.",
+      "consequences": "Every domain Guardian blocked resolves normally again.",
+      "undo": "Block the domains again one by one if you want them back."
+    },
+    {
+      "long": false,
+      "id": "deep.dnslog-enable",
+      "category": "network",
+      "label": "Turn on DNS history log",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": true,
+      "undoId": "deep.dnslog-disable",
+      "params": {},
+      "summary": "Enables the Windows \"DNS Client / Operational\" event log so Deep Network Guard can show which program asked for which name. It records names only, never packets.",
+      "consequences": "Windows keeps a rolling record of DNS lookups on this laptop, which is private information. Turn it off when you are done.",
+      "undo": "Turn the DNS history log off from Network Guard, Deep mode."
+    },
+    {
+      "long": false,
+      "id": "deep.dnslog-disable",
+      "category": "network",
+      "label": "Turn off DNS history log",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": true,
+      "undoId": "deep.dnslog-enable",
+      "params": {},
+      "summary": "Disables the Windows \"DNS Client / Operational\" event log again.",
+      "consequences": "Windows stops recording DNS lookups in that log. Existing entries are not deleted.",
+      "undo": "Turn the DNS history log on again."
     },
     {
       "id": "app.verify-removed",
