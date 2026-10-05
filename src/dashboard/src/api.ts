@@ -36,20 +36,25 @@ function authHeaders(method: string): Record<string, string> {
   return headers;
 }
 
-async function send(method: string, path: string, body?: unknown): Promise<Response> {
+/** A request that gets no answer for this long is given up on, so a hung bridge shows an error instead of an endless spinner. Plan and scan calls can legitimately take a while. */
+const REQUEST_TIMEOUT_MS = 90_000;
+
+async function send(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
   let res: Response;
+  const ctl = new AbortController();
+  const timer = window.setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    res = await fetch(path, { method, headers: authHeaders(method), body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(path, { method, headers: authHeaders(method), body: body === undefined ? undefined : JSON.stringify(body), signal: ctl.signal });
   } catch {
-    throw new ApiError(0, 'Cannot reach the Laptop Guardian bridge. Check that it is running.');
-  }
+    throw new ApiError(0, ctl.signal.aborted ? 'The Laptop Guardian bridge did not answer in time. Try again in a moment.' : 'Cannot reach the Laptop Guardian bridge. Check that it is running.');
+  } finally { window.clearTimeout(timer); }
   if (res.status === 401) throw new ApiError(401, NO_TOKEN);
   return res;
 }
 
 /** Fetch a file through the authenticated channel and hand it to the browser as a download (plain links cannot carry the token). */
 export async function downloadFile(method: 'GET' | 'POST', path: string, body: unknown, fallbackName: string): Promise<void> {
-  const res = await send(method, path, body);
+  const res = await send(method, path, body, 300_000);
   if (!res.ok) { let msg = `Download failed (${res.status})`; try { msg = ((await res.json()) as { error?: string }).error || msg; } catch { /* not json */ } throw new ApiError(res.status, msg); }
   const cd = res.headers.get('Content-Disposition') || '';
   const name = /filename="([^"]+)"/.exec(cd)?.[1] || fallbackName;
@@ -74,8 +79,21 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+/**
+ * Components that ask for the same GET at the same moment (the findings list is wanted by several panels, for example) share one request
+ * instead of each hitting the bridge. The entry is dropped as soon as it settles, so later reloads always fetch fresh data.
+ */
+const inflight = new Map<string, Promise<unknown>>();
+function coalescedGet<T>(p: string): Promise<T> {
+  const hit = inflight.get(p);
+  if (hit) return hit as Promise<T>;
+  const req = call<T>('GET', p).finally(() => { inflight.delete(p); });
+  inflight.set(p, req);
+  return req;
+}
+
 export const api = {
-  get: <T,>(p: string) => call<T>('GET', p),
+  get: <T,>(p: string) => coalescedGet<T>(p),
   post: <T,>(p: string, b: unknown = {}) => call<T>('POST', p, b),
   put: <T,>(p: string, b: unknown) => call<T>('PUT', p, b),
   patch: <T,>(p: string, b: unknown) => call<T>('PATCH', p, b),

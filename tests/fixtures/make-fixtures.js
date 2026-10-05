@@ -135,7 +135,10 @@ function makeFixtures(dir, days = 45, seed = 42) {
     ['C:\\Users\\TestUser\\Downloads\\dataset (1).csv', 640, 'Possible duplicate of dataset.csv', 'duplicate', 'REVIEW', 'Identical hash to dataset.csv in the same folder.', 60],
     ['C:\\Users\\TestUser\\Downloads\\unconfirmed 482113.crdownload', 760, 'Abandoned browser download', 'abandoned-download', 'LIKELY_UNNECESSARY', 'Partial download untouched for 40 days.', 40],
     ['C:\\Users\\TestUser\\Documents\\thesis-final-v7.docx', 12, 'Personal document', 'old', 'KEEP', 'Old but a personal document. Guardian never recommends deleting these.', 800],
-  ].map(([p, mb, what, cat, cls, why, age], i) => ({
+  ]
+    // The "other users' profiles" protection is measured against the real profile, so personal file fixtures live under it.
+    .map((r) => [String(r[0]).replace('C:\\Users\\TestUser', (process.env.USERPROFILE || 'C:\\Users\\TestUser').replace(/\\+$/, '')), ...r.slice(1)])
+    .map(([p, mb, what, cat, cls, why, age], i) => ({
     id: `f${i}${Buffer.from(p).toString('hex').slice(0, 14)}`, path: p, name: path.win32.basename(p), sizeMB: mb, lastModified: localIso(new Date(now - age * 86400000)), lastAccessed: null, ageDays: age,
     extension: path.win32.extname(p), classification: cls, category: cat, whatIsIt: what, whyFlagged: [why], duplicateOf: cat === 'duplicate' ? 'C:\\Users\\TestUser\\Downloads\\dataset.csv' : null,
     referencedBySoftware: cat === 'crash-dump' ? false : null, ifDeleted: cls === 'KEEP' ? 'Not recommended for deletion.' : 'Moves to the Recycle Bin; restorable until it is emptied.', risk: cls === 'KEEP' ? 'HIGH' : cls === 'REVIEW' ? 'MEDIUM' : 'LOW',

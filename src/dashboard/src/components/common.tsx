@@ -4,6 +4,7 @@ import type { ActionEvent, Recommendation } from '../types';
 import { ago, fmtDate, riskTone, sevTone } from '../format';
 import { Badge, RiskBadge, Sep, useToast, Icon } from './ui';
 import { useStatus } from '../state/StatusProvider';
+import { kindLabel } from '../labels';
 
 export function RecCard({ rec, onOpen }: { rec: Recommendation; onOpen?: (r: Recommendation) => void }) {
   return (
@@ -14,7 +15,7 @@ export function RecCard({ rec, onOpen }: { rec: Recommendation; onOpen?: (r: Rec
       </div>
       <div className="small t2" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{rec.whatIsIt || rec.whyFlagged?.[0]}</div>
       <div className="row tight small muted">
-        <Badge tone="outline">{rec.kind}</Badge>
+        <Badge tone="outline">{kindLabel(rec.kind)}</Badge>
         <span>{rec.suggestedAction}</span><Sep />
         <span>{(rec.consecutiveDays ?? 0) > 1 ? `${rec.consecutiveDays} days in a row` : `seen ${ago(rec.lastSeen)}`}</span>
         {onOpen && <span className="go-hint"><Icon name="chev" size={14} /></span>}

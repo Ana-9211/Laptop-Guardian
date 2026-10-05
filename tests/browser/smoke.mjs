@@ -267,6 +267,31 @@ try {
       await page.getByRole('button', { name: 'Stop recording' }).first().click();
       await page.getByText('Deep Network Guard is recording connection activity').first().waitFor({ state: 'detached', timeout: 20000 }).then(() => check(true, 'the banner disappears when recording stops')).catch(() => fail('banner stayed after stop'));
 
+      note('\n== accessibility and states added in batch 4');
+      await page.goto(base() + '#/network');
+      await page.waitForSelector('[role="tabpanel"]');
+      const panelId = await page.locator('[role="tab"][aria-selected="true"]').getAttribute('aria-controls');
+      check(!!panelId && (await page.locator('[role="tabpanel"]').getAttribute('id')) === panelId && (await page.locator('[role="tabpanel"]').getAttribute('aria-labelledby')) === (await page.locator('[role="tab"][aria-selected="true"]').getAttribute('id')), 'the selected tab controls a labelled tabpanel');
+      await page.getByRole('tab', { name: /Deep mode/ }).click();
+      check(await page.getByRole('button', { name: 'Delete recorded data' }).isDisabled(), 'delete recorded data is unavailable while nothing is recorded');
+      await page.goto(base() + '#/actions');
+      await page.waitForSelector('main table tbody tr');
+      check(/Updated/.test(await page.locator('.page-head, header, main').first().innerText()) && (await page.getByRole('button', { name: 'Refresh' }).count()) >= 1, 'Action Center shows when it was updated and offers Refresh');
+      await page.goto(base() + '#/logs?category=remediation');
+      await page.waitForSelector('select[aria-label="Category"]');
+      check((await page.locator('select[aria-label="Category"]').inputValue()) === 'remediation', 'a #/logs?category= link preselects the category');
+      check((await page.locator('select[aria-label="Category"] option[value], select[aria-label="Category"] option').allInnerTexts()).includes('network'), 'the log offers the network and remediation categories');
+      await page.goto(base() + '#/settings');
+      await page.waitForSelector('input[type="number"]');
+      await page.locator('input[type="number"]').first().fill('7');
+      await page.locator('input[type="number"]').first().blur();
+      let asked = '';
+      page.once('dialog', async (d) => { asked = d.message(); await d.dismiss(); });
+      await page.evaluate(() => { window.location.hash = '#/overview'; });
+      await page.waitForTimeout(400);
+      check(/unsaved changes/i.test(asked) && /settings/.test(page.url()), 'leaving Settings with unsaved edits asks first and stays when declined');
+      await page.getByRole('button', { name: 'Discard' }).click();
+
       note('\n== loading state is shown while data is slow');
       await page.route('**/api/overview', async (r) => { await new Promise((x) => setTimeout(x, 1200)); await r.continue(); });
       await page.goto(`${base()}#/overview`);

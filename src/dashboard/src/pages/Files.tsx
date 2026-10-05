@@ -5,6 +5,7 @@ import { Badge, Card, Col, DataTable, Empty, ErrorState, KV, PageHead, RiskBadge
 import { LineChart, RangeSelect, Range, filterRange, SERIES_COLORS } from '../components/Chart';
 import { fmtDate, fmtMB, NA } from '../format';
 import { useActionFlow } from '../components/ActionFlow';
+import { classLabel } from '../labels';
 
 type Tab = 'overview' | 'large' | 'duplicates' | 'recommended' | 'ignored' | 'trends';
 const CLS_TONE: Record<string, string> = { KEEP: 'ok', REVIEW: 'info', LIKELY_UNNECESSARY: 'warn', HIGH_RISK: 'crit', UNKNOWN: '' };
@@ -14,7 +15,7 @@ function FileCard({ f, onIgnore, onRecycle }: { f: FileCandidate; onIgnore: (f: 
     <article className="card" style={{ padding: 14, display: 'grid', gap: 8 }} aria-label={f.name}>
       <div className="row spread" style={{ flexWrap: 'nowrap' }}>
         <div style={{ minWidth: 0 }}><b className="trunc" style={{ display: 'block' }}>{f.name}</b><div className="path trunc" title={f.path}>{f.path}</div></div>
-        <Badge tone={CLS_TONE[f.classification]}>{f.classification.replace('_', ' ')}</Badge>
+        <Badge tone={CLS_TONE[f.classification]}>{classLabel(f.classification)}</Badge>
       </div>
       <p className="t2">{f.whatIsIt}</p>
       <div><div className="small muted">Why flagged</div><ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>{(f.whyFlagged || []).map((w) => <li key={w}>{w}</li>)}</ul></div>
@@ -61,7 +62,7 @@ export default function Files() {
       <PageHead title="Files & Storage" sub={d?.generatedAt ? `Weekly storage scan from ${fmtDate(d.generatedAt)}. Guardian never deletes files on its own; Recycle Bin moves need your confirmation.` : 'Storage analysis runs weekly.'} />
       {q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : !d ? <SkeletonCards n={4} /> : (
         <>
-          <Tabs<Tab> value={tab} onChange={setTab} label="Storage views" items={[{ id: 'overview', label: 'Overview' }, { id: 'large', label: 'Large files', count: d.largest?.length }, { id: 'duplicates', label: 'Duplicates', count: d.duplicates?.length }, { id: 'recommended', label: 'Recommended', count: active.length }, { id: 'ignored', label: 'Ignored', count: ignored.length }, { id: 'trends', label: 'Trends' }]} />
+          <Tabs<Tab> value={tab} onChange={setTab} label="Storage views" items={[{ id: 'overview', label: 'Overview' }, { id: 'large', label: 'Large files', count: d.largest?.length }, { id: 'duplicates', label: 'Duplicates', count: d.duplicates?.length }, { id: 'recommended', label: 'Recommended', count: active.length }, { id: 'ignored', label: 'Ignored', count: ignored.length }, { id: 'trends', label: 'Trends' }]}>
           {tab === 'overview' && (
             <>
               <div className="grid g4">
@@ -70,7 +71,7 @@ export default function Files() {
                 <Stat label="Worth reviewing" value={active.length} sub={`${fmtMB(reclaim)} potentially reclaimable`} />
                 <Stat label="Duplicate groups" value={d.duplicates?.length ?? 0} sub="Identical content by hash" />
               </div>
-              <Card title="Classifications"><div className="row">{['KEEP', 'REVIEW', 'LIKELY_UNNECESSARY', 'HIGH_RISK', 'UNKNOWN'].map((c) => <Badge key={c} tone={CLS_TONE[c]}>{c.replace('_', ' ')} - {active.filter((x) => x.classification === c).length}</Badge>)}</div>
+              <Card title="Classifications"><div className="row">{['KEEP', 'REVIEW', 'LIKELY_UNNECESSARY', 'HIGH_RISK', 'UNKNOWN'].map((c) => <Badge key={c} tone={CLS_TONE[c]}>{classLabel(c)} - {active.filter((x) => x.classification === c).length}</Badge>)}</div>
                 <p className="small muted" style={{ marginTop: 8 }}>When Guardian is unsure it chooses REVIEW. Personal documents are classified KEEP and are never suggested for removal.</p></Card>
             </>
           )}
@@ -78,7 +79,7 @@ export default function Files() {
           {tab === 'duplicates' && (d.duplicates?.length ? <div className="grid g2">{d.duplicates.map((g, i) => <Card key={g.hash || i} title={`Group ${g.hash?.slice(0, 8) || i + 1}`} actions={<Badge>{fmtMB(g.sizeMB)} each</Badge>}><div className="stack">{g.files.map((p) => <div key={p} className="path">{p}</div>)}<div className="small muted">Keep one copy. Review before removing the others; Guardian does not pick for you.</div></div></Card>)}</div> : <Card><Empty icon="check" title="No duplicates found" /></Card>)}
           {tab === 'recommended' && (
             <>
-              <div className="row"><select aria-label="Classification" value={cls} onChange={(e) => setCls(e.target.value)}><option value="">All classifications</option>{['KEEP', 'REVIEW', 'LIKELY_UNNECESSARY', 'HIGH_RISK', 'UNKNOWN'].map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select><span className="small muted">{clsFiltered.length} files</span></div>
+              <div className="row"><select aria-label="Classification" value={cls} onChange={(e) => setCls(e.target.value)}><option value="">All classifications</option>{['KEEP', 'REVIEW', 'LIKELY_UNNECESSARY', 'HIGH_RISK', 'UNKNOWN'].map((c) => <option key={c} value={c}>{classLabel(c)}</option>)}</select><span className="small muted">{clsFiltered.length} files</span></div>
               {clsFiltered.length ? <div className="grid g2">{clsFiltered.map((f) => <FileCard key={f.id} f={f} onIgnore={ignore} onRecycle={recycle} />)}</div> : <Card><Empty icon="check" title="Nothing to review" /></Card>}
             </>
           )}
@@ -92,6 +93,7 @@ export default function Files() {
               </div>
             </div>
           )}
+          </Tabs>
         </>
       )}
       {flow.node}

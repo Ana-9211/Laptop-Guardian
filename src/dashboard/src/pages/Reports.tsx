@@ -22,10 +22,11 @@ function OpenReport({ row, onClose }: { row: ReportRow; onClose: () => void }) {
   return (
     <Drawer title={`${row.type === 'daily' ? 'Daily' : 'Weekly'} report ${row.id}`} sub={fmtFull(row.generatedAt)} onClose={onClose}
       footer={<><DownloadButton path={`/api/reports/export?type=${row.type}&id=${row.id}&format=json`} name={`${row.type}-${row.id}.json`}><Icon name="download" size={13} />JSON</DownloadButton><DownloadButton path={`/api/reports/export?type=${row.type}&id=${row.id}&format=csv`} name={`${row.type}-${row.id}.csv`}><Icon name="download" size={13} />CSV</DownloadButton></>}>
-      <Tabs value={tab} onChange={setTab} label="Report views" items={[{ id: 'summary', label: 'Summary' }, { id: 'html', label: 'Rendered report' }, { id: 'json', label: 'Raw data' }]} />
+      <Tabs value={tab} onChange={setTab} label="Report views" items={[{ id: 'summary', label: 'Summary' }, { id: 'html', label: 'Rendered report' }, { id: 'json', label: 'Raw data' }]}>
       {tab === 'summary' && (q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : q.data ? <ReportView r={q.data} /> : <Skeleton h={120} />)}
       {tab === 'html' && (row.hasHtml === false ? <Empty title="No rendered HTML for this report" /> : <iframe className="report-frame" title="Rendered report" sandbox="" srcDoc={html ?? ''} />)}
       {tab === 'json' && (q.data ? <pre className="mono-block" style={{ maxHeight: '65vh', overflow: 'auto', whiteSpace: 'pre-wrap' }}>{JSON.stringify(q.data, null, 2)}</pre> : <Skeleton h={120} />)}
+      </Tabs>
     </Drawer>
   );
 }
@@ -40,7 +41,7 @@ function Compare({ a, b, onClose }: { a: ReportRow; b: ReportRow; onClose: () =>
   ];
   return (
     <Drawer title="Compare reports" sub={`${key(a)} vs ${key(b)}`} onClose={onClose}>
-      {!qa.data || !qb.data ? <Skeleton h={160} /> : (
+      {qa.error || qb.error ? <ErrorState error={(qa.error || qb.error) as ApiError} onRetry={() => { qa.reload(); qb.reload(); }} /> : !qa.data || !qb.data ? <Skeleton h={160} /> : (
         <Card flush><table className="t"><thead><tr><th>Metric</th><th className="r">{a.id}</th><th className="r">{b.id}</th><th className="r">Change</th></tr></thead>
           <tbody>{rows.map(([label, f]) => { const x = f(qa.data!); const y = f(qb.data!); const d = typeof x === 'number' && typeof y === 'number' ? y - x : null; const worse = d != null && d !== 0 && (label.startsWith('Disk') || label.startsWith('Health') ? d < 0 : d > 0);
             return <tr key={label}><td>{label}</td><td className="r num">{x ?? NA}</td><td className="r num">{y ?? NA}</td><td className={`r num ${d ? (worse ? 'diff-up' : 'diff-down') : ''}`}>{d == null ? '' : `${d > 0 ? '+' : ''}${Math.round(d * 10) / 10}`}</td></tr>; })}</tbody></table></Card>
@@ -74,7 +75,7 @@ export default function Reports() {
 
   const del = (r: ReportRow) => confirm({
     title: `Delete ${r.type} report ${r.id}?`, confirmLabel: 'Delete report', danger: true,
-    body: <>This permanently removes the data and rendered HTML from disk. Metrics and the action log are kept. No automatic retention is applied; this only happens because you asked.</>,
+    body: <>This permanently removes the data and rendered HTML from disk. Metrics and the action log are kept. Reports are only deleted when you ask, unless you set a retention period in Settings.</>,
     onConfirm: async () => { try { await api.del(`/api/reports/${r.type}/${r.id}`); toast('ok', 'Report deleted.'); setPicked((p) => p.filter((x) => x !== key(r))); q.reload(); } catch (e) { toast('error', (e as ApiError).message); } },
   });
 
@@ -95,7 +96,7 @@ export default function Reports() {
               <table className="t" aria-label="Reports">
                 <thead><tr><th style={{ width: 36 }}><span className="sr-only">Select for compare</span></th><th>Report</th><th>Generated</th><th className="r">Health</th><th>Status</th><th>Summary</th><th className="r">Size</th><th /></tr></thead>
                 <tbody>{rows.map((r) => (
-                  <tr key={key(r)} className="click" tabIndex={0} onClick={() => { setOpen(r); go(`/reports?type=${r.type}&id=${r.id}`); }} onKeyDown={(e) => { if (e.key === 'Enter') setOpen(r); }}>
+                  <tr key={key(r)} className="click" tabIndex={0} onClick={() => { setOpen(r); go(`/reports?type=${r.type}&id=${r.id}`); }} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setOpen(r); go('/reports?type=' + r.type + '&id=' + r.id); } }}>
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${r.id} for comparison`} checked={picked.includes(key(r))} onChange={() => togglePick(r)} /></td>
                     <td><Badge tone={r.type === 'weekly' ? 'info' : ''}>{r.type}</Badge> <b>{r.id}</b></td>
                     <td className="small t2">{fmtFull(r.generatedAt)}</td>

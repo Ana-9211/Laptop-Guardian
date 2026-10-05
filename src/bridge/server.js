@@ -609,7 +609,7 @@ function createApp(root, opts = {}) {
   function enrich(snap) {
     const persistent = persistentPaths();
     const procs = snap.processes || {};
-    return { ...snap, connections: (snap.connections || []).map((c) => { const p = procs[String(c.pid)] || {}; return { ...c, process: { name: p.name || `pid ${c.pid}`, path: p.path || null, signed: p.signed ?? null, publisher: p.publisher || null, owner: p.owner || null, persistent: !!(p.path && persistent.has(String(p.path).toLowerCase())) } }; }) };
+    return { ...snap, connections: (snap.connections || []).map((c) => { const p = procs[String(c.pid)] || {}; return { ...c, process: { name: p.name || `pid ${c.pid}`, path: p.path || null, signed: p.signed ?? null, publisher: p.publisher || null, owner: p.owner || null, startTime: p.startTime || null, persistent: !!(p.path && persistent.has(String(p.path).toLowerCase())) } }; }) };
   }
   function rulesView(snap) {
     const reg = new Map(netStore.readRuleRegistry().map((r) => [r.name, r]));

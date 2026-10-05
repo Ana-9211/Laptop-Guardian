@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { api, ApiError, bridge, useQuery } from '../api';
 import type { Config, Policy } from '../types';
 import { Badge, Card, ErrorState, Icon, PageHead, SkeletonCards, Switch, useConfirm, useToast } from '../components/ui';
@@ -6,6 +6,7 @@ import { useOverview } from '../state/overview';
 import { fmtDate } from '../format';
 import { useStatus } from '../state/StatusProvider';
 import { ScheduleRepairNotice } from '../components/ScheduleRepair';
+import { setNavGuard } from '../router';
 
 type Draft = Config;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -54,10 +55,19 @@ export default function Settings() {
     setSaved(JSON.stringify(strip(c)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfgQ.data]);
+  const dirty = d ? JSON.stringify(strip(d)) !== saved : false;
+  // Unsaved edits are not lost silently: leaving the page, or closing the window, asks first.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    setNavGuard((next) => !dirtyRef.current || next.startsWith('/settings') || window.confirm('You have unsaved changes in Settings. Leave without saving?'));
+    const beforeUnload = (e: BeforeUnloadEvent) => { if (dirtyRef.current) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => { setNavGuard(null); window.removeEventListener('beforeunload', beforeUnload); };
+  }, []);
   if (cfgQ.error) return <div className="page"><ErrorState error={cfgQ.error} onRetry={cfgQ.reload} /></div>;
   if (!d) return <div className="page"><PageHead title="Settings" /><SkeletonCards n={4} /></div>;
 
-  const dirty = JSON.stringify(strip(d)) !== saved;
   const upd = (fn: (x: Draft) => void) => setD((cur) => { const n = clone(cur!); fn(n); return n; });
   const keyOn = cfgQ.data?._ai?.keyConfigured;
 
@@ -97,6 +107,12 @@ export default function Settings() {
     upd((x) => { x.safety[k] = v; });
     try { if (await putConfig({ safety: { [k]: v } }, confirmed)) { toast('ok', 'Safety setting applied.'); cfgQ.reload(); ov.reload(); } else upd((x) => { x.safety[k] = !v; }); } catch (e) { toast('error', (e as ApiError).message); upd((x) => { x.safety[k] = !v; }); }
   };
+  /** One switch for the weekly shutdown: both the safety gate and the schedule flag move together, so the page can never show "on" while the run would not shut down. */
+  const shutdownSwitch = async (v: boolean) => {
+    upd((x) => { x.safety.weeklyShutdown = v; x.schedule.weekly.shutdownEnabled = v; });
+    try { if (await putConfig({ safety: { weeklyShutdown: v }, schedule: { weekly: { shutdownEnabled: v } } })) { toast('ok', v ? 'The weekly run may shut the laptop down.' : 'The weekly run will leave the laptop on.'); cfgQ.reload(); ov.reload(); } }
+    catch (e) { toast('error', (e as ApiError).message); upd((x) => { x.safety.weeklyShutdown = !v; x.schedule.weekly.shutdownEnabled = !v; }); }
+  };
   const aiCall = async (name: string, fn: () => Promise<void>) => { setBusy(name); try { await fn(); } catch (e) { toast('error', (e as ApiError).message); } finally { setBusy(''); } };
   const saveKey = () => aiCall('key', async () => { await api.post('/api/ai/key', { key }); setKey(''); setShow(false); toast('ok', 'API key stored, encrypted for your Windows account.'); cfgQ.reload(); ov.reload(); });
   const removeKey = () => confirm({ title: 'Remove the Gemini API key?', confirmLabel: 'Remove key', danger: true, body: 'AI analysis will stop working until you add a key again. Everything else keeps working.', onConfirm: () => aiCall('key', async () => { await api.del('/api/ai/key'); toast('ok', 'Key removed.'); cfgQ.reload(); ov.reload(); }) });
@@ -115,9 +131,9 @@ export default function Settings() {
               label={<b>Safe mode</b>} hint="Observe and recommend only. No process is terminated and nothing is cleaned automatically." />
           </div>
           <div className="grid g2">
-            <Switch checked={d.safety.autoKillBlacklisted} onChange={(v) => safety('autoKillBlacklisted', v)} label="Automatically terminate blacklisted processes" hint="Daily agent only. Needs safe mode off." />
+            <Switch checked={d.safety.autoKillBlacklisted} onChange={(v) => safety('autoKillBlacklisted', v)} label="Automatically terminate blacklisted processes" hint="Daily agent only, and only entries on your blacklist. Needs Safe mode off. Turning it on asks you to confirm." />
             <Switch checked={d.safety.automationPaused} onChange={(v) => safety('automationPaused', v)} label="Pause automation" hint="Scheduled runs still observe and report; no automatic actions." />
-            <Switch checked={d.safety.weeklyShutdown} onChange={(v) => safety('weeklyShutdown', v)} label="Shut down after the weekly run" hint="Windows performs the shutdown. Turn off to leave the laptop on." />
+            <Switch checked={d.safety.weeklyShutdown && d.schedule.weekly.shutdownEnabled} onChange={(v) => void shutdownSwitch(v)} label="Shut down after the weekly run" hint="Only the scheduled weekly run can do this, and Windows closes open programs when it does. Turn off to leave the laptop on." />
           </div>
         </div>
       </div>
@@ -153,7 +169,7 @@ export default function Settings() {
               <div className="row small t2" style={{ gap: 18 }}><span>{usage.data.totals.requests} requests</span><span>{usage.data.totals.failures} failed</span><span>{usage.data.totals.tokensToday.toLocaleString()} tokens today</span><span>{usage.data.totals.tokensAll.toLocaleString()} tokens total</span></div>
               {usage.data.requests.length === 0 ? <div className="small muted" style={{ marginTop: 6 }}>No requests yet. Gemini token pricing varies by model; check the current Google rates.</div> : (
                 <div className="table-wrap" style={{ maxHeight: 200, marginTop: 8, border: '1px solid var(--line)', borderRadius: 6 }}><table className="t"><thead><tr><th>Time</th><th>Model</th><th>Kind</th><th>Result</th><th className="r">Tokens</th></tr></thead><tbody>{usage.data.requests.slice(0, 20).map((r, i) => <tr key={i}><td className="small">{fmtDate(r.ts)}</td><td className="mono">{r.model}</td><td>{r.kind}</td><td><Badge tone={r.ok ? 'ok' : 'crit'} dot>{r.ok ? 'ok' : r.error || 'failed'}</Badge></td><td className="r num">{(r.promptTokens || 0) + (r.outputTokens || 0)}</td></tr>)}</tbody></table></div>)}
-            </>) : <div className="small muted">Loading...</div>}
+            </>) : usage.error ? <ErrorState error={usage.error} onRetry={usage.reload} /> : <div className="small muted">Loading...</div>}
           </div>
         </div>
       </Card>
@@ -167,8 +183,8 @@ export default function Settings() {
             <div className="stack"><Switch checked={d.schedule.weekly.enabled} onChange={(v) => upd((x) => { x.schedule.weekly.enabled = v; })} label={<b>Weekly deep analysis</b>} />
               <div className="row"><Field label="Day"><select value={d.schedule.weekly.day} onChange={(e) => upd((x) => { x.schedule.weekly.day = e.target.value; })}>{DAYS.map((x) => <option key={x}>{x}</option>)}</select></Field>
                 <Field label="Start"><input type="time" value={d.schedule.weekly.time} onChange={(e) => upd((x) => { x.schedule.weekly.time = e.target.value; })} /></Field></div></div>
-            <div className="stack"><Switch checked={d.schedule.weekly.shutdownEnabled} onChange={(v) => upd((x) => { x.schedule.weekly.shutdownEnabled = v; })} label={<b>Weekly shutdown</b>} />
-              <Field label="Target shutdown time" hint="Unfinished work is recorded as incomplete when this is reached."><input type="time" value={d.schedule.weekly.shutdownTime} onChange={(e) => upd((x) => { x.schedule.weekly.shutdownTime = e.target.value; })} /></Field></div>
+            <div className="stack"><b>Weekly shutdown</b>
+              <Field label="Target shutdown time" hint={`Unfinished work is recorded as incomplete when this is reached. Shutdown is ${d.safety.weeklyShutdown && d.schedule.weekly.shutdownEnabled ? 'on' : 'off'}; change it with the switch in Safety above.`}><input type="time" value={d.schedule.weekly.shutdownTime} onChange={(e) => upd((x) => { x.schedule.weekly.shutdownTime = e.target.value; })} /></Field></div>
           </div>
           <ScheduleRepairNotice />
           <div className="small muted">Scheduling uses Windows Task Scheduler; no Guardian process stays running. Saving a changed schedule updates the tasks; elevated tasks are never downgraded and need your permission to change. The laptop must be on (or wake for the task) at these times.{ov.data && <> Next: daily {fmtDate(ov.data.next.daily)} - weekly {fmtDate(ov.data.next.weekly)}.</>}</div>
@@ -192,8 +208,8 @@ export default function Settings() {
       {/* Process policies */}
       <Card title="Process policies">
         <div className="stack">
-          {pol.data ? <div className="row" style={{ gap: 20 }}><span><b className="num">{pol.data.blacklist.length}</b> <a href="#/blacklist">blacklisted</a></span><span><b className="num">{pol.data.whitelist.length}</b> <a href="#/whitelist">whitelisted</a></span><span><b className="num">{pol.data.ignored.length}</b> ignored recommendations</span></div> : <div className="small muted">Loading...</div>}
-          <Switch checked={d.safety.autoKillBlacklisted} onChange={(v) => safety('autoKillBlacklisted', v)} label="Automatically terminate blacklisted processes" hint="Only entries on your blacklist. Unknown processes are never terminated automatically." />
+          {pol.data ? <div className="row" style={{ gap: 20 }}><span><b className="num">{pol.data.blacklist.length}</b> <a href="#/blacklist">blacklisted</a></span><span><b className="num">{pol.data.whitelist.length}</b> <a href="#/whitelist">whitelisted</a></span><span><b className="num">{pol.data.ignored.length}</b> ignored recommendations</span></div> : pol.error ? <ErrorState error={pol.error} onRetry={pol.reload} /> : <div className="small muted">Loading...</div>}
+          <p className="small muted">Whether blacklisted programs are ended automatically is a Safety setting (above). Only entries on your blacklist are ever ended; unknown programs never are.</p>
           <div className="grid g4">
             <Field label="Flag CPU above (%)"><Num min={1} max={100} value={d.thresholds.cpuPct} onChange={(v) => upd((x) => { x.thresholds.cpuPct = v; })} /></Field>
             <Field label="Flag memory above (MB)"><Num min={50} value={d.thresholds.memoryMB} onChange={(v) => upd((x) => { x.thresholds.memoryMB = v; })} /></Field>

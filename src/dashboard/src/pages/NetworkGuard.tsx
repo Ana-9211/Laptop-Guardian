@@ -10,6 +10,7 @@ import { ConnectionDrawer, DeepPanel, DnsPanel, RulesPanel, addr, signedBadge } 
 import { useStatus } from '../state/StatusProvider';
 import { useHash, go } from '../router';
 import { ago } from '../format';
+import { confidenceLabel } from '../labels';
 
 type Tab = 'overview' | 'connections' | 'listening' | 'dns' | 'firewall' | 'findings' | 'deep';
 const TONE_BY_RISK: Record<string, string> = { HIGH: 'crit', MEDIUM: 'warn', LOW: 'ok' };
@@ -69,7 +70,7 @@ export default function NetworkGuard() {
   const findCols: Col<Finding>[] = [
     { key: 'title', label: 'Finding', sort: (f) => f.title, render: (f) => <span className="stack tight"><b>{f.title}</b><span className="small muted trunc" style={{ maxWidth: 560 }}>{f.what}</span></span> },
     { key: 'risk', label: 'Risk', sort: (f) => ['HIGH', 'MEDIUM', 'LOW'].indexOf(String(f.risk)), render: (f) => <RiskBadge risk={String(f.risk)} /> },
-    { key: 'conf', label: 'Confidence', align: 'r', sort: (f) => f.confidence, render: (f) => <span className="num">{Math.round(f.confidence * 100)}%</span> },
+    { key: 'conf', label: 'Confidence', align: 'r', sort: (f) => f.confidence, render: (f) => <span className="num" title={confidenceLabel(f.confidence)}>{Math.round(f.confidence * 100)}%</span> },
     { key: 'fix', label: 'Available actions', render: (f) => <span className="row tight">{f.actions.filter((a) => a.eligible).slice(0, 3).map((a) => <Badge key={a.label} tone={a.admin === 'yes' ? 'warn' : 'accent'}>{a.label}</Badge>)}</span> },
   ];
   const talkCols: Col<(typeof talkers)[number]>[] = [
@@ -86,13 +87,13 @@ export default function NetworkGuard() {
         <>
           {!snap && <div className="notice">No network snapshot exists yet. Standard visibility reads the Windows connection tables when you press <b>Take snapshot now</b> (and hourly while the dashboard service runs). It never captures traffic.</div>}
           {stale && <div className="notice warn">This snapshot is {ago(snap?.generatedAt)}. Take a new one for current data.</div>}
-          <Tabs<Tab> label="Network Guard" value={tab} onChange={setTab} items={[{ id: 'overview', label: 'Overview' }, { id: 'connections', label: 'Connections', count: active.length }, { id: 'listening', label: 'Listening ports', count: listeners.length + (snap?.udp.length ?? 0) }, { id: 'dns', label: 'DNS' }, { id: 'firewall', label: 'Firewall', count: cur.rules.length }, { id: 'findings', label: 'Findings', count: findings.length }, { id: 'deep', label: 'Deep mode' }]} />
+          <Tabs<Tab> label="Network Guard" value={tab} onChange={setTab} items={[{ id: 'overview', label: 'Overview' }, { id: 'connections', label: 'Connections', count: active.length }, { id: 'listening', label: 'Listening ports', count: listeners.length + (snap?.udp.length ?? 0) }, { id: 'dns', label: 'DNS' }, { id: 'firewall', label: 'Firewall', count: cur.rules.length }, { id: 'findings', label: 'Findings', count: findings.length }, { id: 'deep', label: 'Deep mode' }]}>
 
           {tab === 'overview' && snap && (
             <div className="stack-lg">
               <div className="grid g4">
                 <Stat label="Active connections" value={String(active.filter((c) => /established/i.test(c.state)).length)} sub={`${new Set(active.map((c) => c.remoteAddress).filter(Boolean)).size} remote addresses`} />
-                <Stat label="Listening ports" value={String(listeners.length)} sub={`${snap.udp.length} UDP endpoints`} />
+                <Stat label="Listening ports" value={String(listeners.length + snap.udp.length)} sub={`${listeners.length} TCP, ${snap.udp.length} UDP`} />
                 <Stat label="Unsigned programs online" value={String(new Set(active.filter((c) => c.process.signed === false && c.remoteAddress).map((c) => c.pid)).size)} tone={active.some((c) => c.process.signed === false && c.remoteAddress) ? 'warn' : 'ok'} sub="with outbound connections" />
                 <Stat label="Findings" value={String(findings.length)} tone={findings.some((f) => f.risk === 'HIGH') ? 'crit' : findings.length ? 'warn' : 'ok'} sub={findings.length ? 'open the Findings tab' : 'nothing unusual'} />
               </div>
@@ -108,14 +109,15 @@ export default function NetworkGuard() {
               </div>
               <div className="split even">
                 <Card title="Firewall and DNS changes" actions={<a className="small" href="#/actions">Action Center history</a>}>
-                  {fixes.data ? <AttemptList attempts={fixes.data.items.filter((h) => h.category === 'firewall' || /^(dns|deep)\./.test(h.actionId)).slice(0, 6)} /> : <p className="small muted">Loading...</p>}
+                  {fixes.error ? <ErrorState error={fixes.error} onRetry={fixes.reload} /> : fixes.data ? <AttemptList attempts={fixes.data.items.filter((h) => h.category === 'firewall' || /^(dns|deep)\./.test(h.actionId)).slice(0, 6)} /> : <p className="small muted">Loading...</p>}
                 </Card>
                 <Card title="Network activity log" actions={<a className="small" href="#/logs?q=network">Open log</a>}>
-                  {acts.data && acts.data.length ? <ActionTimeline rows={acts.data} max={6} /> : <p className="small muted">Snapshots, Deep Network Guard and DNS-policy events appear here.</p>}
+                  {acts.error ? <ErrorState error={acts.error} onRetry={acts.reload} /> : acts.data && acts.data.length ? <ActionTimeline rows={acts.data} max={6} /> : <p className="small muted">Snapshots, Deep Network Guard and DNS-policy events appear here.</p>}
                 </Card>
               </div>
               <Card title="Trend" actions={<RangeSelect value={range} onChange={setRange} />}>
-                <LineChart title="Connections over time" x={metrics.map((m) => m.ts)} height={200} digits={0} series={[{ id: 'e', label: 'Established', color: SERIES_COLORS.cpu, values: metrics.map((m) => m.established) }, { id: 'r', label: 'Remote addresses', color: SERIES_COLORS.disk, values: metrics.map((m) => m.remoteAddresses) }, { id: 'l', label: 'Listening', color: SERIES_COLORS.ram, values: metrics.map((m) => m.listening) }]} />
+                {hist.error && <ErrorState error={hist.error} onRetry={hist.reload} />}
+                <LineChart emptyTitle="No snapshots in this range" emptyHint="Each network snapshot adds a point. Take one with the button above, or wait for the hourly one." title="Connections over time" x={metrics.map((m) => m.ts)} height={200} digits={0} series={[{ id: 'e', label: 'Established', color: SERIES_COLORS.cpu, values: metrics.map((m) => m.established) }, { id: 'r', label: 'Remote addresses', color: SERIES_COLORS.disk, values: metrics.map((m) => m.remoteAddresses) }, { id: 'l', label: 'Listening', color: SERIES_COLORS.ram, values: metrics.map((m) => m.listening) }]} />
               </Card>
             </div>
           )}
@@ -148,6 +150,7 @@ export default function NetworkGuard() {
             </Card>
           )}
           {tab === 'deep' && <DeepPanel current={cur} flow={flow} reload={reload} />}
+          </Tabs>
         </>
       )}
       {sel && <ConnectionDrawer conn={sel} siblings={conns} onClose={() => setSel(null)} flow={flow} />}

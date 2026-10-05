@@ -8,6 +8,7 @@ import { fmtFull, fmtMB, pct, NA, toUtcSeconds } from '../format';
 import { useActionFlow } from './ActionFlow';
 import { RecFixes } from './RecFixes';
 import { useOverview } from '../state/overview';
+import { confidenceLabel, processClassLabel } from '../labels';
 
 /** Adds a process to blacklist / whitelist / ignored with a user-supplied reason. */
 export function PolicyDialog({ list, name, path, recId, onClose, onDone }: { list: 'blacklist' | 'whitelist' | 'ignored'; name: string; path?: string | null; recId?: string | null; onClose: () => void; onDone: () => void }) {
@@ -65,7 +66,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
     <>
       <Drawer onClose={onClose}
         title={<span className="row" style={{ gap: 10 }}>{proc.name}<span className="muted num" style={{ fontSize: 13, fontWeight: 400 }}>PID {proc.pid}</span></span>}
-        sub={<span className="row tight">{proc.signed ? <Badge tone="ok" dot>Signed - {proc.publisher}</Badge> : <Badge tone="warn" dot>Unsigned</Badge>}<Badge>{proc.classification || 'unclassified'}</Badge>{proc.persistent && <Badge tone="info">Persistent</Badge>}{proc.policy && proc.policy !== 'none' && <Badge tone={proc.policy === 'blacklist' ? 'crit' : 'accent'}>{proc.policy}</Badge>}</span>}
+        sub={<span className="row tight">{proc.signed ? <Badge tone="ok" dot>Signed - {proc.publisher}</Badge> : <Badge tone="warn" dot>Unsigned</Badge>}<Badge>{processClassLabel(proc.classification)}</Badge>{proc.persistent && <Badge tone="info">Persistent</Badge>}{proc.policy && proc.policy !== 'none' && <Badge tone={proc.policy === 'blacklist' ? 'crit' : 'accent'}>{proc.policy}</Badge>}</span>}
         footer={<>
           <button className="btn danger" onClick={stop}><Icon name="x" size={13} />Stop process</button>
           <button className="btn danger" onClick={() => setDlg('blacklist')} disabled={proc.policy === 'blacklist'}><Icon name="blacklist" size={13} />Blacklist</button>
@@ -76,7 +77,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
           <button className="btn" onClick={() => setShowHist(true)}>View history</button>
         </>}>
         {rec && (
-          <Section title="Recommendation" actions={<span className="row tight"><RiskBadge risk={rec.risk} /><Badge title="How certain the analysis is. Separate from risk." tone="outline">Confidence {Math.round((rec.confidence ?? 0) * 100)}%</Badge><Badge tone="accent">{rec.suggestedAction}</Badge></span>}>
+          <Section title="Recommendation" actions={<span className="row tight"><RiskBadge risk={rec.risk} /><Badge title="How certain the analysis is. Separate from risk." tone="outline">{confidenceLabel(rec.confidence)}</Badge><Badge tone="accent">{rec.suggestedAction}</Badge></span>}>
             <div className="stack">
               <div><b>What is it?</b><p className="t2">{rec.whatIsIt || 'No description available.'}</p></div>
               <div><b>Why was it flagged?</b><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{(rec.whyFlagged || []).map((w) => <li key={w}>{w}</li>)}</ul></div>
@@ -106,7 +107,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
         <Section title="AI analysis" actions={ai && <Badge tone="info">{ai.model || 'Gemini'} - validated</Badge>}>
           {ai ? (
             <div className="stack">
-              <div className="row tight"><RiskBadge risk={ai.risk} /><Badge tone="outline">AI confidence {Math.round((ai.confidence ?? 0) * 100)}%</Badge>{ai.classification && <Badge>{ai.classification}</Badge>}</div>
+              <div className="row tight"><RiskBadge risk={ai.risk} /><Badge tone="outline">AI: {confidenceLabel(ai.confidence)}</Badge>{ai.classification && <Badge>{processClassLabel(ai.classification)}</Badge>}</div>
               <KV items={[['What it is', ai.what_is_it], ['Why flagged', ai.why_flagged], ['Persistence', ai.persistence], ['Suggested action', ai.suggested_action], ['Consequences', ai.consequences]]} />
               {ai.evidence && ai.evidence.length > 0 && <div><div className="muted small">Evidence</div><div className="row tight">{ai.evidence.map((e) => <Badge key={e} tone="outline">{e}</Badge>)}</div></div>}
               {ai.warnings?.map((w) => <div key={w} className="notice warn">{w}</div>)}

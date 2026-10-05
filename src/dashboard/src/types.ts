@@ -139,7 +139,7 @@ export type ExecStatus = 'done' | 'done-unverified' | 'failed' | 'declined' | 'n
 export interface ExecResponse { status: ExecStatus; result?: ExecResult; message?: string; ticket?: string; plan?: Plan | null; actionId?: string; long?: boolean }
 
 /* ---------- Network Guard ---------- */
-export interface NetProcess { name: string; path: string | null; signed: boolean | null; publisher: string | null; owner?: string | null; persistent: boolean }
+export interface NetProcess { name: string; path: string | null; signed: boolean | null; publisher: string | null; owner?: string | null; startTime?: string | null; persistent: boolean }
 export interface NetConnection { proto: 'TCP' | 'UDP'; state: string; localAddress: string; localPort: number; remoteAddress: string; remotePort: number; pid: number; created?: string | null; process: NetProcess }
 export interface NetFirewallRule { name: string; displayName: string; enabled: boolean; direction: string; action: string; program: string; protocol: string; localPort: string; remoteAddress: string; description: string; createdAt: string | null; expiresAt: string | null; expired: boolean }
 export interface NetSnapshot {
