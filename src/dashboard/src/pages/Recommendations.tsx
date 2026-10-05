@@ -5,12 +5,15 @@ import { Badge, Card, CommandBlock, Drawer, Empty, ErrorState, KV, PageHead, Ris
 import { RecCard } from '../components/common';
 import { go } from '../router';
 import { fmtFull } from '../format';
+import { useActionFlow } from '../components/ActionFlow';
+import { RecFixes } from '../components/RecFixes';
 
 type Tab = 'open' | 'dismissed' | 'ignored' | 'actioned' | 'resolved' | 'all';
 
 export default function Recommendations() {
   const q = useQuery<{ items: Recommendation[] }>('/api/recommendations');
   const toast = useToast();
+  const flow = useActionFlow(() => q.reload());
   const [tab, setTab] = useState<Tab>('open');
   const [kind, setKind] = useState('');
   const [risk, setRisk] = useState('');
@@ -45,10 +48,12 @@ export default function Recommendations() {
           footer={<>{sel.kind === 'process' && <button className="btn" onClick={() => go(`/processes?rec=${sel.id}`)}>Open process panel</button>}{sel.status === 'open' ? <><button className="btn" onClick={() => setStatus(sel, 'dismissed')}>Dismiss</button><button className="btn" onClick={() => setStatus(sel, 'ignored')}>Ignore</button><button className="btn primary" onClick={() => setStatus(sel, 'resolved')}>Mark resolved</button></> : <button className="btn" onClick={() => setStatus(sel, 'open')}>Reopen</button>}</>}>
           <Card title="Details"><div className="stack"><p>{sel.whatIsIt}</p><ul style={{ margin: 0, paddingLeft: 18 }}>{(sel.whyFlagged || []).map((w) => <li key={w}>{w}</li>)}</ul>
             <KV items={[['Suggested action', sel.suggestedAction], ['Consequences', sel.consequences], ['First seen', fmtFull(sel.firstSeen)], ['Last seen', fmtFull(sel.lastSeen)], ['Occurrences', sel.occurrences]]} /></div></Card>
+          {sel.kind === 'process' && <Card title="Fix options" actions={<a className="small" href={`#/actions?finding=${encodeURIComponent(`rec:${sel.id}`)}`}>Open in Action Center</a>}><RecFixes recId={sel.id} flow={flow} /></Card>}
           {sel.stopCommand && <CommandBlock title="Stop temporarily" cmd={sel.stopCommand} />}
           {sel.preventRestart && <CommandBlock title="Prevent restart" cmd={sel.preventRestart} />}
         </Drawer>
       )}
+      {flow.node}
     </div>
   );
 }

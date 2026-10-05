@@ -18,16 +18,24 @@ const { createApp } = require('../../src/bridge/server.js');
 const REAL = process.argv.includes('--real');
 const OUT = path.join(here, 'out');
 fs.mkdirSync(OUT, { recursive: true });
-const PAGES = ['overview', 'daily', 'weekly', 'processes', 'files', 'health', 'reports', 'logs', 'recommendations', 'blacklist', 'whitelist', 'settings'];
+const PAGES = ['overview', 'actions', 'daily', 'weekly', 'processes', 'files', 'health', 'reports', 'logs', 'recommendations', 'blacklist', 'whitelist', 'settings'];
 const failures = [];
 const note = (msg) => console.log(msg);
 const fail = (msg) => { failures.push(msg); console.log(`  FAIL ${msg}`); };
 const check = (cond, msg) => { if (!cond) fail(msg); else note(`  ok   ${msg}`); };
 
-/** Rendered UI text must be plain ASCII (this also catches mojibake and replacement characters). Real data is checked too. */
+/**
+ * Fixture runs: rendered text must be plain ASCII. Real-data runs may legitimately contain accents or dashes inside paths,
+ * publisher names or report text, so there only encoding damage fails: the replacement character, C1 controls, and the
+ * typical double-encoding lead bytes.
+ */
 function badGlyphs(text) {
   const bad = new Set();
-  for (const ch of text) if (ch.charCodeAt(0) > 126) bad.add(`U+${ch.codePointAt(0).toString(16).toUpperCase()}`);
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    const damaged = c === 0xfffd || (c >= 0x80 && c <= 0x9f) || c === 0xc2 || c === 0xc3 || c === 0xe2;
+    if (REAL ? damaged : c > 126) bad.add('U+' + c.toString(16).toUpperCase());
+  }
   return { chars: [...bad] };
 }
 
@@ -40,9 +48,12 @@ async function startTarget() {
   }
   const ps = fakeRunner({
     'Scheduler.ps1': () => ({ ok: true, data: { tasks: [task({ scheduledFlag: true }), weeklyTask({}), { name: 'Dashboard Bridge', kind: 'dashboard', state: 'Ready', lastResult: 0, runLevel: 'Limited', trigger: null, days: [], scriptCurrent: true }] } }),
+    // Test doubles for the remediation scripts: validation succeeds, execution is simulated. Nothing real is touched.
+    'Actions/Invoke-GuardianAction.ps1': (args) => (args.includes('Validate') ? { ok: true, data: { ok: true, needsAdmin: false, identityKey: 'k', details: {}, errors: [] } } : { ok: true, data: { ok: true, verified: true, message: 'Moved to the Recycle Bin (simulated).', details: null, undo: null } }),
+    'Actions/Get-RemediationInfo.ps1': () => ({ ok: true, data: { ok: true, apps: [], revo: { available: false, reason: 'test double' } } }),
   });
   const b = await startBridge({ ps, withDist: false, opts: { dist: path.join(repo, 'src', 'dashboard', 'dist') } });
-  return { port: b.port, close: () => b.close(), root: b.root, bridge: b };
+  return { port: b.port, close: () => b.close(), root: b.root, bridge: b, ps };
 }
 
 const target = await startTarget();
@@ -165,6 +176,36 @@ try {
       check((await page.locator('.shell').getAttribute('data-collapsed')) === 'true', 'collapsed state survives reload');
       check((await page.locator('.nav a.item[aria-label="Overview"]').count()) === 1, 'collapsed items keep accessible names');
       await page.getByRole('button', { name: 'Expand sidebar' }).click();
+
+      note('\n== Action Center: detail, exact action, confirmation, cancel and a simulated confirmed fix');
+      await page.goto(base() + '#/actions');
+      await page.waitForSelector('main table tbody tr');
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: path.join(OUT, 'actions-list-dark.png') });
+      const fileRow = page.locator('main table tbody tr', { hasText: 'file' }).first();
+      await fileRow.click();
+      await page.waitForSelector('[role="dialog"]');
+      check(/why it was flagged/i.test(await page.locator('[role="dialog"]').innerText()), 'finding drawer explains why it was flagged');
+      check(/previous attempts/i.test(await page.locator('[role="dialog"]').innerText()), 'finding drawer shows previous attempts');
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: path.join(OUT, 'actions-drawer-dark.png') });
+      await page.getByRole('button', { name: 'Recycle file' }).first().click();
+      await page.getByText('What will happen').waitFor();
+      const dlg = await page.locator('[role="alertdialog"]').innerText();
+      check(/exact action/i.test(dlg) && /impact/i.test(dlg) && /reversible/i.test(dlg) && /recycle bin/i.test(dlg), 'confirmation shows the exact effect, impact and reversibility');
+      await page.waitForTimeout(450);
+      await page.screenshot({ path: path.join(OUT, 'actions-confirm-dark.png') });
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      await page.waitForSelector('[role="alertdialog"]', { state: 'detached' });
+      check(!target.ps.calls.some((c) => c.args.includes('Execute')), 'cancelling executes nothing');
+      await page.getByRole('button', { name: 'Recycle file' }).first().click();
+      await page.getByText('What will happen').waitFor();
+      await page.locator('[role="alertdialog"]').getByRole('button', { name: 'Recycle file' }).click();
+      await page.getByText('Done and verified').waitFor({ timeout: 10000 }).then(() => check(true, 'a confirmed fix shows a verified result')).catch(() => fail('no verified result shown'));
+      check(target.ps.calls.filter((c) => c.args.includes('Execute')).length === 1, 'exactly one execution happened');
+      await page.screenshot({ path: path.join(OUT, 'actions-result-dark.png') });
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      await page.keyboard.press('Escape');
 
       note('\n== loading state is shown while data is slow');
       await page.route('**/api/overview', async (r) => { await new Promise((x) => setTimeout(x, 1200)); await r.continue(); });

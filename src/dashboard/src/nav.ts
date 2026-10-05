@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { IconName } from './components/ui';
 import Overview from './pages/Overview';
+import ActionCenter from './pages/ActionCenter';
 import { DailyPage, WeeklyPage } from './pages/ReportPages';
 import Processes from './pages/Processes';
 import Files from './pages/Files';
@@ -16,6 +17,7 @@ export interface NavItem { id: string; label: string; icon: IconName; page: Comp
 /** The twelve pages, in sidebar order. `group` starts a new labelled section. */
 export const NAV: NavItem[] = [
   { group: 'Monitor', id: 'overview', label: 'Overview', icon: 'overview', page: Overview },
+  { id: 'actions', label: 'Action Center', icon: 'bolt', page: ActionCenter },
   { id: 'daily', label: 'Daily', icon: 'daily', page: DailyPage },
   { id: 'weekly', label: 'Weekly', icon: 'weekly', page: WeeklyPage },
   { id: 'processes', label: 'Processes', icon: 'processes', page: Processes },

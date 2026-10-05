@@ -4,7 +4,9 @@ import type { ActionEvent, Process, Recommendation } from '../types';
 import { Badge, CommandBlock, Drawer, KV, RiskBadge, TextCommand, useConfirm, useToast, Card, Skeleton, Icon } from './ui';
 import { ConfirmDialog } from './ui';
 import { ActionTimeline } from './common';
-import { fmtFull, fmtMB, pct, NA } from '../format';
+import { fmtFull, fmtMB, pct, NA, toUtcSeconds } from '../format';
+import { useActionFlow } from './ActionFlow';
+import { RecFixes } from './RecFixes';
 import { useOverview } from '../state/overview';
 
 /** Adds a process to blacklist / whitelist / ignored with a user-supplied reason. */
@@ -47,14 +49,9 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
   const hist = useQuery<{ appearances: { ts: string; cpuPct: number; memoryMB: number; flags: string[] }[]; actions: ActionEvent[] }>(showHist ? `/api/processes/history?name=${encodeURIComponent(proc.name)}` : null);
   const aiOn = ov.data?.ai.enabled && ov.data.ai.keyConfigured;
 
-  const kill = () => confirm({
-    title: `Kill ${proc.name} (PID ${proc.pid})?`, confirmLabel: 'Kill once', danger: true,
-    body: <div className="stack"><p>This ends <b>this one running instance</b> immediately. Unsaved work in it will be lost.</p><p>It <b>{proc.persistent ? 'can restart' : 'is not known to restart'}</b> through its startup mechanism. To stop that, use the prevent-restart procedure below.</p><p className="small muted">Laptop Guardian re-checks the process name and path before ending it, and refuses protected Windows processes.</p></div>,
-    onConfirm: async () => {
-      try { await api.post('/api/process/kill', { pid: proc.pid, name: proc.name, path: proc.path, confirm: true, recommendationId: rec?.id }); toast('ok', `${proc.name} terminated.`); onChanged(); }
-      catch (e) { toast('error', (e as ApiError).message); }
-    },
-  });
+  const flow = useActionFlow(onChanged);
+  // Stopping goes through the confirmed Action flow: live identity (PID, start time, path) is re-checked right before it runs.
+  const stop = () => void flow.run('process.stop', { pid: proc.pid, name: proc.name.replace(/.exe$/i, ''), ...(proc.path ? { path: proc.path } : {}), ...(proc.startTime ? { startTime: toUtcSeconds(proc.startTime) } : {}) }, 'Stop process');
   const analyze = async () => {
     if (!rec) return;
     setAiBusy(true);
@@ -70,7 +67,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
         title={<span className="row" style={{ gap: 10 }}>{proc.name}<span className="muted num" style={{ fontSize: 13, fontWeight: 400 }}>PID {proc.pid}</span></span>}
         sub={<span className="row tight">{proc.signed ? <Badge tone="ok" dot>Signed - {proc.publisher}</Badge> : <Badge tone="warn" dot>Unsigned</Badge>}<Badge>{proc.classification || 'unclassified'}</Badge>{proc.persistent && <Badge tone="info">Persistent</Badge>}{proc.policy && proc.policy !== 'none' && <Badge tone={proc.policy === 'blacklist' ? 'crit' : 'accent'}>{proc.policy}</Badge>}</span>}
         footer={<>
-          <button className="btn danger" onClick={kill}><Icon name="x" size={13} />Kill once</button>
+          <button className="btn danger" onClick={stop}><Icon name="x" size={13} />Stop process</button>
           <button className="btn danger" onClick={() => setDlg('blacklist')} disabled={proc.policy === 'blacklist'}><Icon name="blacklist" size={13} />Blacklist</button>
           <button className="btn" onClick={() => setDlg('whitelist')} disabled={proc.policy === 'whitelist'}><Icon name="whitelist" size={13} />Whitelist</button>
           <button className="btn" onClick={() => setDlg('ignored')}>Ignore</button>
@@ -87,6 +84,9 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
             </div>
           </Section>
         )}
+        <Section title="Fix options" actions={<a className="small" href={rec ? `#/actions?finding=${encodeURIComponent(`rec:${rec.id}`)}` : '#/actions'}>Open in Action Center</a>}>
+          {rec ? <RecFixes recId={rec.id} flow={flow} /> : <p className="t2 small">Use <b>Stop process</b> below to end this one instance after a confirmation that re-checks it. There is no recommendation with restart options for this process.</p>}
+        </Section>
         <Section title="Identity">
           <KV items={[['Process', proc.name], ['PID', proc.pid], ['Executable', <code key="p">{proc.path || 'inaccessible'}</code>], ['Command line', proc.commandLine ? <code key="c">{proc.commandLine}</code> : 'inaccessible'], ['Publisher', proc.publisher || 'none'], ['Signature', proc.signature], ['User', proc.user], ['Started', fmtFull(proc.startTime)], ['Path class', proc.pathClass], ['Instances', proc.instances]]} />
         </Section>
@@ -136,6 +136,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
       </Drawer>
       {dlg && <PolicyDialog list={dlg} name={proc.name} path={dlg === 'blacklist' ? proc.path : null} recId={rec?.id} onClose={() => setDlg(null)} onDone={() => { setDlg(null); onChanged(); }} />}
       {node}
+      {flow.node}
     </>
   );
 }

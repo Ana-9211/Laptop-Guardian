@@ -47,4 +47,6 @@ export const clampN = (v: number, a: number, b: number) => Math.max(a, Math.min(
 export const riskTone = (r?: string) => (r === 'HIGH' ? 'crit' : r === 'MEDIUM' ? 'warn' : r === 'LOW' ? 'ok' : '');
 export const sevTone = (s?: string) => (s === 'critical' || s === 'high' || s === 'error' ? 'crit' : s === 'medium' || s === 'warning' ? 'warn' : s === 'low' ? 'info' : '');
 export const scoreTone = (s?: number) => (s == null ? '' : s >= 85 ? 'ok' : s >= 70 ? 'warn' : 'crit');
+/** The UTC second-resolution form PowerShell uses for process start times, so a PID that was reused is detected. */
+export const toUtcSeconds = (iso: string) => { const t = Date.parse(iso); return Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 19); };
 export const basename = (p?: string | null) => (p ? p.split(/[\\/]/).pop() || p : '');

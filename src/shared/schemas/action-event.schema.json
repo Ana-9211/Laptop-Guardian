@@ -2,7 +2,7 @@
  "required":["id","ts","category","severity","action","result","actor"],
  "properties":{
   "id":{"type":"string"},"ts":{"type":"string"},
-  "category":{"enum":["scan","process","ai","file","cleanup","defender","windows","policy","shutdown","config","system"]},
+  "category":{"enum":["scan","process","ai","file","cleanup","defender","windows","policy","shutdown","config","system","remediation","network"]},
   "severity":{"enum":["info","warning","error"]},"action":{"type":"string"},"target":{"type":["string","null"]},
   "result":{"enum":["success","failure","skipped","timeout","started"]},
   "actor":{"enum":["agent","user","policy","ai-validator"]},

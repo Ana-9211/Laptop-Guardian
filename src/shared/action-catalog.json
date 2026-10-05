@@ -1,0 +1,326 @@
+{
+  "version": 1,
+  "note": "The ONLY actions Laptop Guardian can execute. Single source of truth for the bridge (planning, UI text) and PowerShell (parameter validation, admin enforcement). AI output never adds to or alters this list.",
+  "patterns": {
+    "pid": "^[0-9]{1,7}$",
+    "processName": "^[A-Za-z0-9 _.()+\\-]{1,128}$",
+    "absPath": "^[A-Za-z]:\\\\[^<>|\"?*\\u0000-\\u001f]{1,500}$",
+    "taskName": "^[^<>|\"?*\\u0000-\\u001f\\\\/]{1,200}$",
+    "taskPath": "^\\\\([^<>|\"?*\\u0000-\\u001f\\\\/]+\\\\)*$",
+    "serviceName": "^[A-Za-z0-9_.$\\-]{1,128}$",
+    "absPathOrRegistryKey": "^((HKCU|HKLM):\\\\Software\\\\(WOW6432Node\\\\)?Microsoft\\\\Windows\\\\CurrentVersion\\\\Run|[A-Za-z]:\\\\[^<>|\"?*\\u0000-\\u001f]{1,500})$",
+    "startupName": "^[^\\u0000-\\u001f\\\\/]{1,200}$",
+    "appName": "^[^<>|\"?*\\u0000-\\u001f\\\\/]{1,200}$",
+    "isoTime": "^[0-9T:.+\\-Z]{0,40}$",
+    "token": "^[0-9a-f]{32}$"
+  },
+  "actions": [
+    {
+      "id": "process.stop",
+      "category": "process",
+      "label": "Stop process",
+      "risk": "MEDIUM",
+      "admin": false,
+      "reversible": false,
+      "long": false,
+      "params": {
+        "pid": {
+          "pattern": "pid"
+        },
+        "name": {
+          "pattern": "processName"
+        },
+        "path": {
+          "pattern": "absPath",
+          "optional": true
+        },
+        "startTime": {
+          "pattern": "isoTime",
+          "optional": true
+        }
+      },
+      "summary": "Asks Windows to end process {name} (PID {pid}). Guardian first re-checks that this PID is still the same program, started at the same time, from the same path.",
+      "consequences": "Unsaved work in that program is lost. If a startup entry, scheduled task or service relaunches it, it comes back; use Disable restart to stop that.",
+      "undo": "Not reversible. Start the program again yourself if you need it."
+    },
+    {
+      "id": "startup.disable",
+      "category": "persistence",
+      "label": "Disable restart",
+      "risk": "LOW",
+      "admin": "dynamic",
+      "reversible": true,
+      "undoId": "startup.enable",
+      "long": false,
+      "params": {
+        "kind": {
+          "enum": [
+            "registry",
+            "folder"
+          ]
+        },
+        "name": {
+          "pattern": "startupName"
+        },
+        "location": {
+          "pattern": "absPathOrRegistryKey"
+        }
+      },
+      "summary": "Turns off the startup entry '{name}' at {location} using Windows' own startup-approval flag (the same switch as Settings > Apps > Startup). Nothing is deleted.",
+      "consequences": "The program stops starting automatically at sign-in. It stays installed and you can still start it by hand.",
+      "undo": "Use Re-enable restart on the Action Center history, or switch it back on in Settings > Apps > Startup."
+    },
+    {
+      "id": "startup.enable",
+      "category": "persistence",
+      "label": "Re-enable restart",
+      "risk": "LOW",
+      "admin": "dynamic",
+      "reversible": true,
+      "undoId": "startup.disable",
+      "long": false,
+      "params": {
+        "kind": {
+          "enum": [
+            "registry",
+            "folder"
+          ]
+        },
+        "name": {
+          "pattern": "startupName"
+        },
+        "location": {
+          "pattern": "absPathOrRegistryKey"
+        }
+      },
+      "summary": "Turns the startup entry '{name}' at {location} back on (clears its disabled flag).",
+      "consequences": "The program starts automatically at the next sign-in again.",
+      "undo": "Disable restart again."
+    },
+    {
+      "id": "task.disable",
+      "category": "persistence",
+      "label": "Disable scheduled task",
+      "risk": "LOW",
+      "admin": "dynamic",
+      "reversible": true,
+      "undoId": "task.enable",
+      "long": false,
+      "params": {
+        "taskPath": {
+          "pattern": "taskPath"
+        },
+        "taskName": {
+          "pattern": "taskName"
+        }
+      },
+      "summary": "Disables the scheduled task {taskPath}{taskName} in Task Scheduler. The task definition is kept.",
+      "consequences": "The task no longer runs on its schedule or triggers. Whatever it maintained (updates, sync) stops until you re-enable it.",
+      "undo": "Re-enable scheduled task from the Action Center history, or in Task Scheduler."
+    },
+    {
+      "id": "task.enable",
+      "category": "persistence",
+      "label": "Re-enable scheduled task",
+      "risk": "LOW",
+      "admin": "dynamic",
+      "reversible": true,
+      "undoId": "task.disable",
+      "long": false,
+      "params": {
+        "taskPath": {
+          "pattern": "taskPath"
+        },
+        "taskName": {
+          "pattern": "taskName"
+        }
+      },
+      "summary": "Enables the scheduled task {taskPath}{taskName} again.",
+      "consequences": "The task runs on its triggers again.",
+      "undo": "Disable scheduled task again."
+    },
+    {
+      "id": "service.disable",
+      "category": "persistence",
+      "label": "Disable service",
+      "risk": "MEDIUM",
+      "admin": true,
+      "reversible": true,
+      "undoId": "service.enable",
+      "long": false,
+      "params": {
+        "name": {
+          "pattern": "serviceName"
+        }
+      },
+      "summary": "Sets the Windows service {name} to Disabled (it will not start at boot). Guardian records its previous start type so it can be restored. The running instance is not stopped.",
+      "consequences": "The service will not start again after it stops or after a restart. Programs that depend on it may stop working until it is re-enabled.",
+      "undo": "Re-enable service restores the previous start type."
+    },
+    {
+      "id": "service.enable",
+      "category": "persistence",
+      "label": "Re-enable service",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": true,
+      "undoId": "service.disable",
+      "long": false,
+      "params": {
+        "name": {
+          "pattern": "serviceName"
+        },
+        "startMode": {
+          "enum": [
+            "Automatic",
+            "Manual",
+            "Boot",
+            "System"
+          ],
+          "optional": true
+        }
+      },
+      "summary": "Restores the start type of service {name}.",
+      "consequences": "The service can start again.",
+      "undo": "Disable service again."
+    },
+    {
+      "id": "file.recycle",
+      "category": "file",
+      "label": "Recycle file",
+      "risk": "LOW",
+      "admin": false,
+      "reversible": true,
+      "long": false,
+      "params": {
+        "path": {
+          "pattern": "absPath"
+        }
+      },
+      "summary": "Moves the single file {path} to the Recycle Bin. It is not permanently deleted.",
+      "consequences": "The file disappears from its folder and counts toward the Recycle Bin until you empty it. Programs that expect it there may stop working.",
+      "undo": "Open the Recycle Bin, right-click the file and choose Restore."
+    },
+    {
+      "id": "defender.update-signatures",
+      "category": "defender",
+      "label": "Update now",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": false,
+      "long": false,
+      "params": {},
+      "summary": "Runs Microsoft Defender's own signature update (Update-MpSignature).",
+      "consequences": "Downloads the latest definitions from Microsoft. No files on your laptop are changed.",
+      "undo": "Nothing to undo."
+    },
+    {
+      "id": "defender.quick-scan",
+      "category": "defender",
+      "label": "Run quick scan now",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": false,
+      "long": true,
+      "params": {},
+      "summary": "Starts a Microsoft Defender quick scan (Start-MpScan -ScanType QuickScan) and waits for it to finish.",
+      "consequences": "Uses CPU and disk for a few minutes. Defender handles anything it finds using its normal rules.",
+      "undo": "Nothing to undo."
+    },
+    {
+      "id": "system.integrity-check",
+      "category": "windows",
+      "label": "Run integrity check now",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": false,
+      "long": true,
+      "params": {},
+      "summary": "Runs two read-only Windows checks: DISM /Online /Cleanup-Image /CheckHealth and sfc /verifyonly. Neither repairs anything.",
+      "consequences": "Takes several minutes and uses disk and CPU. It only reports; fixing problems is a separate, manual step.",
+      "undo": "Nothing to undo."
+    },
+    {
+      "id": "firewall.enable-profile",
+      "category": "firewall",
+      "label": "Enable firewall now",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": true,
+      "long": false,
+      "params": {
+        "profile": {
+          "enum": [
+            "Domain",
+            "Private",
+            "Public"
+          ]
+        }
+      },
+      "summary": "Turns Windows Defender Firewall ON for the {profile} profile (Set-NetFirewallProfile -Enabled True). Guardian never turns it off.",
+      "consequences": "Windows blocks unsolicited inbound connections for that profile again, according to your existing rules.",
+      "undo": "Re-enabling is safe; turning the firewall off is only possible in Windows Security."
+    },
+    {
+      "id": "dns.flush",
+      "category": "network",
+      "label": "Flush DNS cache",
+      "risk": "LOW",
+      "admin": true,
+      "reversible": false,
+      "long": false,
+      "params": {},
+      "summary": "Clears the Windows DNS resolver cache (Clear-DnsClientCache).",
+      "consequences": "The next lookup of each site asks your DNS server again, which can be a little slower once. Fixes stale or wrong cached addresses.",
+      "undo": "Nothing to undo; the cache refills by itself."
+    },
+    {
+      "id": "app.revo-launch",
+      "category": "software",
+      "label": "Uninstall cleanly with Revo",
+      "risk": "MEDIUM",
+      "admin": false,
+      "reversible": false,
+      "long": false,
+      "params": {
+        "appName": {
+          "pattern": "appName"
+        }
+      },
+      "summary": "Opens Revo Uninstaller (its own window) for you to uninstall {appName}. Guardian does not uninstall anything itself and will only report success after it can verify the app is gone.",
+      "consequences": "Revo shows its own prompts and removes the program and leftovers according to your choices there. Unsaved work in the app is lost.",
+      "undo": "Reinstall the application if you remove it by mistake. Revo can create a restore point first; enable that in Revo."
+    },
+    {
+      "id": "schedule.repair",
+      "category": "config",
+      "label": "Repair schedule",
+      "risk": "LOW",
+      "admin": "dynamic",
+      "reversible": true,
+      "long": false,
+      "handler": "bridge",
+      "params": {},
+      "summary": "Re-registers Guardian's own Daily, Weekly and Dashboard scheduled tasks from your Settings.",
+      "consequences": "Fixes tasks that drifted from Settings or lack the scheduled-run marker. Elevated tasks are never downgraded; changing them asks Windows for permission.",
+      "undo": "Change the schedule in Settings and save again."
+    },
+    {
+      "id": "app.verify-removed",
+      "category": "software",
+      "label": "Check that it is gone",
+      "risk": "LOW",
+      "admin": false,
+      "reversible": false,
+      "long": false,
+      "params": {
+        "appName": {
+          "pattern": "appName"
+        }
+      },
+      "summary": "Re-reads the installed-programs list and running processes to confirm {appName} is gone.",
+      "consequences": "Read-only.",
+      "undo": "Nothing to undo."
+    }
+  ]
+}

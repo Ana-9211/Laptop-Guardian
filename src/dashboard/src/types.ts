@@ -111,3 +111,28 @@ export interface Config {
   dashboard: { theme: string };
   _ai?: { enabled: boolean; keyConfigured: boolean; model: string };
 }
+
+/* ---------- Action Center / remediation ---------- */
+export type AdminNeed = 'yes' | 'no' | 'maybe';
+export interface ActionOffer {
+  actionId: string; label: string; category: string; risk: Risk | string; reversible: boolean; long: boolean; admin: AdminNeed;
+  summary: string; consequences: string; undo: string; params: Record<string, string | number>; requiredAcks: string[];
+  eligible: boolean; ineligibleReason: string | null;
+}
+export interface HistoryItem {
+  id: string; ts: string; actionId: string; label: string; category: string; target: string | null; result: string; severity: string;
+  message: string | null; error: string | null; verified: boolean; elevated: boolean; canUndo: boolean; undo: { action: string; params: Record<string, string> } | null;
+}
+export interface Finding {
+  id: string; source: string; kind: string; title: string; what: string; why: string[]; evidence: { label: string; value: string }[];
+  risk: Risk | string; confidence: number; consequences: string | null; ai?: AiAnalysis | null; recommendationId?: string;
+  actions: ActionOffer[]; manual: { label: string; href: string; reason: string } | null;
+  investigate: { label: string; href: string }; attempts: HistoryItem[];
+}
+export interface RevoInfo { available: boolean; target?: string | null; version?: string | null; reason?: string | null; supportedOptions?: string }
+export interface Plan extends ActionOffer {
+  token: string; ok: true; adminRequired: boolean; identityKey: string; details: Record<string, unknown> | null; warnings: string[]; expiresAt: string; confirmLabel: string;
+}
+export interface ExecResult { ok: boolean; message?: string; errors?: string[]; verified?: boolean; details?: Record<string, unknown> | null; undo?: { action: string; params: Record<string, string> } | null; needsElevation?: boolean }
+export type ExecStatus = 'done' | 'done-unverified' | 'failed' | 'declined' | 'needs-elevation' | 'awaiting-permission' | 'running' | 'lost' | 'awaiting-schedule-permission';
+export interface ExecResponse { status: ExecStatus; result?: ExecResult; message?: string; ticket?: string; plan?: Plan | null; actionId?: string; long?: boolean }
