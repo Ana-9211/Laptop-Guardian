@@ -11,6 +11,11 @@ const { makeRunner } = require('./lib/ps');
 const S = require('./lib/status');
 const R = require('./lib/remediation');
 const F = require('./lib/findings');
+const NS = require('./lib/netstore');
+const NF = require('./lib/netfindings');
+const NO = require('./lib/netoffers');
+const ND = require('./lib/netdeep');
+const NG = require('./lib/netguard');
 
 const VERSION = '1.1.0';
 
@@ -222,6 +227,7 @@ function createApp(root, opts = {}) {
         note: 'Only the scheduled weekly run can start a shutdown. Manual and dashboard runs never do.',
       },
       safety: c.safety, ai: aiStatus(),
+      network: { deepActive: deep.active(), deepSince: deepStartedAt, lastSnapshotAt: (netStore.readLatest() || {}).generatedAt || null, dnsFiltering: !!c.network.dnsFiltering.enabled },
       openRecommendations: recs.length,
       attention: S.buildAttention({ daily, tasks, run, openRecs: recs.length, highRiskRecs: recs.filter((r) => r.risk === 'HIGH').length, config: c, stale: run.stale }),
     };
@@ -362,10 +368,13 @@ function createApp(root, opts = {}) {
 
   route('GET', '/api/config', () => ({ ...config(), _ai: aiStatus() }));
   route('PUT', '/api/config', ({ body }) => {
+    const net = body && body.network;
+    need(!(net && ((net.deep && 'enabled' in net.deep) || (net.dnsFiltering && 'enabled' in net.dnsFiltering))), 'Deep Network Guard and DNS filtering are switched on or off only from Network Guard, with their own confirmation.', 400);
     const m = U.mergeConfig(config(), body);
     need(m.errors.length === 0, m.errors.join('; '));
     U.writeJsonAtomic(P.config, m.value);
     log({ category: 'config', action: 'config.update', target: Object.keys(body).join(','), reason: 'settings changed in dashboard' });
+    if (net) { try { deep.prune(); netStore.prune(); } catch { /* retention is applied again on the next write */ } }
     return m.value;
   });
 
@@ -557,9 +566,117 @@ function createApp(root, opts = {}) {
     return applySchedule({ elevate: body.elevate === true });
   });
 
+  // ---------- network guard ----------
+  const netStore = NS.createNetStore(root, config);
+  const hostsPath = opts.hostsPath || NG.defaultHostsPath();
+  const deep = ND.createDeep({ root, getConfig: config, log, runNetstat: opts.runNetstat, runTasklist: opts.runTasklist });
+  let deepStartedAt = null;
+  let snapInFlight = null;
+  const netTimers = [];
+  const persistentPaths = () => {
+    const procs = (U.readJson(P.latest('processes.json'), { processes: [] }) || {}).processes || [];
+    return new Set(procs.filter((p) => p.persistent && p.path).map((p) => String(p.path).toLowerCase()));
+  };
+  const netCtx = () => {
+    const s = netStore.readLatest(); const id = s && s.identity ? [...(s.identity.gateway || []), ...(s.identity.dns || []), ...(s.identity.dhcp || [])] : [];
+    return { identity: id, bridgePort: boundPort, dnsFilteringEnabled: !!config().network.dnsFiltering.enabled };
+  };
+  const dnsBlocked = () => NG.readHostsBlock(hostsPath).domains;
+  function computeNetFindings(snapshot) {
+    const raw = NF.buildNetworkFindings({
+      snapshot, persistentPaths: persistentPaths(), thresholds: config().network.thresholds, dnsBlocked: dnsBlocked(),
+      deepEvents: deep.active() ? deep.readEvents({ limit: 2000, sinceMs: Date.now() - 120000 }) : [],
+    });
+    return NO.toActionFindings(raw, { ...netCtx(), guardianRoot: root }, remediation.history(300));
+  }
+  async function takeSnapshot(reason = 'manual') {
+    if (snapInFlight) return snapInFlight;
+    snapInFlight = (async () => {
+      const r = await ps.run('Network/Get-NetworkSnapshot.ps1', [], { timeoutMs: 90000 });
+      if (r.missing) throw new HttpError(501, r.error);
+      if (!r.ok || !r.data || !Array.isArray(r.data.connections)) throw new HttpError(502, r.error || 'the network snapshot failed');
+      const snap = r.data; snap.generatedAt = snap.generatedAt || U.localIso();
+      const count = computeNetFindings(snap).length;
+      netStore.saveSnapshot(snap, count);
+      log({ category: 'network', action: 'network.snapshot', result: 'success', actor: reason === 'manual' ? 'user' : 'agent', reason: `${reason}: ${snap.connections.length} connections, ${count} findings` });
+      return snap;
+    })().finally(() => { snapInFlight = null; });
+    return snapInFlight;
+  }
+  function enrich(snap) {
+    const persistent = persistentPaths();
+    const procs = snap.processes || {};
+    return { ...snap, connections: (snap.connections || []).map((c) => { const p = procs[String(c.pid)] || {}; return { ...c, process: { name: p.name || `pid ${c.pid}`, path: p.path || null, signed: p.signed ?? null, publisher: p.publisher || null, owner: p.owner || null, persistent: !!(p.path && persistent.has(String(p.path).toLowerCase())) } }; }) };
+  }
+  function rulesView(snap) {
+    const reg = new Map(netStore.readRuleRegistry().map((r) => [r.name, r]));
+    return ((snap.firewall && snap.firewall.rules) || []).map((r) => {
+      const meta = reg.get(r.name) || {};
+      const expiresAt = meta.expiresAt || ((/after (\d{4}-\d{2}-\d{2}T[\d:+-]+)/.exec(r.description || '') || [])[1] || null);
+      return { ...r, createdAt: meta.createdAt || null, expiresAt, expired: !!(expiresAt && Date.parse(expiresAt) < Date.now()) };
+    });
+  }
+  const deepView = () => ({ ...deep.status(), enabled: !!config().network.deep.enabled, startedAt: deepStartedAt });
+  const dnsView = (snap) => ({ filtering: { enabled: !!config().network.dnsFiltering.enabled, blocked: dnsBlocked() }, cache: (snap && snap.dns) || [], history: netStore.readDnsHistory(200) });
+  function currentView() {
+    const s = netStore.readLatest();
+    const c = config();
+    return {
+      snapshot: s ? enrich(s) : null, ageSec: s ? Math.round((Date.now() - Date.parse(s.generatedAt)) / 1000) : null,
+      findings: s ? computeNetFindings(s) : [], rules: s ? rulesView(s) : [], deep: deepView(), dns: dnsView(s), settings: c.network, privacy: NET_PRIVACY,
+    };
+  }
+  const NET_PRIVACY = 'Network data stays on this laptop in data/network. It is never sent to Gemini or anywhere else, and Guardian never records packet contents.';
+  function setNetworkFlag(path1, path2, value) {
+    const c = config(); c.network[path1][path2] = value;
+    U.writeJsonAtomic(P.config, c);
+  }
+
+  route('GET', '/api/network/current', () => currentView());
+  route('POST', '/api/network/snapshot', async () => { await takeSnapshot('manual'); return currentView(); });
+  route('GET', '/api/network/history', ({ query }) => ({ items: netStore.readHistory(query.get('range') || '30') }));
+  route('GET', '/api/network/dns-log', async () => {
+    const r = await ps.run('Network/Get-DnsHistory.ps1', ['-Max', '300'], { timeoutMs: 60000 });
+    if (r.missing) throw new HttpError(501, r.error);
+    return r.ok && r.data ? r.data : { available: false, reason: r.error || 'DNS log unavailable', items: [] };
+  });
+  route('GET', '/api/network/deep', () => deepView());
+  route('POST', '/api/network/deep/start', ({ body }) => {
+    need(body.confirm === true && body.acknowledged === true, 'Deep Network Guard needs your explicit confirmation and acknowledgement of what it records.');
+    if (!deep.active()) {
+      setNetworkFlag('deep', 'enabled', true); deepStartedAt = U.localIso(); deep.start();
+      log({ category: 'network', action: 'network.deep.start', result: 'success', actor: 'user', reason: `Deep Network Guard started (${config().network.deep.sampleSec}s sampling, ${config().network.deep.retentionDays} days, ${config().network.deep.maxMB} MB cap). Connection metadata only.` });
+    }
+    return deepView();
+  });
+  route('POST', '/api/network/deep/stop', () => {
+    if (deep.active() || config().network.deep.enabled) { deep.stop(); deepStartedAt = null; setNetworkFlag('deep', 'enabled', false); log({ category: 'network', action: 'network.deep.stop', result: 'success', actor: 'user', reason: 'Deep Network Guard stopped. Recorded data is kept until you delete it or retention expires.' }); }
+    return deepView();
+  });
+  route('GET', '/api/network/deep/events', ({ query }) => ({ items: deep.readEvents({ limit: Math.min(Math.max(parseInt(query.get('limit') || '300', 10) || 300, 1), 2000) }) }));
+  route('GET', '/api/network/deep/export', ({ query }) => {
+    const fmt = query.get('format') || 'jsonl'; need(['jsonl', 'csv'].includes(fmt), 'format must be jsonl or csv');
+    log({ category: 'network', action: 'network.deep.export', result: 'success', actor: 'user', reason: `exported as ${fmt}` });
+    return { __raw: deep.exportData(fmt), type: fmt === 'csv' ? 'text/csv; charset=utf-8' : 'application/x-ndjson; charset=utf-8', filename: `laptop-guardian-network-events.${fmt}` };
+  });
+  route('POST', '/api/network/deep/delete', ({ body }) => {
+    need(body.confirm === true, 'confirm:true required');
+    const r = deep.deleteAll(); log({ category: 'network', action: 'network.deep.delete', result: 'success', actor: 'user', reason: `deleted ${r.deletedFiles} recorded file(s)` });
+    return r;
+  });
+  route('POST', '/api/network/dns-filtering', ({ body }) => {
+    need(body.confirm === true, 'confirm:true required');
+    const enable = body.enabled === true;
+    if (enable) need(body.acknowledged === true, 'Acknowledge how DNS filtering works and its limits first.');
+    else need(dnsBlocked().length === 0, 'Roll back the active DNS blocks first (Network Guard, DNS), then turn filtering off.', 409);
+    setNetworkFlag('dnsFiltering', 'enabled', enable);
+    log({ category: 'network', action: enable ? 'network.dns.filtering.enable' : 'network.dns.filtering.disable', result: 'success', actor: 'user', reason: enable ? 'DNS filtering opted in: blocks are written only to the Laptop Guardian section of the hosts file.' : 'DNS filtering turned off' });
+    return dnsView(netStore.readLatest());
+  });
+
   // ---------- remediation (Action Center) ----------
   const remediation = R.createRemediation({
-    root, ps, log, tailJsonl: () => U.tailJsonl(P.actions, 5000), readJson: U.readJson, config, applySchedule,
+    root, ps, log, tailJsonl: () => U.tailJsonl(P.actions, 5000), readJson: U.readJson, config, applySchedule, netCtx,
     assessedTasks: () => S.assessTasks((schedCache && schedCache.tasks) || [], config()),
   });
   const remed = async (fn) => { try { return await fn(); } catch (e) { if (e instanceof R.RemediationError) { const h = new HttpError(e.status, e.message); h.errors = e.errors; throw h; } throw e; } };
@@ -590,7 +707,11 @@ function createApp(root, opts = {}) {
       recs: loadRecs().items, processes: procs.processes || [], files: U.readJson(P.latest('files.json'), null), daily: U.readJson(P.latest('daily.json'), null), weekly: U.readJson(P.latest('weekly.json'), null),
       tasks: S.assessTasks((schedCache && schedCache.tasks) || [], c), apps, revo, history: remediation.history(300), protectedDirs: c.storage.protectedDirs || [], guardianRoot: root, now: Date.now(),
     });
-    return { generatedAt: U.localIso(), revo, findings };
+    const latest = netStore.readLatest();
+    const merged = [...findings, ...(latest ? computeNetFindings(latest) : [])];
+    const rank = { HIGH: 0, MEDIUM: 1, LOW: 2, UNKNOWN: 3 };
+    merged.sort((a, b) => (rank[a.risk] ?? 3) - (rank[b.risk] ?? 3));
+    return { generatedAt: U.localIso(), revo, findings: merged };
   });
   route('POST', '/api/remediation/plan', ({ body }) => remed(() => remediation.plan(str(body.actionId, 'actionId', 80), body.params || {})));
   route('POST', '/api/remediation/cancel', ({ body }) => remediation.cancel(str(body.token, 'token', 64)));
@@ -697,6 +818,14 @@ function createApp(root, opts = {}) {
       const actual = server.address().port;
       boundPort = actual;
       void queryTasks(); // warm the Task Scheduler cache so the first dashboard poll is instant
+      if (opts.autoNetwork) {
+        if (config().network.deep.enabled) { deepStartedAt = U.localIso(); deep.start(); log({ category: 'network', action: 'network.deep.resume', result: 'success', reason: 'Deep Network Guard was on when the bridge started and has resumed.' }); }
+        const every = Math.max(5, config().network.snapshot.everyMinutes) * 60000;
+        const first = setTimeout(() => { if (config().network.snapshot.auto) takeSnapshot('scheduled').catch(() => {}); }, 30000);
+        const loop = setInterval(() => { if (config().network.snapshot.auto) takeSnapshot('scheduled').catch(() => {}); }, every);
+        netTimers.push(first, loop); netTimers.forEach((t) => t.unref && t.unref());
+      }
+      server.on('close', () => { netTimers.forEach(clearTimeout); netTimers.forEach(clearInterval); deep.stop(); });
       if (opts.pidFile !== false) {
         try { U.writeJsonAtomic(P.bridgePid, { app: 'laptop-guardian', pid: process.pid, port: actual, startedAt, version: VERSION }); } catch { /* best effort */ }
         const clear = () => { try { const cur = U.readJson(P.bridgePid); if (cur && cur.pid === process.pid) fs.unlinkSync(P.bridgePid); } catch { /* ignore */ } };
@@ -717,7 +846,7 @@ if (require.main === module) {
   const cfg = U.mergeConfig(U.DEFAULT_CONFIG, U.readJson(path.join(root, 'config', 'config.json'), {}) || {}).value;
   const port = Number(process.env.GUARDIAN_PORT) || cfg.bridge.port;
   const dev = process.env.GUARDIAN_DEV_HOST; // e.g. 127.0.0.1:5173 when running Vite dev proxy
-  const app = createApp(root, { extraHosts: dev ? [dev] : [] });
+  const app = createApp(root, { extraHosts: dev ? [dev] : [], autoNetwork: true });
   app.on('error', (e) => { console.error(`[bridge] ${e.code === 'EADDRINUSE' ? `port ${port} already in use` : e.message}`); process.exit(1); });
   app.listen_(port, (p) => console.log(`Laptop Guardian dashboard: http://127.0.0.1:${p}/  (root: ${root})`));
 }

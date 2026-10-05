@@ -20,6 +20,8 @@ type Phase =
 const ACK_TEXT: Record<string, string> = {
   'unsaved-work': 'I have saved my work in that program. Anything unsaved will be lost.',
   'dependent-programs': 'I understand programs that depend on this service may stop working until it is re-enabled.',
+  connectivity: 'I understand this can stop the program, port or address from using the network, and that I can remove the rule from Network Guard.',
+  'dns-limits': 'I understand blocking is by exact host name only, and programs that use their own encrypted DNS can bypass it.',
 };
 const ADMIN_TEXT = { yes: 'Needs administrator permission', maybe: 'May need administrator permission', no: 'No administrator permission needed' } as const;
 

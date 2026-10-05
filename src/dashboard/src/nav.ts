@@ -6,6 +6,7 @@ import { DailyPage, WeeklyPage } from './pages/ReportPages';
 import Processes from './pages/Processes';
 import Files from './pages/Files';
 import Health from './pages/Health';
+import NetworkGuard from './pages/NetworkGuard';
 import Reports from './pages/Reports';
 import Logs from './pages/Logs';
 import Recommendations from './pages/Recommendations';
@@ -23,6 +24,7 @@ export const NAV: NavItem[] = [
   { id: 'processes', label: 'Processes', icon: 'processes', page: Processes },
   { id: 'files', label: 'Files & Storage', icon: 'files', page: Files },
   { id: 'health', label: 'Health', icon: 'health', page: Health },
+  { id: 'network', label: 'Network Guard', icon: 'network', page: NetworkGuard },
   { group: 'Records', id: 'reports', label: 'Reports', icon: 'reports', page: Reports },
   { id: 'logs', label: 'Logs', icon: 'logs', page: Logs },
   { id: 'recommendations', label: 'Recommendations', icon: 'recs', page: Recommendations },

@@ -9,7 +9,7 @@ import { useHash, go } from '../router';
 import { ago, fmtFull } from '../format';
 
 type Tab = 'findings' | 'history';
-const KINDS = [{ id: '', label: 'All' }, { id: 'process', label: 'Processes' }, { id: 'file', label: 'Files' }, { id: 'health', label: 'Health' }, { id: 'task', label: 'Schedule' }];
+const KINDS = [{ id: '', label: 'All' }, { id: 'process', label: 'Processes' }, { id: 'file', label: 'Files' }, { id: 'health', label: 'Health' }, { id: 'network', label: 'Network' }, { id: 'task', label: 'Schedule' }];
 const TONE_BY_RESULT: Record<string, string> = { success: 'ok', failure: 'crit', skipped: 'warn', timeout: 'crit', started: 'info' };
 
 function RevoNote({ revo }: { revo: RevoInfo | null }) {

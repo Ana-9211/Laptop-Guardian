@@ -2,14 +2,16 @@ import { useStatus } from '../state/StatusProvider';
 import { useTicker } from '../state/useTicker';
 import { CLOCK_TICK_MS } from '../config';
 import { ago, fmtDate } from '../format';
-import { Badge, CopyButton, Icon, Sep } from './ui';
+import { Badge, CopyButton, Icon, Sep, useToast } from './ui';
+import { network, reloadAllQueries } from '../api';
 import { fmtElapsed } from './StatusBar';
 
 const CANCEL_SHUTDOWN = 'shutdown /a';
 
 /** Live view of an active scan, the "scan finished" summary, a stale run marker, and any pending shutdown. */
 export function ScanBanner() {
-  const { status: s, live, dismissFinished } = useStatus();
+  const { status: s, live, dismissFinished, check } = useStatus();
+  const toast = useToast();
   useTicker(CLOCK_TICK_MS.fast);
   if (!s) return null;
   const scan = live.scan;
@@ -22,6 +24,13 @@ export function ScanBanner() {
   const report = finishedType ? s.reports[finishedType] : null;
   return (
     <div className="banners">
+      {s.network?.deepActive && (
+        <div className="notice warn banner" role="status">
+          <Icon name="network" /><div className="grow"><b>Deep Network Guard is recording connection activity</b>{s.network.deepSince ? <><Sep />since {fmtDate(s.network.deepSince)}</> : null}. Metadata only (no packet contents), kept on this laptop.</div>
+          <a className="btn sm" href="#/network">Manage</a>
+          <button className="btn sm danger" onClick={() => { void network.deepStop().then(() => { toast('ok', 'Deep Network Guard stopped.'); void check(true); void reloadAllQueries(); }).catch(() => toast('error', 'Could not stop Deep Network Guard.')); }}>Stop recording</button>
+        </div>
+      )}
       {s.shutdown.pending && (
         <div className="notice warn banner" role="alert">
           <Icon name="warn" /><div className="grow"><b>Shutdown scheduled for {fmtDate(s.shutdown.pending.at)}.</b> Laptop Guardian finished the weekly run. To cancel, run this in a terminal:</div>

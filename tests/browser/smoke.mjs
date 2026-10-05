@@ -13,12 +13,13 @@ const require = createRequire(import.meta.url);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
 const { startBridge, fakeRunner, findBrowser, task, weeklyTask } = require('../lib/harness.js');
+const { makeNetworkSnapshot } = require('../fixtures/network-fixture.js');
 const { createApp } = require('../../src/bridge/server.js');
 
 const REAL = process.argv.includes('--real');
 const OUT = path.join(here, 'out');
 fs.mkdirSync(OUT, { recursive: true });
-const PAGES = ['overview', 'actions', 'daily', 'weekly', 'processes', 'files', 'health', 'reports', 'logs', 'recommendations', 'blacklist', 'whitelist', 'settings'];
+const PAGES = ['overview', 'actions', 'daily', 'weekly', 'processes', 'files', 'health', 'network', 'reports', 'logs', 'recommendations', 'blacklist', 'whitelist', 'settings'];
 const failures = [];
 const note = (msg) => console.log(msg);
 const fail = (msg) => { failures.push(msg); console.log(`  FAIL ${msg}`); };
@@ -51,8 +52,12 @@ async function startTarget() {
     // Test doubles for the remediation scripts: validation succeeds, execution is simulated. Nothing real is touched.
     'Actions/Invoke-GuardianAction.ps1': (args) => (args.includes('Validate') ? { ok: true, data: { ok: true, needsAdmin: false, identityKey: 'k', details: {}, errors: [] } } : { ok: true, data: { ok: true, verified: true, message: 'Moved to the Recycle Bin (simulated).', details: null, undo: null } }),
     'Actions/Get-RemediationInfo.ps1': () => ({ ok: true, data: { ok: true, apps: [], revo: { available: false, reason: 'test double' } } }),
+    'Actions/Request-ElevatedAction.ps1': () => ({ ok: true, data: { ok: true, requested: true, message: 'simulated prompt' } }),
+    'Network/Get-NetworkSnapshot.ps1': () => ({ ok: true, data: makeNetworkSnapshot() }),
   });
-  const b = await startBridge({ ps, withDist: false, opts: { dist: path.join(repo, 'src', 'dashboard', 'dist') } });
+  // Deep mode samples through injected netstat output: the smoke test never reads real connections or captures anything.
+  const fakeNetstat = async () => '  TCP    192.168.1.20:50001     203.0.113.5:443        ESTABLISHED     100';
+  const b = await startBridge({ ps, withDist: false, opts: { dist: path.join(repo, 'src', 'dashboard', 'dist'), runNetstat: fakeNetstat, runTasklist: async () => '' } });
   return { port: b.port, close: () => b.close(), root: b.root, bridge: b, ps };
 }
 
@@ -206,6 +211,58 @@ try {
       await page.screenshot({ path: path.join(OUT, 'actions-result-dark.png') });
       await page.getByRole('button', { name: 'Close', exact: true }).click();
       await page.keyboard.press('Escape');
+
+      note('\n== Network Guard: snapshot, connection drawer, guarded block flow, deep mode opt-in');
+      await page.goto(base() + '#/network');
+      await page.getByRole('button', { name: /Take snapshot now/ }).waitFor();
+      check(/No network snapshot exists yet/.test(await page.locator('main').innerText()), 'before a snapshot the page explains that nothing has been read');
+      check(!target.ps.calls.some((c) => c.rel.startsWith('Network/')), 'opening Network Guard reads nothing by itself');
+      await page.getByRole('button', { name: /Take snapshot now/ }).click();
+      await page.getByText('Active connections').waitFor({ timeout: 15000 });
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: path.join(OUT, 'network-overview-dark.png') });
+      await page.getByRole('tab', { name: /Connections/ }).click();
+      await page.waitForSelector('main table tbody tr');
+      await page.locator('main table tbody tr', { hasText: 'helper' }).first().click();
+      await page.waitForSelector('[role="dialog"]');
+      await page.waitForTimeout(450);
+      await page.screenshot({ path: path.join(OUT, 'network-connection-dark.png') });
+      await page.getByRole('button', { name: 'Block program' }).click();
+      await page.getByText('What will happen').waitFor();
+      const fw = await page.locator('[role="alertdialog"]').innerText();
+      check(/Windows will ask for permission/i.test(fw) && /Laptop Guardian/.test(fw) && /exact action/i.test(fw), 'a firewall block shows the exact rule and that Windows will ask for permission');
+      check(await page.locator('[role="alertdialog"] button', { hasText: /Continue to Windows prompt/ }).isDisabled(), 'the block cannot be confirmed before acknowledging the consequences');
+      await page.waitForTimeout(450);
+      await page.screenshot({ path: path.join(OUT, 'network-block-confirm-dark.png') });
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      check(!target.ps.calls.some((c) => c.rel.includes('Request-ElevatedAction')), 'cancelling a firewall block requests nothing');
+      await page.keyboard.press('Escape');
+      await page.getByRole('tab', { name: /Findings/ }).click();
+      await page.waitForSelector('main table tbody tr');
+      check((await page.locator('main table tbody tr').count()) >= 4, 'findings are listed with explainable rules');
+      await page.getByRole('tab', { name: /Firewall/ }).click();
+      await page.getByText('Laptop Guardian firewall rules').waitFor();
+      check(/Expired: review/.test(await page.locator('main').innerText()), 'an expired temporary rule is flagged for review, not silently removed');
+      await page.screenshot({ path: path.join(OUT, 'network-firewall-dark.png') });
+      await page.getByRole('tab', { name: /^DNS/ }).click();
+      await page.getByText('DNS filtering (optional)').waitFor();
+      check(/Turn on DNS filtering/.test(await page.locator('main').innerText()) && !/Active blocks/.test(await page.locator('main').innerText()), 'DNS filtering is off until the user opts in');
+      await page.getByRole('tab', { name: /Deep mode/ }).click();
+      await page.getByRole('button', { name: 'Start Deep Network Guard' }).first().click();
+      await page.getByText('This records private information').waitFor();
+      check(await page.getByRole('button', { name: 'Start Deep Network Guard' }).last().isDisabled(), 'deep mode cannot start without the acknowledgement');
+      await page.waitForTimeout(450);
+      await page.screenshot({ path: path.join(OUT, 'network-deep-confirm-dark.png') });
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      check(!(await page.getByText('Deep Network Guard is recording').count()), 'cancelling leaves deep mode off');
+      await page.getByRole('button', { name: 'Start Deep Network Guard' }).first().click();
+      await page.getByRole('checkbox').check();
+      await page.getByRole('button', { name: 'Start Deep Network Guard' }).last().click();
+      await page.getByText('Deep Network Guard is recording connection activity').first().waitFor({ timeout: 20000 }).then(() => check(true, 'an always-visible banner shows while deep mode records')).catch(() => fail('deep banner never appeared'));
+      await page.waitForTimeout(450);
+      await page.screenshot({ path: path.join(OUT, 'network-deep-active-dark.png') });
+      await page.getByRole('button', { name: 'Stop recording' }).first().click();
+      await page.getByText('Deep Network Guard is recording connection activity').first().waitFor({ state: 'detached', timeout: 20000 }).then(() => check(true, 'the banner disappears when recording stops')).catch(() => fail('banner stayed after stop'));
 
       note('\n== loading state is shown while data is slow');
       await page.route('**/api/overview', async (r) => { await new Promise((x) => setTimeout(x, 1200)); await r.continue(); });

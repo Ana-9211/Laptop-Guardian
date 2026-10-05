@@ -98,6 +98,7 @@ export interface StatusData {
   shutdown: { armed: boolean; target: string | null; pending: { at: string; initiatedAt: string; cancelCommand: string } | null; cancelCommand: string; note: string };
   safety: Safety; ai: { enabled: boolean; keyConfigured: boolean; model: string }; openRecommendations: number;
   attention: AttentionItem[];
+  network: { deepActive: boolean; deepSince: string | null; lastSnapshotAt: string | null; dnsFiltering: boolean };
 }
 export interface Config {
   schemaVersion: number; bridge: { host: string; port: number };
@@ -136,3 +137,24 @@ export interface Plan extends ActionOffer {
 export interface ExecResult { ok: boolean; message?: string; errors?: string[]; verified?: boolean; details?: Record<string, unknown> | null; undo?: { action: string; params: Record<string, string> } | null; needsElevation?: boolean }
 export type ExecStatus = 'done' | 'done-unverified' | 'failed' | 'declined' | 'needs-elevation' | 'awaiting-permission' | 'running' | 'lost' | 'awaiting-schedule-permission';
 export interface ExecResponse { status: ExecStatus; result?: ExecResult; message?: string; ticket?: string; plan?: Plan | null; actionId?: string; long?: boolean }
+
+/* ---------- Network Guard ---------- */
+export interface NetProcess { name: string; path: string | null; signed: boolean | null; publisher: string | null; owner?: string | null; persistent: boolean }
+export interface NetConnection { proto: 'TCP' | 'UDP'; state: string; localAddress: string; localPort: number; remoteAddress: string; remotePort: number; pid: number; created?: string | null; process: NetProcess }
+export interface NetFirewallRule { name: string; displayName: string; enabled: boolean; direction: string; action: string; program: string; protocol: string; localPort: string; remoteAddress: string; description: string; createdAt: string | null; expiresAt: string | null; expired: boolean }
+export interface NetSnapshot {
+  generatedAt: string; durationMs: number; elevated: boolean; connections: NetConnection[]; udp: { proto: 'UDP'; localAddress: string; localPort: number; pid: number }[];
+  processes: Record<string, { name: string; path: string | null; signed: boolean | null; publisher: string | null }>;
+  dns: { name: string; type: string; data: string; ttl: number }[];
+  firewall: { profiles: { name: string; enabled: boolean; defaultInboundAction: string; defaultOutboundAction: string }[]; rules: NetFirewallRule[] };
+  identity: { gateway: string[]; dns: string[]; dhcp: string[] }; errors: string[];
+}
+export interface DeepStatus { active: boolean; enabled: boolean; startedAt: string | null; lastSampleAt: string | null; eventsThisSession: number; tracking: number; storageMB: number; storageBytes: number; files: number; retentionDays: number; maxMB: number; sampleSec: number }
+export interface DeepEvent { ts: string; type: 'open' | 'close'; proto: string; localAddress: string; localPort: number; remoteAddress: string; remotePort: number; state: string; pid: number; process: string | null; durationSec?: number }
+export interface NetworkSettings { snapshot: { auto: boolean; everyMinutes: number; retentionDays: number; maxMB: number }; deep: { enabled: boolean; retentionDays: number; maxMB: number; sampleSec: number }; dnsFiltering: { enabled: boolean }; thresholds: Record<string, number> }
+export interface NetworkCurrent {
+  snapshot: NetSnapshot | null; ageSec: number | null; findings: Finding[]; rules: NetFirewallRule[]; deep: DeepStatus;
+  dns: { filtering: { enabled: boolean; blocked: string[] }; cache: NetSnapshot['dns']; history: { ts: string; name: string; type: string; data: string }[] };
+  settings: NetworkSettings; privacy: string;
+}
+export interface NetHistoryRow { ts: string; established: number; listening: number; remoteAddresses: number; unsignedProcesses: number; dnsEntries: number; findings: number; firewallOff: number; guardianRules: number }

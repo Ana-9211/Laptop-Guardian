@@ -79,6 +79,14 @@ const DEFAULT_CONFIG = {
   thresholds: { cpuPct: 50, memoryMB: 1500, diskFreeWarnPct: 15, diskFreeCritPct: 8 },
   retention: { reportsDays: 0, metricsDays: 0, actionsDays: 0 },
   dashboard: { theme: 'system' },
+  // Network Guard. Deep capture and DNS filtering are OFF by default and can only be switched on through their own
+  // confirmed endpoints, never through the generic settings save.
+  network: {
+    snapshot: { auto: true, everyMinutes: 60, retentionDays: 30, maxMB: 20 },
+    deep: { enabled: false, retentionDays: 7, maxMB: 100, sampleSec: 5 },
+    dnsFiltering: { enabled: false },
+    thresholds: { burstConnections: 100, burstDestinations: 40, unknownDestinations: 8, persistentDestinations: 5, newConnectionsPerMinute: 50 },
+  },
 };
 
 const ENUMS = {
@@ -88,7 +96,13 @@ const ENUMS = {
   'dashboard.theme': ['system', 'light', 'dark'],
 };
 const TIME_KEYS = new Set(['schedule.daily.time', 'schedule.weekly.time', 'schedule.weekly.shutdownTime']);
-const RANGES = { 'bridge.port': [1024, 65535], 'ai.maxRequestsPerRun': [0, 500], 'ai.maxProcessesPerRun': [0, 100], 'ai.dailyTokenBudget': [0, 50_000_000] };
+const RANGES = {
+  'bridge.port': [1024, 65535], 'ai.maxRequestsPerRun': [0, 500], 'ai.maxProcessesPerRun': [0, 100], 'ai.dailyTokenBudget': [0, 50_000_000],
+  'network.snapshot.everyMinutes': [5, 1440], 'network.snapshot.retentionDays': [1, 365], 'network.snapshot.maxMB': [1, 500],
+  'network.deep.retentionDays': [1, 90], 'network.deep.maxMB': [5, 2000], 'network.deep.sampleSec': [2, 60],
+  'network.thresholds.burstConnections': [5, 100000], 'network.thresholds.burstDestinations': [5, 100000], 'network.thresholds.unknownDestinations': [2, 1000],
+  'network.thresholds.persistentDestinations': [2, 1000], 'network.thresholds.newConnectionsPerMinute': [5, 100000],
+};
 const READONLY = new Set(['schemaVersion', 'bridge.host']);
 
 /** Merge `patch` into a copy of `base`, accepting only keys that exist in DEFAULT_CONFIG with matching types. */
