@@ -5,13 +5,22 @@ import { Badge, Card, Empty, ErrorState, Expander, PageHead, SearchBox, Skeleton
 import { fmtFull, sevTone } from '../format';
 import { useHash } from '../router';
 
-const CATS = ['scan', 'process', 'ai', 'file', 'cleanup', 'defender', 'windows', 'policy', 'shutdown', 'config', 'system'];
+const CATS = ['scan', 'process', 'ai', 'file', 'cleanup', 'defender', 'windows', 'policy', 'shutdown', 'config', 'system', 'remediation', 'network'];
 
 export default function Logs() {
   const { params } = useHash();
   const [q, setQ] = useState(params.get('q') ?? ''); const [dq, setDq] = useState(params.get('q') ?? ''); // deep links such as #/logs?q=<event id> arrive pre-filtered
-  const [cat, setCat] = useState(''); const [sev, setSev] = useState(''); const [limit, setLimit] = useState(200);
+  const [cat, setCat] = useState(CATS.includes(params.get('category') ?? '') ? (params.get('category') as string) : ''); const [sev, setSev] = useState(''); const [limit, setLimit] = useState(200);
   useEffect(() => { const t = setTimeout(() => setDq(q), 250); return () => clearTimeout(t); }, [q]);
+  // A link to #/logs?q=...&category=... applied while this page is already open re-filters it ...
+  const linkQ = params.get('q') ?? ''; const linkCat = params.get('category') ?? '';
+  useEffect(() => { setQ(linkQ); setDq(linkQ); setCat(CATS.includes(linkCat) ? linkCat : ''); }, [linkQ, linkCat]);
+  // ... and what you type or pick is written back to the address, so the filtered view can be bookmarked or shared.
+  useEffect(() => {
+    const next = new URLSearchParams({ ...(dq && { q: dq }), ...(cat && { category: cat }) }).toString();
+    const want = `#/logs${next ? `?${next}` : ''}`;
+    if (window.location.hash.startsWith('#/logs') && window.location.hash !== want) window.history.replaceState(null, '', want);
+  }, [dq, cat]);
   const qs = new URLSearchParams({ limit: String(limit), ...(cat && { category: cat }), ...(sev && { severity: sev }), ...(dq && { q: dq }) }).toString();
   const res = useQuery<ActionEvent[]>(`/api/actions?${qs}`);
   const rows = res.data || [];

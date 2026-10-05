@@ -1,11 +1,12 @@
 import { useEffect, useId, useState } from 'react';
 import { ApiError, api, network, useQuery } from '../api';
 import type { DeepEvent, NetConnection, NetFirewallRule, NetworkCurrent } from '../types';
-import { Badge, Card, Col, DataTable, Drawer, DownloadButton, Empty, Icon, KV, Sep, useOverlay, useToast } from './ui';
+import { Badge, Card, Col, DataTable, Drawer, DownloadButton, Empty, ErrorState, Icon, KV, Sep, useConfirm, useOverlay, useToast } from './ui';
 import { ActionButton, useActionFlow } from './ActionFlow';
 import { ago, fmtFull, NA } from '../format';
 
 type Flow = ReturnType<typeof useActionFlow>;
+interface DnsLookup { ts: string; name: string; type: string; results: string; pid: number }
 export const DURATIONS = [{ id: '1h', label: '1 hour' }, { id: '24h', label: '24 hours' }, { id: '7d', label: '7 days' }, { id: 'permanent', label: 'Keep until I remove it' }];
 
 export const addr = (a: string, p: number) => (a ? (a.includes(':') ? `[${a}]:${p}` : `${a}:${p}`) : `*:${p}`);
@@ -28,15 +29,16 @@ export function ConnectionDrawer({ conn, siblings, onClose, flow }: { conn: NetC
       <Card title="Program">
         <KV items={[['Path', <span key="p" className="mono-wrap">{p.path || 'unreadable (may need elevation)'}</span>], ['Publisher', p.publisher || NA], ['Owner', p.owner || 'not available without elevation'], ['Signature', p.signed === true ? 'Valid' : p.signed === false ? 'Not signed' : 'Unknown'], ['Starts automatically', p.persistent ? 'Yes' : 'Not known to']]} />
       </Card>
-      <Card title="What you can do" actions={<DurationSelect value={duration} onChange={setDuration} />}>
+      <Card title="What you can do">
         <div className="stack">
           <div className="row">
-            <ActionButton flow={flow} actionId="process.stop" params={{ pid: conn.pid, name: p.name.replace(/\.exe$/i, ''), ...(p.path ? { path: p.path } : {}) }} label="Stop process" tone="danger" />
+            <ActionButton flow={flow} actionId="process.stop" params={{ pid: conn.pid, name: p.name.replace(/\.exe$/i, ''), ...(p.path ? { path: p.path } : {}), ...(p.startTime ? { startTime: p.startTime } : {}) }} label="Stop process" tone="danger" />
             {p.path && !listening && <ActionButton flow={flow} actionId="firewall.block-program" params={{ path: p.path, direction: 'Outbound', duration }} label="Block program" tone="danger" icon="elevate" />}
             {conn.remoteAddress && !listening && <ActionButton flow={flow} actionId="firewall.block-remote" params={{ remote: conn.remoteAddress, duration }} label="Block address" icon="elevate" />}
             {listening && <ActionButton flow={flow} actionId="firewall.block-port" params={{ port: conn.localPort, protocol: conn.proto, duration }} label="Block port" tone="danger" icon="elevate" />}
-            <a className="btn sm" href="#/processes"><Icon name="search" size={13} />Investigate</a>
+            <a className="btn sm" href={`#/processes?name=${encodeURIComponent(p.name)}`}><Icon name="search" size={13} />Investigate</a>
           </div>
+          {(p.path || conn.remoteAddress || listening) && <DurationSelect value={duration} onChange={setDuration} />}
           <p className="small muted">Each button first shows the exact rule or action, re-checks the live target, and refuses protected Windows and security programs, DNS and DHCP ports, and your gateway or DNS servers. Blocks are Windows Firewall rules in the Laptop Guardian group that you can remove at any time.</p>
         </div>
       </Card>
@@ -66,7 +68,8 @@ export function RulesPanel({ rules, flow, programs }: { rules: NetFirewallRule[]
     else if (kind === 'port') void flow.run('firewall.block-port', { port, protocol: proto, duration }, 'Block port');
     else void flow.run('firewall.block-remote', { remote, duration }, 'Block address');
   };
-  const ready = kind === 'program' ? !!prog : kind === 'port' ? /^\d{1,5}$/.test(port) : remote.trim().length > 1;
+  const portOk = /^\d{1,5}$/.test(port) && Number(port) >= 1 && Number(port) <= 65535;
+  const ready = kind === 'program' ? !!prog : kind === 'port' ? portOk : remote.trim().length > 1;
   return (
     <div className="stack-lg">
       <Card title="Laptop Guardian firewall rules" flush actions={<Badge tone="outline">{rules.length} rule{rules.length === 1 ? '' : 's'}</Badge>}>
@@ -82,7 +85,7 @@ export function RulesPanel({ rules, flow, programs }: { rules: NetFirewallRule[]
               <label className="field"><span>Program</span><select value={prog} onChange={(e) => setProg(e.target.value)}><option value="">Choose a running program</option>{programs.map((p) => <option key={p.path} value={p.path}>{p.name} - {p.path}</option>)}</select></label>
               <label className="field"><span>Direction</span><select value={dir} onChange={(e) => setDir(e.target.value)}><option>Outbound</option><option>Inbound</option></select></label></>}
             {kind === 'port' && <>
-              <label className="field"><span>Local port</span><input inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value)} placeholder="e.g. 3389" /></label>
+              <label className="field"><span>Local port</span><input inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value)} placeholder="e.g. 3389" aria-invalid={port !== '' && !portOk ? true : undefined} aria-describedby="port-hint" />{port !== '' && !portOk && <span id="port-hint" className="hint warn-text" role="alert">Enter a port from 1 to 65535.</span>}</label>
               <label className="field"><span>Protocol</span><select value={proto} onChange={(e) => setProto(e.target.value)}><option>TCP</option><option>UDP</option></select></label></>}
             {kind === 'address' && <label className="field grow"><span>IP address or range (CIDR)</span><input value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="203.0.113.7 or 198.51.100.0/24" /></label>}
             <DurationSelect value={duration} onChange={setDuration} />
@@ -156,9 +159,19 @@ export function DeepPanel({ current, flow, reload }: { current: NetworkCurrent; 
   const [ack, setAck] = useState(false); const [busy, setBusy] = useState(false);
   const [days, setDays] = useState(s.retentionDays); const [mb, setMb] = useState(s.maxMB); const [sec, setSec] = useState(s.sampleSec);
   const events = useQuery<{ items: DeepEvent[] }>(d.active ? '/api/network/deep/events?limit=100' : null);
-  useEffect(() => { if (!d.active) return; const t = setInterval(() => events.reload(), 5000); return () => clearInterval(t); }, [d.active, events]);
+  const reloadEvents = events.reload;
+  useEffect(() => { if (!d.active) return; const t = setInterval(reloadEvents, 5000); return () => clearInterval(t); }, [d.active, reloadEvents]);
+  const { confirm: ask, node: confirmNode } = useConfirm();
   const [showLog, setShowLog] = useState(false);
-  const dnsLog = useQuery<{ available: boolean; enabled: boolean | null; reason: string | null; items: { ts: string; name: string; type: string; results: string; pid: number }[] }>(showLog ? '/api/network/dns-log' : null);
+  const dnsLog = useQuery<{ available: boolean; enabled: boolean | null; reason: string | null; items: DnsLookup[] }>(showLog ? '/api/network/dns-log' : null);
+  const logOn = dnsLog.data ? dnsLog.data.enabled : null;
+  const lookupCols: Col<DnsLookup>[] = [
+    { key: 'ts', label: 'Time', sort: (r) => r.ts, render: (r) => <span className="small nowrap">{fmtFull(r.ts)}</span> },
+    { key: 'name', label: 'Name', sort: (r) => r.name, render: (r) => <span className="mono-wrap">{r.name}</span> },
+    { key: 'type', label: 'Type', render: (r) => r.type },
+    { key: 'results', label: 'Answer', render: (r) => <span className="mono-wrap small">{r.results}</span> },
+    { key: 'pid', label: 'Program (PID)', align: 'r', render: (r) => <span className="num">{r.pid}</span> },
+  ];
   const run = async (fn: () => Promise<unknown>, ok: string) => { setBusy(true); try { await fn(); toast('ok', ok); reload(); events.reload(); } catch (e) { toast('error', (e as ApiError).message); } finally { setBusy(false); setAck(false); } };
   const save = () => run(() => api.put('/api/config', { network: { deep: { retentionDays: days, maxMB: mb, sampleSec: sec } } }), 'Deep mode settings saved.');
   const evCols: Col<DeepEvent>[] = [
@@ -191,18 +204,26 @@ export function DeepPanel({ current, flow, reload }: { current: NetworkCurrent; 
           <div className="row">
             <DownloadButton path="/api/network/deep/export" method="POST" body={{ format: 'csv' }} name="laptop-guardian-network-events.csv">Export CSV</DownloadButton>
             <DownloadButton path="/api/network/deep/export" method="POST" body={{ format: 'jsonl' }} name="laptop-guardian-network-events.jsonl">Export JSON lines</DownloadButton>
-            <button className="btn danger" disabled={busy || d.files === 0} onClick={() => void run(() => network.deepDelete(), 'Recorded network data deleted.')}>Delete recorded data</button>
+            <button className="btn danger" disabled={busy || d.files === 0} onClick={() => ask({ title: 'Delete the recorded network data?', confirmLabel: 'Delete recorded data', danger: true, body: `${d.files} day file${d.files === 1 ? '' : 's'} (${d.storageMB} MB) of connection history will be deleted from this laptop. This cannot be undone.`, onConfirm: () => run(() => network.deepDelete(), 'Recorded network data deleted.') })}>Delete recorded data</button>
           </div>
         </div>
       </Card>
       <Card title="DNS lookups by program (optional)">
         <div className="stack">
           <p className="t2">Windows can log which program asked for which name. That log is off by default. Turning it on needs administrator permission and records names only.</p>
-          <div className="row"><ActionButton flow={flow} actionId="deep.dnslog-enable" params={{}} label="Turn on DNS history log" icon="elevate" /><ActionButton flow={flow} actionId="deep.dnslog-disable" params={{}} label="Turn off DNS history log" icon="elevate" /><button className="btn sm" onClick={() => { setShowLog(true); dnsLog.reload(); }}>Show recent lookups</button></div>
-          {dnsLog.data && (dnsLog.data.available ? <p className="small muted">{dnsLog.data.items.length} recent lookups.</p> : <div className="notice small">{dnsLog.data.reason}</div>)}
+          <div className="row">
+            {logOn !== true && <ActionButton flow={flow} actionId="deep.dnslog-enable" params={{}} label="Turn on DNS history log" icon="elevate" />}
+            {logOn !== false && <ActionButton flow={flow} actionId="deep.dnslog-disable" params={{}} label="Turn off DNS history log" icon="elevate" />}
+            <button className="btn sm" onClick={() => { setShowLog(true); dnsLog.reload(); }}>{dnsLog.data ? 'Refresh lookups' : 'Show recent lookups'}</button>
+            {logOn != null && <Badge tone={logOn ? 'warn' : ''} dot>DNS history log is {logOn ? 'on' : 'off'}</Badge>}
+          </div>
+          {dnsLog.error && <ErrorState error={dnsLog.error} onRetry={dnsLog.reload} />}
+          {dnsLog.data && !dnsLog.data.available && <div className="notice small">{dnsLog.data.reason}</div>}
+          {dnsLog.data && dnsLog.data.available && <DataTable<DnsLookup> label="Recent DNS lookups" cols={lookupCols} rows={dnsLog.data.items} rowKey={(r) => `${r.ts}|${r.name}|${r.pid}`} initialSort={{ key: 'ts', dir: -1 }} empty={<Empty icon="info" title="No lookups recorded yet">Lookups appear after the log has been on for a while.</Empty>} />}
         </div>
       </Card>
       {d.active && <Card title="Latest connection events" flush>{events.data ? <DataTable<DeepEvent> label="Deep events" cols={evCols} rows={events.data.items} rowKey={(e) => `${e.ts}|${e.type}|${e.localPort}|${e.remoteAddress}|${e.remotePort}|${e.pid}`} empty={<Empty icon="activity" title="Waiting for the first sample" />} /> : <div className="pad small muted">Loading...</div>}</Card>}
+      {confirmNode}
       {ack && <AckDialog busy={busy} onClose={() => setAck(false)} onStart={() => void run(() => network.deepStart(), 'Deep Network Guard started.')} />}
     </div>
   );

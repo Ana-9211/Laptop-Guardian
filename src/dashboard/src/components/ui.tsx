@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
+import { cloneElement, createContext, isValidElement, ReactElement, ReactNode, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import type { Cmd } from '../types';
 import { downloadFile } from '../api';
 import { riskTone, NA } from '../format';
@@ -97,7 +97,8 @@ export function Switch({ checked, onChange, label, disabled, hint }: { checked: 
   );
 }
 
-export function Tabs<T extends string>({ value, onChange, items, label }: { value: T; onChange: (v: T) => void; items: { id: T; label: string; count?: number }[]; label: string }) {
+export function Tabs<T extends string>({ value, onChange, items, label, children, listStyle, panelStyle }: { value: T; onChange: (v: T) => void; items: { id: T; label: string; count?: number }[]; label: string; children?: ReactNode; listStyle?: React.CSSProperties; panelStyle?: React.CSSProperties }) {
+  const base = useId();
   const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const i = items.findIndex((x) => x.id === value);
     let n = -1;
@@ -112,13 +113,16 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
     requestAnimationFrame(() => list.querySelectorAll<HTMLElement>('[role=tab]')[n]?.focus());
   };
   return (
-    <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKey}>
-      {items.map((t) => (
-        <button key={t.id} role="tab" aria-selected={value === t.id} tabIndex={value === t.id ? 0 : -1} onClick={() => onChange(t.id)}>
-          {t.label}{t.count != null && <span className="n">{t.count}</span>}
-        </button>
-      ))}
-    </div>
+    <>
+      <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKey} style={listStyle}>
+        {items.map((t) => (
+          <button key={t.id} id={`${base}-tab-${t.id}`} role="tab" aria-selected={value === t.id} aria-controls={children !== undefined && value === t.id ? `${base}-panel` : undefined} tabIndex={value === t.id ? 0 : -1} onClick={() => onChange(t.id)}>
+            {t.label}{t.count != null && <span className="n">{t.count}</span>}
+          </button>
+        ))}
+      </div>
+      {children !== undefined && <div id={`${base}-panel`} role="tabpanel" aria-labelledby={`${base}-tab-${value}`} tabIndex={0} className="tabpanel" style={panelStyle}>{children}</div>}
+    </>
   );
 }
 
@@ -154,10 +158,11 @@ export function Tip({ text, children, block }: { text: string; children: ReactNo
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const id = useId();
   const show = (el: HTMLElement) => { const r = el.getBoundingClientRect(); setPos({ x: Math.min(r.left, window.innerWidth - 290), y: r.bottom + 6 }); };
+  const described = isValidElement(children) ? cloneElement(children as ReactElement<{ 'aria-describedby'?: string }>, { 'aria-describedby': pos ? id : undefined }) : children;
   return (
-    <span style={{ display: block ? 'flex' : 'inline-flex', minWidth: 0 }} aria-describedby={pos ? id : undefined}
+    <span style={{ display: block ? 'flex' : 'inline-flex', minWidth: 0 }}
       onMouseEnter={(e) => show(e.currentTarget)} onMouseLeave={() => setPos(null)} onFocus={(e) => show(e.currentTarget)} onBlur={() => setPos(null)} onKeyDown={(e) => { if (e.key === 'Escape' && pos) setPos(null); }}>
-      {children}
+      {described}
       {pos && <span id={id} role="tooltip" className="tooltip" style={{ left: pos.x, top: pos.y }}>{text}</span>}
     </span>
   );
@@ -167,27 +172,34 @@ export function Tip({ text, children, block }: { text: string; children: ReactNo
 interface ToastItem { id: number; tone: 'ok' | 'error' | 'info' | 'warn'; text: string }
 const ToastCtx = createContext<(tone: ToastItem['tone'], text: string) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);
+function ToastView({ t, onDismiss }: { t: ToastItem; onDismiss: (id: number) => void }) {
+  const [paused, setPaused] = useState(false);
+  // Errors are sticky: they need to be read. Everything else fades out, but not while the pointer or keyboard focus is on it.
+  useEffect(() => {
+    if (t.tone === 'error' || paused) return;
+    const timer = setTimeout(() => onDismiss(t.id), TOAST_MS.default);
+    return () => clearTimeout(timer);
+  }, [t.id, t.tone, paused, onDismiss]);
+  return (
+    <div className={`toast ${t.tone}`} role={t.tone === 'error' ? 'alert' : 'status'} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}>
+      <p>{t.text}</p>
+      <button aria-label="Dismiss" title="Dismiss" onClick={() => onDismiss(t.id)}><Icon name="x" size={14} /></button>
+    </div>
+  );
+}
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const n = useRef(0);
-  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
-  useEffect(() => { const t = timers.current; return () => { t.forEach(clearTimeout); }; }, []);
+  const dismiss = useCallback((id: number) => setItems((x) => x.filter((t) => t.id !== id)), []);
   const push = useCallback((tone: ToastItem['tone'], text: string) => {
     const id = ++n.current;
     setItems((x) => [...x.slice(-(MAX_TOASTS - 1)), { id, tone, text }]);
-    const timer = setTimeout(() => { timers.current.delete(timer); setItems((x) => x.filter((t) => t.id !== id)); }, tone === 'error' ? TOAST_MS.error : TOAST_MS.default);
-    timers.current.add(timer);
   }, []);
   return (
     <ToastCtx.Provider value={push}>
       {children}
       <div className="toasts" role="region" aria-label="Notifications" aria-live="polite">
-        {items.map((t) => (
-          <div key={t.id} className={`toast ${t.tone}`} role={t.tone === 'error' ? 'alert' : 'status'}>
-            <p>{t.text}</p>
-            <button aria-label="Dismiss" title="Dismiss" onClick={() => setItems((x) => x.filter((i) => i.id !== t.id))}><Icon name="x" size={14} /></button>
-          </div>
-        ))}
+        {items.map((t) => <ToastView key={t.id} t={t} onDismiss={dismiss} />)}
       </div>
     </ToastCtx.Provider>
   );
@@ -242,17 +254,25 @@ export function Drawer({ title, sub, onClose, children, footer }: { title: React
 
 export interface ConfirmOpts { title: string; body: ReactNode; confirmLabel: string; danger?: boolean; onConfirm: () => Promise<void> | void }
 export function ConfirmDialog({ opts, onClose }: { opts: ConfirmOpts; onClose: () => void }) {
-  const ref = useOverlay(onClose);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
+  // While the action is running the dialog cannot be dismissed (Esc, the backdrop and Cancel are all ignored).
+  const close = () => { if (!busyRef.current) onClose(); };
+  const ref = useOverlay(close);
   const tid = useId();
-  const go = async () => { setBusy(true); try { await opts.onConfirm(); } finally { setBusy(false); onClose(); } };
+  const go = async () => {
+    busyRef.current = true; setBusy(true); setError(null);
+    try { await opts.onConfirm(); busyRef.current = false; onClose(); }
+    catch (e) { busyRef.current = false; setBusy(false); setError(e instanceof Error ? e.message : 'That did not work. Nothing was changed.'); }   // stays open so the reason can be read and the action retried
+  };
   return (
     <>
-      <div className="scrim" style={{ zIndex: 65 }} onClick={onClose} />
+      <div className="scrim" style={{ zIndex: 65 }} onClick={close} />
       <div className="dialog" role="alertdialog" aria-modal="true" aria-labelledby={tid} ref={ref} tabIndex={-1}>
-        <div className="card-body"><h2 id={tid}>{opts.title}</h2><div className="t2">{opts.body}</div></div>
+        <div className="card-body"><h2 id={tid}>{opts.title}</h2><div className="t2">{opts.body}</div>{error && <div className="notice crit" role="alert" style={{ marginTop: 10 }}>{error}</div>}</div>
         <div className="dialog-foot">
-          <button className="btn" onClick={onClose} data-autofocus>Cancel</button>
+          <button className="btn" onClick={close} disabled={busy} data-autofocus>Cancel</button>
           <button className={`btn ${opts.danger ? 'danger solid' : 'primary'}`} disabled={busy} onClick={go}>{busy ? 'Working...' : opts.confirmLabel}</button>
         </div>
       </div>
@@ -271,7 +291,7 @@ export function Expander({ head, children, defaultOpen }: { head: ReactNode; chi
   return (
     <div className="expander">
       <button aria-expanded={open} onClick={() => setOpen(!open)}><svg className={`chev ${open ? 'open' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={P.chev} /></svg>{head}</button>
-      <div className="reveal" data-open={open} aria-hidden={!open}><div><div className="body">{children}</div></div></div>
+      <div className="reveal" data-open={open} aria-hidden={!open} {...(open ? {} : { inert: '' as const })}><div><div className="body">{children}</div></div></div>
     </div>
   );
 }
@@ -370,7 +390,7 @@ export function DataTable<T>({ cols, rows, rowKey, onRow, selected, initialSort,
             const k = rowKey(r);
             return (
               <tr key={k} className={`${onRow ? 'click' : ''} ${selected === k ? 'sel' : ''}`} tabIndex={onRow ? 0 : undefined}
-                onClick={() => onRow?.(r)} onKeyDown={(e) => { if (onRow && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onRow(r); } }}>
+                onClick={() => onRow?.(r)} onKeyDown={(e) => { if (e.target !== e.currentTarget) return; if (onRow && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onRow(r); } }}>
                 {cols.map((c) => <td key={c.key} className={c.align === 'r' ? 'r' : ''}>{c.render(r)}</td>)}
               </tr>
             );

@@ -12,6 +12,7 @@ export function ScanBanner() {
   const { status: s, live, dismissFinished, check } = useStatus();
   const toast = useToast();
   const [cancelling, setCancelling] = useState(false);
+  const [stopping, setStopping] = useState(false);
   useTicker(CLOCK_TICK_MS.fast);
   if (!s) return null;
   const scan = live.scan;
@@ -33,7 +34,7 @@ export function ScanBanner() {
         <div className="notice warn banner" role="status">
           <Icon name="network" /><div className="grow"><b>Deep Network Guard is recording connection activity</b>{s.network.deepSince ? <><Sep />since {fmtDate(s.network.deepSince)}</> : null}. Metadata only (no packet contents), kept on this laptop.</div>
           <a className="btn sm" href="#/network">Manage</a>
-          <button className="btn sm danger" onClick={() => { void network.deepStop().then(() => { toast('ok', 'Deep Network Guard stopped.'); void check(true); void reloadAllQueries(); }).catch(() => toast('error', 'Could not stop Deep Network Guard.')); }}>Stop recording</button>
+          <button className="btn sm danger" disabled={stopping} onClick={() => { setStopping(true); void network.deepStop().then(() => { toast('ok', 'Deep Network Guard stopped.'); void check(true); void reloadAllQueries(); }).catch(() => toast('error', 'Could not stop Deep Network Guard.')).finally(() => setStopping(false)); }}>{stopping ? 'Stopping...' : 'Stop recording'}</button>
         </div>
       )}
       {s.shutdown.pending && (

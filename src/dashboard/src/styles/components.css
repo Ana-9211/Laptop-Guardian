@@ -107,6 +107,8 @@ table.t { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 
 .toast { background: var(--overlay); border: 1px solid var(--line-strong); border-left: 3px solid var(--info); border-radius: var(--r); padding: 10px 12px; box-shadow: var(--shadow-2); display: flex; gap: 10px; align-items: flex-start; animation: toast-in var(--t-med) var(--ease); }
 .toast.ok { border-left-color: var(--ok); } .toast.error { border-left-color: var(--crit); } .toast.warn { border-left-color: var(--warn); }
 .toast p { flex: 1; } .toast button { background: none; border: 0; cursor: pointer; color: var(--muted); }
+.bg-actions { position: fixed; left: 16px; bottom: 16px; z-index: 70; display: grid; gap: 6px; }
+.bg-chip { display: inline-flex; align-items: center; gap: 8px; background: var(--overlay); border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: var(--r); padding: 8px 12px; box-shadow: var(--shadow-2); font-size: 13px; color: var(--text); text-decoration: none; }
 .tooltip { position: fixed; z-index: 90; pointer-events: none; background: var(--overlay); color: var(--text); font-size: 12px; padding: 5px 9px; border-radius: 6px; max-width: 280px; border: 1px solid var(--line-strong); box-shadow: var(--shadow-2); white-space: pre-line; animation: fade-in var(--t-fast) ease-out; }
 
 /* states */

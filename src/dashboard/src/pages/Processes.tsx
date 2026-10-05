@@ -5,6 +5,7 @@ import { Badge, Card, Col, DataTable, Empty, ErrorState, PageHead, RiskBadge, Se
 import { ProcessDrawer } from '../components/ProcessDrawer';
 import { fmtMB, pct, fmtDate, NA } from '../format';
 import { go, useHash } from '../router';
+import { flagLabel } from '../labels';
 
 type Tab = 'all' | 'flagged' | 'persistent' | 'high' | 'recommended' | 'blacklisted' | 'whitelisted';
 
@@ -60,7 +61,7 @@ export default function Processes() {
     { key: 'signed', label: 'Signed', sort: (p) => (p.signed ? 1 : 0), render: (p) => <Badge tone={p.signed ? 'ok' : 'warn'} dot>{p.signed ? 'Yes' : p.signature === 'Unknown' ? 'Unknown' : 'No'}</Badge> },
     { key: 'path', label: 'Path', render: (p) => <Tip text={p.path || 'Path not accessible'}><span className="path trunc" style={{ display: 'inline-block' }}>{p.path || NA}</span></Tip> },
     { key: 'persist', label: 'Persistence', sort: (p) => (p.persistent ? 1 : 0), render: (p) => p.persistent ? <span className="row tight">{[...new Set([...(p.startupEntries || []).map((s) => s.kind), ...((p.services || []).length ? ['service'] : [])])].map((k) => <Badge key={k} tone="info">{k}</Badge>)}{!p.startupEntries?.length && !p.services?.length && <Badge tone="info">yes</Badge>}</span> : <span className="muted">n/a</span> },
-    { key: 'status', label: 'Status', render: (p) => <span className="row tight" style={{ flexWrap: 'nowrap' }}><Badge tone="ok" dot>Running</Badge>{(p.flags || []).filter((f) => ['high-cpu', 'high-memory', 'unusual-location'].includes(f)).slice(0, 1).map((f) => <Badge key={f} tone="warn">{f}</Badge>)}</span> },
+    { key: 'status', label: 'Status', render: (p) => <span className="row tight" style={{ flexWrap: 'nowrap' }}>{(p.flags || []).filter((f) => ['high-cpu', 'high-memory', 'unusual-location'].includes(f)).slice(0, 1).map((f) => <Badge key={f} tone="warn">{flagLabel(f)}</Badge>)}</span> },
     { key: 'rec', label: 'Recommendation', sort: (p) => recById.get(p.recommendationId || '')?.suggestedAction || '~', render: (p) => { const r = recById.get(p.recommendationId || ''); return r ? <span className="row tight" style={{ flexWrap: 'nowrap' }}><RiskBadge risk={r.risk} /><span className="small t2 trunc" style={{ maxWidth: 130 }}>{r.suggestedAction}</span></span> : <span className="muted">n/a</span>; } },
     { key: 'policy', label: 'Policy', sort: (p) => p.policy || 'none', render: (p) => p.policy && p.policy !== 'none' ? <Badge tone={p.policy === 'blacklist' ? 'crit' : 'accent'}>{p.policy}</Badge> : <span className="muted">n/a</span> },
   ];
@@ -78,10 +79,11 @@ export default function Processes() {
       <PageHead title="Processes" sub={procs.data?.generatedAt ? `Snapshot from ${fmtDate(procs.data.generatedAt)}. Processes with the same name are grouped. Select a row for evidence, commands and actions.` : 'Snapshot of running processes from the latest scan.'} />
       {procs.error ? <ErrorState error={procs.error} onRetry={reload} /> : !procs.data ? <SkeletonCards n={4} h={140} /> : (
         <Card flush>
-          <div style={{ padding: '0 14px' }}><Tabs value={tab} onChange={setTab} items={tabs} label="Process filters" /></div>
+          <Tabs value={tab} onChange={setTab} items={tabs} label="Process filters" listStyle={{ padding: '0 14px' }} panelStyle={{ gap: 0 }}>
           <div className="filters"><SearchBox value={q} onChange={setQ} placeholder="Search name, path, publisher or PID" /><span className="small muted">{rows.length} of {list.length}</span></div>
           <DataTable label="Processes" cols={cols} rows={rows} rowKey={(p) => `${p.name}:${p.pid}`} onRow={setSel} selected={sel ? `${sel.name}:${sel.pid}` : null} initialSort={{ key: 'ram', dir: -1 }}
             empty={<Empty icon="processes" title={list.length ? 'No processes match' : 'No process snapshot yet'}>{list.length ? 'Try another filter or clear the search.' : 'Run a daily scan to collect the first snapshot.'}</Empty>} />
+          </Tabs>
         </Card>
       )}
       {sel && <ProcessDrawer proc={sel} rec={selRec} onClose={close} onChanged={() => { reload(); }} />}

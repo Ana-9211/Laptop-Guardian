@@ -1,12 +1,12 @@
 import { Badge, Icon, KV, RiskBadge, Sep } from './ui';
 import { ActionButton, useActionFlow } from './ActionFlow';
 import type { ActionOffer, Finding, HistoryItem } from '../types';
-import { ago, fmtFull } from '../format';
+import { ago, fmtFull, TONE_BY_RESULT } from '../format';
+import { confidenceLabel, kindLabel } from '../labels';
 
 type Flow = ReturnType<typeof useActionFlow>;
 
 const ADMIN_BADGE = { yes: { tone: 'warn', text: 'Administrator permission' }, maybe: { tone: 'warn', text: 'May need administrator permission' }, no: { tone: 'ok', text: 'No administrator needed' } } as const;
-const TONE_BY_RESULT: Record<string, string> = { success: 'ok', failure: 'crit', skipped: 'warn', timeout: 'crit', started: 'info' };
 
 /** One allowlisted action with everything the user needs before pressing the button. */
 export function ActionOfferCard({ offer, flow }: { offer: ActionOffer; flow: Flow }) {
@@ -54,7 +54,7 @@ export function AttemptList({ attempts }: { attempts: HistoryItem[] }) {
 export function FindingDetail({ finding, flow }: { finding: Finding; flow: Flow }) {
   return (
     <div className="stack-lg">
-      <div className="row"><RiskBadge risk={String(finding.risk)} /><Badge tone="outline">Confidence {Math.round(finding.confidence * 100)}%</Badge><Badge tone="outline">{finding.kind}</Badge></div>
+      <div className="row"><RiskBadge risk={String(finding.risk)} /><Badge tone="outline">{confidenceLabel(finding.confidence)}</Badge><Badge tone="outline">{kindLabel(finding.kind)}</Badge></div>
       <section><div className="eyebrow">What it is</div><p>{finding.what}</p></section>
       <section><div className="eyebrow">Why it was flagged</div>{finding.why.length ? <ul className="plain-list">{finding.why.map((w) => <li key={w}>{w}</li>)}</ul> : <p className="muted">No reason recorded.</p>}</section>
       {finding.evidence.length > 0 && <section><div className="eyebrow">Evidence</div><KV items={finding.evidence.map((e): [string, React.ReactNode] => [e.label, <span key={e.label} className="mono-wrap">{e.value}</span>])} /></section>}

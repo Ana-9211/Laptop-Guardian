@@ -32,16 +32,20 @@ export const ago = (s?: string | null) => {
   if (h < 48) return `${h} h ago`;
   return `${Math.round(h / 24)} d ago`;
 };
+/** Time until a scheduled moment. Nothing scheduled and a moment that has already passed are said plainly instead of showing n/a or a negative time. */
 export const until = (s?: string | null) => {
-  if (!s) return NA;
+  if (!s) return 'not scheduled';
   const ms = new Date(s).getTime() - Date.now();
-  if (Number.isNaN(ms)) return NA;
+  if (Number.isNaN(ms)) return 'not scheduled';
+  if (ms < -60_000) return 'overdue';
   const h = Math.round(ms / 3600000);
   if (h < 1) return `in ${Math.max(1, Math.round(ms / 60000))} min`;
   if (h < 48) return `in ${h} h`;
   return `in ${Math.round(h / 24)} d`;
 };
 export const pct = (v: number | null | undefined, d = 0) => (v == null ? NA : `${v.toFixed(d)}%`);
+/** Badge tone for the result of an action (shared by the Action Center, finding details and Network Guard). */
+export const TONE_BY_RESULT: Record<string, string> = { success: 'ok', failure: 'crit', skipped: 'warn', timeout: 'crit', started: 'info' };
 export const riskTone = (r?: string) => (r === 'HIGH' ? 'crit' : r === 'MEDIUM' ? 'warn' : r === 'LOW' ? 'ok' : '');
 export const sevTone = (s?: string) => (s === 'critical' || s === 'high' || s === 'error' ? 'crit' : s === 'medium' || s === 'warning' ? 'warn' : s === 'low' ? 'info' : '');
 export const scoreTone = (s?: number) => (s == null ? '' : s >= 85 ? 'ok' : s >= 70 ? 'warn' : 'crit');

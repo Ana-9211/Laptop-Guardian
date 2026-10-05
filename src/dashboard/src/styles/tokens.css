@@ -14,6 +14,8 @@
   --overlay: light-dark(#ffffff, #18212b);
   --line: light-dark(#dbe1e8, #1d2833);
   --line-strong: light-dark(#bec8d3, #2c3a48);
+  /* Borders of form controls and switch tracks: at least 3:1 against the page, so a field is visible without relying on its fill. */
+  --control-border: light-dark(#6f7c89, #7c8b9a);
 
   /* text */
   --text: light-dark(#111a24, #e4ebf2);

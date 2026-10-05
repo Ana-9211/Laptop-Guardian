@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type React from 'react';
 import { api, ApiError, useQuery } from '../api';
 import type { ActionEvent, Policy, PolicyEntry } from '../types';
-import { Badge, Card, Col, DataTable, Drawer, Empty, ErrorState, Icon, PageHead, useOverlay, SkeletonCards, useConfirm, useToast } from '../components/ui';
+import { Badge, Card, Col, DataTable, Drawer, Empty, ErrorState, Icon, KV, PageHead, useOverlay, SkeletonCards, useConfirm, useToast } from '../components/ui';
 import { ActionTimeline } from '../components/common';
 import { fmtDate, fmtFull, NA } from '../format';
 import { useOverview } from '../state/overview';
@@ -68,6 +68,21 @@ export function PolicyPage({ list }: { list: 'blacklist' | 'whitelist' }) {
             empty={<Empty icon={isBl ? 'blacklist' : 'whitelist'} title={`No processes on the ${list}`}>{isBl ? 'Blacklist a process from its detail panel on the Processes page, or add one by name here.' : 'Whitelist a process from its detail panel to stop it being flagged.'}</Empty>} />
         </Card>
       )}
+      {!isBl && pol.data && (
+        <Card title={`Ignored processes (${pol.data.ignored.length})`} flush>
+          {pol.data.ignored.length === 0 ? <Empty icon="check" title="Nothing is ignored">When you choose Ignore on a recommendation, the program appears here so you can bring it back.</Empty> : (
+            <ul className="plain-list" style={{ padding: '0 14px' }}>
+              {pol.data.ignored.map((e) => (
+                <li key={e.id} className="row spread" style={{ padding: '8px 0' }}>
+                  <span className="stack tight"><b>{e.name}</b><span className="small muted">Ignored {fmtDate(e.addedAt)}{e.path ? ` - ${e.path}` : ' - any path'}</span></span>
+                  <button className="btn sm" onClick={() => { void api.del(`/api/policy/ignored/${e.id}`).then(() => { toast('ok', `${e.name} will be flagged again if it misbehaves.`); pol.reload(); }).catch((x: ApiError) => toast('error', x.message)); }}>Stop ignoring</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="small muted pad">Ignoring hides recommendations about a program. It does not whitelist it and never prevents you from stopping it.</p>
+        </Card>
+      )}
       {adding && <AddDialog list={list} name={newName} setName={setNewName} onClose={() => setAdding(false)} onNext={() => { setDlg(newName.trim()); setAdding(false); }} />}
       {dlg && <PolicyDialog list={list} name={dlg} onClose={() => setDlg(null)} onDone={() => { setDlg(null); setNewName(''); pol.reload(); }} />}
       {hist && <PolicyHistory entry={hist} onClose={() => setHist(null)} />}
@@ -95,8 +110,8 @@ function PolicyHistory({ entry, onClose }: { entry: PolicyEntry; onClose: () => 
   const q = useQuery<ActionEvent[]>(`/api/actions?q=${encodeURIComponent(entry.name)}&limit=100`);
   return (
     <Drawer title={entry.name} sub={`Policy history - added ${fmtFull(entry.addedAt)}`} onClose={onClose}>
-      <Card title="Entry"><div className="mono-block">{JSON.stringify(entry, null, 2)}</div></Card>
-      <Card title="Related actions">{!q.data ? <SkeletonCards n={1} /> : q.data.length ? <ActionTimeline rows={q.data} max={50} /> : <Empty title="No related actions" />}</Card>
+      <Card title="Entry"><KV items={[['Process', entry.name], ['Executable path', entry.path || 'any path'], ['Reason', entry.reason || 'none given'], ['Added', `${fmtFull(entry.addedAt)} by ${entry.addedBy === 'user' ? 'you' : entry.addedBy || NA}`], ['Automatic action', entry.action === 'terminate' ? 'Terminate when found (only if Safe Mode is off)' : 'None'], ['State', entry.disabledUntil && Date.parse(entry.disabledUntil) > Date.now() ? `Paused until ${fmtFull(entry.disabledUntil)}` : entry.enabled ? 'Active' : 'Disabled'], ['Terminated so far', `${entry.terminatedCount ?? 0} time(s)${entry.lastTerminatedAt ? `, last ${fmtFull(entry.lastTerminatedAt)}` : ''}`]]} /></Card>
+      <Card title="Related actions">{q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : !q.data ? <SkeletonCards n={1} /> : q.data.length ? <ActionTimeline rows={q.data} max={50} /> : <Empty title="No related actions" />}</Card>
     </Drawer>
   );
 }

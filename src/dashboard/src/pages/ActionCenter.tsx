@@ -6,11 +6,11 @@ import { FindingDetail } from '../components/FindingActions';
 import { useActionFlow } from '../components/ActionFlow';
 import { useStatus } from '../state/StatusProvider';
 import { useHash, go } from '../router';
-import { ago, fmtFull } from '../format';
+import { ago, fmtFull, TONE_BY_RESULT } from '../format';
+import { confidenceLabel, kindLabel } from '../labels';
 
 type Tab = 'findings' | 'history';
 const KINDS = [{ id: '', label: 'All' }, { id: 'process', label: 'Processes' }, { id: 'file', label: 'Files' }, { id: 'health', label: 'Health' }, { id: 'network', label: 'Network' }, { id: 'task', label: 'Schedule' }];
-const TONE_BY_RESULT: Record<string, string> = { success: 'ok', failure: 'crit', skipped: 'warn', timeout: 'crit', started: 'info' };
 
 function RevoNote({ revo }: { revo: RevoInfo | null }) {
   if (!revo) return null;
@@ -40,9 +40,9 @@ export default function ActionCenter() {
 
   const cols: Col<Finding>[] = [
     { key: 'title', label: 'Finding', sort: (f) => f.title.toLowerCase(), render: (f) => <span className="stack tight"><b className="trunc" style={{ maxWidth: 520 }}>{f.title}</b><span className="small muted trunc" style={{ maxWidth: 520 }}>{f.what}</span></span> },
-    { key: 'kind', label: 'Type', sort: (f) => f.kind, render: (f) => <Badge tone="outline">{f.kind}</Badge> },
+    { key: 'kind', label: 'Type', sort: (f) => f.kind, render: (f) => <Badge tone="outline">{kindLabel(f.kind)}</Badge> },
     { key: 'risk', label: 'Risk', sort: (f) => ['HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'].indexOf(String(f.risk)), render: (f) => <RiskBadge risk={String(f.risk)} /> },
-    { key: 'conf', label: 'Confidence', align: 'r', sort: (f) => f.confidence, render: (f) => <span className="num">{Math.round(f.confidence * 100)}%</span> },
+    { key: 'conf', label: 'Confidence', align: 'r', sort: (f) => f.confidence, render: (f) => <span className="num" title={confidenceLabel(f.confidence)}>{Math.round(f.confidence * 100)}%</span> },
     { key: 'fix', label: 'Available fixes', render: (f) => <span className="row tight">{f.actions.filter((a) => a.eligible).map((a) => <Badge key={a.actionId + JSON.stringify(a.params)} tone={a.admin === 'yes' ? 'warn' : 'accent'}>{a.label}</Badge>)}{!f.actions.some((a) => a.eligible) && <span className="small muted">{f.manual ? f.manual.label : 'None'}</span>}</span> },
     { key: 'last', label: 'Last attempt', render: (f) => (f.attempts[0] ? <span className="row tight"><Badge tone={TONE_BY_RESULT[f.attempts[0].result] || ''}>{f.attempts[0].result}</Badge><span className="small muted">{ago(f.attempts[0].ts)}</span></span> : <span className="muted small">none</span>) },
   ];
@@ -57,7 +57,7 @@ export default function ActionCenter() {
 
   return (
     <div className="page">
-      <PageHead title="Action Center" sub="Every finding Guardian can fix, with the evidence, the exact action, and what happens to your laptop. Nothing runs without your explicit confirmation, and every result is verified and logged." />
+      <PageHead title="Action Center" sub="Every finding Guardian can fix, with the evidence, the exact action, and what happens to your laptop. Nothing runs without your explicit confirmation, and every result is verified and logged." actions={<><span className="small muted">{findings.data ? `Updated ${ago(findings.data.generatedAt)}` : 'Loading...'}</span><button className="btn" onClick={() => { findings.reload(); hist.reload(); }}><Icon name="refresh" size={14} />Refresh</button></>} />
       {findings.error ? <ErrorState error={findings.error} onRetry={findings.reload} /> : !findings.data ? <SkeletonCards n={4} /> : (
         <>
           <div className="grid g4">
@@ -67,7 +67,7 @@ export default function ActionCenter() {
             <Stat label="Need administrator" value={String(admin)} tone={admin ? 'warn' : ''} sub="Windows asks for permission" />
           </div>
           <RevoNote revo={findings.data.revo} />
-          <Tabs<Tab> label="Action Center" value={tab} onChange={setTab} items={[{ id: 'findings', label: 'Findings', count: list.length }, { id: 'history', label: 'Activity and undo', count: hist.data?.items.length }]} />
+          <Tabs<Tab> label="Action Center" value={tab} onChange={setTab} items={[{ id: 'findings', label: 'Findings', count: list.length }, { id: 'history', label: 'Activity and undo', count: hist.data?.items.length }]}>
           {tab === 'findings' && (
             <Card flush>
               <div className="filters">
@@ -87,6 +87,7 @@ export default function ActionCenter() {
               )}
             </Card>
           )}
+          </Tabs>
         </>
       )}
       {selected && (

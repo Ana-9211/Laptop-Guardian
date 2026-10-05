@@ -11,7 +11,7 @@ $script:RuleGroup = 'Laptop Guardian'
 # thin wrappers (mocked in tests)
 function Get-TcpTable { @(Get-NetTCPConnection -ErrorAction SilentlyContinue) }
 function Get-UdpTable { @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue) }
-function Get-ProcessTable { @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Select-Object ProcessId, Name, ExecutablePath) }
+function Get-ProcessTable { @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Select-Object ProcessId, Name, ExecutablePath, CreationDate) }
 function Get-ProcessOwnerName {
     param([int]$ProcessId)
     try { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop; $o = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop; if ($o.User) { return "$($o.Domain)\$($o.User)" } } catch { }
@@ -50,7 +50,9 @@ function Get-NetworkSnapshot {
     foreach ($id in $pids) {
         $p = if ($procMap.ContainsKey($id)) { $procMap[$id] } else { $null }
         $path = if ($p) { [string]$p.ExecutablePath } else { '' }
-        $entry = [ordered]@{ name = $(if ($p) { ([string]$p.Name -replace '\.exe$', '') } elseif ($id -eq 0) { 'System Idle' } elseif ($id -eq 4) { 'System' } else { "pid $id" }); path = $(if ($path) { $path } else { $null }); signed = $null; signature = $null; publisher = $null; owner = $null }
+        $entry = [ordered]@{ name = $(if ($p) { ([string]$p.Name -replace '\.exe$', '') } elseif ($id -eq 0) { 'System Idle' } elseif ($id -eq 4) { 'System' } else { "pid $id" }); path = $(if ($path) { $path } else { $null }); signed = $null; signature = $null; publisher = $null; owner = $null; startTime = $null }
+        # UTC to the second: the same form the stop-process action compares against, so a reused PID is detected.
+        try { if ($p -and $p.CreationDate) { $entry.startTime = ([datetime]$p.CreationDate).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss') } } catch { }
         if ($path -and $detailed -lt $script:MaxProcessDetails) {
             if (-not $sigCache.ContainsKey($path)) { $sigCache[$path] = Get-FileSignatureInfo -Path $path; $detailed++ }
             $s = $sigCache[$path]; $entry.signature = $s.status; $entry.signed = ($s.status -eq 'Valid'); $entry.publisher = $s.publisher

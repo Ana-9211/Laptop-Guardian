@@ -65,8 +65,8 @@ button { font: inherit; color: inherit; }
 .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.crit { background: var(--crit); } .dot.info { background: var(--info); }
 
 /* forms */
-input, select, textarea { font: inherit; color: var(--text); background: var(--sunken); border: 1px solid var(--line-strong); border-radius: var(--r); padding: 5px 10px; min-width: 0; transition: border-color var(--t-fast), box-shadow var(--t-fast); }
-input:hover, select:hover, textarea:hover { border-color: var(--muted); }
+input, select, textarea { font: inherit; color: var(--text); background: var(--sunken); border: 1px solid var(--control-border); border-radius: var(--r); padding: 5px 10px; min-width: 0; transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+input:hover, select:hover, textarea:hover { border-color: var(--text-2); }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
 input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); padding: 0; }
 input[type="number"] { width: 110px; font-family: var(--mono); }
@@ -76,7 +76,7 @@ label.field > span { font-size: 12px; color: var(--text-2); font-weight: 600; }
 .search input { padding-left: 30px; width: 100%; } .search svg { position: absolute; left: 9px; top: 50%; margin-top: -7px; pointer-events: none; width: 14px; height: 14px; color: var(--muted); }
 .switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
 .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
-.switch .track { width: 34px; height: 19px; border-radius: 10px; background: var(--line-strong); position: relative; transition: background var(--t-med); flex: none; }
+.switch .track { width: 34px; height: 19px; border-radius: 10px; background: var(--control-border); position: relative; transition: background var(--t-med); flex: none; }
 .switch .track::after { content: ""; position: absolute; left: 2px; top: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform var(--t-med) var(--ease); }
 .switch input:checked + .track { background: var(--accent); }
 .switch input:checked + .track::after { transform: translateX(15px); }
@@ -89,6 +89,7 @@ label.field > span { font-size: 12px; color: var(--text-2); font-weight: 600; }
 .tabs button:hover { color: var(--text); }
 .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 .tabs .n { font: 600 11px var(--mono); color: var(--muted); background: var(--sunken); border-radius: 8px; padding: 0 6px; }
+.tabpanel { display: grid; gap: 18px; align-content: start; } .tabpanel:focus-visible { outline-offset: 4px; }
 .seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r); }
 .seg button { background: transparent; border: 0; padding: 3px 11px; cursor: pointer; color: var(--text-2); font-size: 12.5px; border-radius: 6px; transition: background var(--t-fast), color var(--t-fast); }
 .seg button:hover { color: var(--text); }

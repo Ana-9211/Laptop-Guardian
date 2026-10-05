@@ -36,10 +36,12 @@ function niceTicks(min: number, max: number, n = 4) {
 interface LineProps {
   x: string[]; series: Series[]; height?: number; unit?: string; min?: number; max?: number; digits?: number;
   area?: boolean; title: string; threshold?: { value: number; label: string }; hideLegend?: boolean;
+  /** Shown when there is nothing to plot. The defaults describe the scan metrics; other charts say what they are waiting for. */
+  emptyTitle?: string; emptyHint?: string;
 }
 
 /** Multi-series line/area chart: crosshair tooltip, keyboard navigation, data-table fallback. */
-export function LineChart({ x, series, height = 200, unit = '', min, max, digits = 1, area, title, threshold, hideLegend }: LineProps) {
+export function LineChart({ x, series, height = 200, unit = '', min, max, digits = 1, area, title, threshold, hideLegend, emptyTitle = 'No data for this range', emptyHint = 'Metrics appear after the first daily scan.' }: LineProps) {
   const [ref, W] = useWidth();
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
@@ -69,7 +71,7 @@ export function LineChart({ x, series, height = 200, unit = '', min, max, digits
   const xt = n <= 1 ? [0] : [0, Math.round((n - 1) / 3), Math.round((2 * (n - 1)) / 3), n - 1];
   const tipLeft = hover == null ? 0 : Math.min(W - 80, Math.max(80, px(hover)));
 
-  if (!n || !vals.length) return <div ref={ref} className="empty" style={{ height }}><b>No data for this range</b><span>Metrics appear after the first daily scan.</span></div>;
+  if (!n || !vals.length) return <div ref={ref} className="empty" style={{ height }}><b>{emptyTitle}</b><span>{emptyHint}</span></div>;
   return (
     <div className="chart" ref={ref}>
       <svg width={W} height={height} role="img" tabIndex={0} aria-label={`${title}. ${series.map((s) => s.label).join(', ')}. Use left and right arrow keys to inspect values.`}
@@ -116,19 +118,22 @@ export function Sparkline({ values, color = 'var(--accent)', w = 84, h = 28 }: {
 }
 
 /** Vertical bars (counts per run) with per-bar hover title + visible tooltip. */
-export function BarChart({ x, values, color, height = 140, title, unit = '' }: { x: string[]; values: (number | undefined)[]; color: string; height?: number; title: string; unit?: string }) {
+export function BarChart({ x, values, color, height = 140, title, unit = '', emptyTitle = 'No data', emptyHint }: { x: string[]; values: (number | undefined)[]; color: string; height?: number; title: string; unit?: string; emptyTitle?: string; emptyHint?: string }) {
   const [ref, W] = useWidth();
   const [hover, setHover] = useState<number | null>(null);
+  const [table, setTable] = useState(false);
   const m = { l: 30, r: 8, t: 8, b: 20 };
   const iw = W - m.l - m.r; const ih = height - m.t - m.b;
   const vs = values.map((v) => v ?? 0); const mx = Math.max(1, ...vs);
   const ticks = niceTicks(0, mx, 3);
   const top = ticks[ticks.length - 1];
   const bw = Math.max(2, iw / Math.max(1, vs.length) - 2);
-  if (!vs.length) return <div ref={ref} className="empty"><b>No data</b></div>;
+  if (!vs.length) return <div ref={ref} className="empty"><b>{emptyTitle}</b>{emptyHint && <span>{emptyHint}</span>}</div>;
+  const n = vs.length;
   return (
     <div className="chart" ref={ref}>
-      <svg width={W} height={height} role="img" aria-label={title} onMouseLeave={() => setHover(null)}>
+      <svg width={W} height={height} role="img" tabIndex={0} aria-label={`${title}. Use left and right arrow keys to inspect each value.`} onMouseLeave={() => setHover(null)} onBlur={() => setHover(null)}
+        onKeyDown={(e) => { if (e.key === 'ArrowRight') { e.preventDefault(); setHover((h) => Math.min(n - 1, (h ?? -1) + 1)); } else if (e.key === 'ArrowLeft') { e.preventDefault(); setHover((h) => Math.max(0, (h ?? n) - 1)); } else if (e.key === 'Home') { e.preventDefault(); setHover(0); } else if (e.key === 'End') { e.preventDefault(); setHover(n - 1); } else if (e.key === 'Escape') setHover(null); }}>
         <g className="grid">{ticks.map((t) => { const y = m.t + ih - (t / top) * ih; return <g key={t}><line x1={m.l} x2={W - m.r} y1={y} y2={y} /><text x={m.l - 5} y={y + 4} textAnchor="end">{t}</text></g>; })}</g>
         {vs.map((v, i) => { const bx = m.l + (i / vs.length) * iw + 1; const bh = (v / top) * ih; return (
           <g key={x[i]} onMouseEnter={() => setHover(i)}>
@@ -138,6 +143,15 @@ export function BarChart({ x, values, color, height = 140, title, unit = '' }: {
         <text x={m.l} y={height - 4}>{fmtDay(x[0])}</text><text x={W - m.r} y={height - 4} textAnchor="end">{fmtDay(x[x.length - 1])}</text>
       </svg>
       {hover != null && <div className="tip" style={{ left: Math.min(W - 80, Math.max(80, m.l + ((hover + .5) / vs.length) * iw)), top: 0 }}><b>{fmtFull(x[hover])}</b><div><span>{title}</span><span className="num">{vs[hover]}{unit}</span></div></div>}
+      <div className="row" style={{ marginTop: 6 }}>
+        <button className="btn ghost sm" onClick={() => setTable(!table)} aria-expanded={table}>{table ? 'Hide table' : 'View as table'}</button>
+      </div>
+      {table && (
+        <div className="table-wrap" style={{ maxHeight: 220, marginTop: 6, border: '1px solid var(--line)', borderRadius: 6 }}>
+          <table className="t" aria-label={`${title} data`}><thead><tr><th>Time</th><th className="r">{title}</th></tr></thead>
+            <tbody>{x.map((t, i) => <tr key={t}><td>{fmtFull(t)}</td><td className="r num">{vs[i]}{unit}</td></tr>)}</tbody></table>
+        </div>
+      )}
     </div>
   );
 }

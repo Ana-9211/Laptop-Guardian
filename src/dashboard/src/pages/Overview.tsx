@@ -9,6 +9,7 @@ import { ActionTimeline, RunButtons } from '../components/common';
 import { AttentionCard, TaskStatusCard } from '../components/AttentionPanels';
 import { useStatus } from '../state/StatusProvider';
 import { ago, fmtFull, until, scoreTone, NA, riskTone } from '../format';
+import { kindLabel } from '../labels';
 
 type Trend = 'health' | 'storage' | 'load';
 
@@ -30,11 +31,11 @@ function RecList({ items }: { items: Recommendation[] }) {
   return (
     <div className="list">
       {items.map((r) => (
-        <button key={r.id} className="list-row" data-tone={riskTone(r.risk) || undefined} onClick={() => go(r.kind === 'process' ? `/processes?rec=${r.id}` : '/recommendations')}>
+        <button key={r.id} className="list-row" data-tone={riskTone(r.risk) || undefined} onClick={() => go(r.kind === 'process' ? `/processes?rec=${r.id}` : `/recommendations?id=${r.id}`)}>
           <span className="what">
             <b className="trunc">{r.title}</b>
             <span className="small t2 trunc">{r.whatIsIt || r.whyFlagged?.[0] || r.suggestedAction}</span>
-            <span className="small muted">{r.kind}<Sep />{(r.consecutiveDays ?? 0) > 1 ? `${r.consecutiveDays} days in a row` : `seen ${ago(r.lastSeen)}`}</span>
+            <span className="small muted">{kindLabel(r.kind)}<Sep />{(r.consecutiveDays ?? 0) > 1 ? `${r.consecutiveDays} days in a row` : `seen ${ago(r.lastSeen)}`}</span>
           </span>
           <RiskBadge risk={r.risk} />
           <Icon name="chev" size={14} />
@@ -105,7 +106,7 @@ export default function Overview() {
             <div className="row hero-meta small muted">
               <span className="row tight"><Icon name="clock" size={13} />{scanText}</span><Sep />
               <span>{attention === 0 ? 'Nothing needs attention' : attention === 1 ? '1 item needs attention' : `${attention} items need attention`}</span><Sep />
-              <span>Next daily scan {until(o.next.daily)}</span>
+              <span>Next daily scan: {until(o.next.daily)}</span>
             </div>
           </div>
           <div className="hero-actions">
@@ -120,6 +121,7 @@ export default function Overview() {
           <Vital label="CPU" href="#/processes" hint="Open Processes" tone={(sys?.cpu?.usagePct ?? 0) > 85 ? 'warn' : ''} value={sys?.cpu?.usagePct?.toFixed(0) ?? NA} unit="%" bar={sys?.cpu?.usagePct} sub={sys?.cpu?.name?.replace(/\(R\)|\(TM\)/g, '')} spark={o.metrics.slice(-30).map((m) => m.cpuPct)} sparkColor="var(--s1)" />
           <Vital label="Battery" href="#/health" hint="Open Health" tone={bat?.present && bat.pct < 20 && !bat.onAC ? 'warn' : ''} value={bat?.present ? `${bat.pct}` : 'n/a'} unit={bat?.present ? '%' : undefined} bar={bat?.present ? bat.pct : undefined} sub={bat?.present ? (bat.onAC ? (bat.charging ? 'Charging' : 'On AC') : 'On battery') : 'No battery detected'} />
         </div>
+        {d && <p className="small muted" style={{ margin: 0 }}>Security, storage, memory, CPU and battery show the state at the last scan ({ago(d.generatedAt)}), not live.</p>}
       </section>
 
       <div className="split">
@@ -132,17 +134,18 @@ export default function Overview() {
         <div className="col">
           <TaskStatusCard />
           <Card title="Recent activity" actions={<a className="small" href="#/logs">Open log</a>}>
-            {!acts.data ? <SkeletonCards n={1} /> : acts.data.length === 0 ? <Empty icon="activity" title="No activity yet">Scans, recommendations and your own actions are listed here.</Empty> : <ActionTimeline rows={acts.data} max={6} />}
+            {acts.error ? <ErrorState error={acts.error} onRetry={acts.reload} /> : !acts.data ? <SkeletonCards n={1} /> : acts.data.length === 0 ? <Empty icon="activity" title="No activity yet">Scans, recommendations and your own actions are listed here.</Empty> : <ActionTimeline rows={acts.data} max={6} />}
           </Card>
         </div>
       </div>
 
       <Card title="Trends" actions={<RangeSelect value={range} onChange={setRange} />}>
         <div className="stack">
-          <Tabs<Trend> label="Trend" value={trend} onChange={setTrend} items={[{ id: 'health', label: 'Health score' }, { id: 'storage', label: 'Free space' }, { id: 'load', label: 'CPU and RAM' }]} />
+          <Tabs<Trend> label="Trend" value={trend} onChange={setTrend} items={[{ id: 'health', label: 'Health score' }, { id: 'storage', label: 'Free space' }, { id: 'load', label: 'CPU and RAM' }]}>
           {trend === 'health' && <LineChart title="Health score" x={x} height={220} min={0} max={100} area series={[{ id: 'h', label: 'Health', color: 'var(--accent)', values: metrics.map((m) => m.healthScore) }]} hideLegend digits={0} threshold={{ value: 85, label: 'healthy' }} />}
           {trend === 'storage' && <LineChart title="Free disk space" x={x} height={220} unit=" GB" area series={[{ id: 'free', label: 'Free space', color: SERIES_COLORS.disk, values: metrics.map((m) => m.diskFreeGB) }]} />}
           {trend === 'load' && <LineChart title="CPU and RAM" x={x} height={220} unit="%" min={0} max={100} digits={0} series={[{ id: 'cpu', label: 'CPU', color: SERIES_COLORS.cpu, values: metrics.map((m) => m.cpuPct) }, { id: 'ram', label: 'RAM', color: SERIES_COLORS.ram, values: metrics.map((m) => m.ramPct) }]} />}
+          </Tabs>
         </div>
       </Card>
 
