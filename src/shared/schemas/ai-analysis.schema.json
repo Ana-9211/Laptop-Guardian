@@ -1,0 +1,7 @@
+{"$schema":"http://json-schema.org/draft-07/schema#","title":"AiAnalysis (raw Gemini response)","type":"object",
+ "required":["classification","what_is_it","why_flagged","risk","suggested_action","confidence"],
+ "properties":{
+  "classification":{"type":"string"},"what_is_it":{"type":"string"},"why_flagged":{"type":"string"},"risk":{"enum":["LOW","MEDIUM","HIGH","UNKNOWN"]},
+  "persistence":{"type":"string"},"suggested_action":{"enum":["Leave running","Review","Stop temporarily","Disable startup","Disable scheduled task","Uninstall associated application","Investigate further"]},
+  "temporary_stop_method":{"type":"string"},"persistence_removal_method":{"type":"string"},"consequences":{"type":"string"},
+  "confidence":{"type":"number","minimum":0,"maximum":1},"evidence":{"type":"array","items":{"type":"string"}},"warnings":{"type":"array","items":{"type":"string"}}}}

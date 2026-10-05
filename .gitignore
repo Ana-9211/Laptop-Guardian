@@ -1,0 +1,22 @@
+# Secrets & local state - NEVER commit
+data/secrets/
+data/**
+!data/**/.gitkeep
+reports/**
+!reports/**/.gitkeep
+logs/
+config/config.json
+config/process-policy.json
+config/cleanup-policy.json
+*.dpapi
+*.key
+.env
+.env.*
+# Node
+node_modules/
+src/dashboard/dist/
+npm-debug.log*
+# Misc
+*.tmp
+*.log
+Thumbs.db
