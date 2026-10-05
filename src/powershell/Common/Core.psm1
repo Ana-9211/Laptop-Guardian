@@ -25,7 +25,6 @@ function Get-GuardianPath {
     switch ($Name) {
         'Config'          { Join-Path $r 'config\config.json' }
         'ProcessPolicy'   { Join-Path $r 'config\process-policy.json' }
-        'CleanupPolicy'   { Join-Path $r 'config\cleanup-policy.json' }
         'Actions'         { Join-Path $r 'data\actions\actions.jsonl' }
         'Metrics'         { Join-Path $r 'data\metrics\metrics.jsonl' }
         'Recommendations' { Join-Path $r 'data\recommendations\recommendations.json' }
@@ -160,13 +159,19 @@ function Get-DefaultConfig {
             daily  = [ordered]@{ enabled = $true; time = '19:00' }
             weekly = [ordered]@{ enabled = $true; day = 'Saturday'; time = '02:00'; shutdownTime = '05:00'; shutdownEnabled = $true }
         }
-        safety        = [ordered]@{ safeMode = $true; requireConfirmation = $true; autoKillBlacklisted = $true; automationPaused = $false; weeklyShutdown = $true }
-        ai            = [ordered]@{ enabled = $false; model = 'gemini-2.5-flash'; maxRequestsPerRun = 15; maxProcessesPerRun = 10; scope = 'metadata'; dailyTokenBudget = 200000 }
+        safety        = [ordered]@{ safeMode = $true; autoKillBlacklisted = $true; automationPaused = $false; weeklyShutdown = $true }
+        ai            = [ordered]@{ enabled = $false; model = 'gemini-2.5-flash'; maxRequestsPerRun = 15; maxProcessesPerRun = 10; dailyTokenBudget = 200000 }
         cleanup       = [ordered]@{ tempFiles = $true; crashDumps = $true; caches = $true; recycleBin = 'never'; tempMinAgeDays = 2 }
         storage       = [ordered]@{ drives = @('C:'); excludedDirs = @(); protectedDirs = @(); minLargeFileMB = 500; oldFileDays = 365; duplicateScan = $true; duplicateMinMB = 50 }
         thresholds    = [ordered]@{ cpuPct = 50; memoryMB = 1500; diskFreeWarnPct = 15; diskFreeCritPct = 8 }
-        retention     = [ordered]@{ reportsDays = 0; metricsDays = 0; actionsDays = 0 }
-        dashboard     = [ordered]@{ theme = 'system' }
+        retention     = [ordered]@{ reportsDays = 0 }
+        # Network Guard. Deep capture and DNS filtering are off by default and are switched on only through their own confirmed actions.
+        network       = [ordered]@{
+            snapshot      = [ordered]@{ auto = $true; everyMinutes = 60; retentionDays = 30; maxMB = 20 }
+            deep          = [ordered]@{ enabled = $false; retentionDays = 7; maxMB = 100; sampleSec = 5 }
+            dnsFiltering  = [ordered]@{ enabled = $false }
+            thresholds    = [ordered]@{ burstConnections = 100; burstDestinations = 40; unknownDestinations = 8; persistentDestinations = 5; newConnectionsPerMinute = 50 }
+        }
     }
 }
 
@@ -193,22 +198,8 @@ function Merge-Defaults {
 function Get-GuardianConfig {
     $raw = Read-JsonFile -Path (Get-GuardianPath 'Config') -Default $null
     $merged = Merge-Defaults (Get-DefaultConfig) $raw
-    # config/cleanup-policy.json (edited from the dashboard) overrides config.cleanup keys
-    $cp = Read-JsonFile -Path (Get-GuardianPath 'CleanupPolicy') -Default $null
-    if ($cp) {
-        foreach ($k in @($merged.cleanup.Keys)) {
-            if (-not ((Get-PropNames $cp) -contains $k) -or $null -eq $cp.$k) { continue }
-            $v = $cp.$k; $okv = $false
-            switch ($k) {
-                'recycleBin' { $okv = ($v -in @('never', 'older-than-30-days', 'always')) }
-                'tempMinAgeDays' { $okv = ($v -is [int] -or $v -is [long] -or $v -is [double]) -and $v -ge 1 -and $v -le 3650 }
-                default { $okv = ($v -is [bool]) }
-            }
-            if ($okv) { $merged.cleanup[$k] = $v }
-        }
-    }
     # Fail closed: a null/non-boolean value in the safety block must never disable a protection
-    foreach ($sk in 'safeMode', 'requireConfirmation') { if ($merged.safety[$sk] -isnot [bool]) { $merged.safety[$sk] = $true } }
+    if ($merged.safety['safeMode'] -isnot [bool]) { $merged.safety['safeMode'] = $true }
     foreach ($sk in 'autoKillBlacklisted', 'automationPaused', 'weeklyShutdown') { if ($merged.safety[$sk] -isnot [bool]) { $merged.safety[$sk] = $(if ($sk -eq 'automationPaused') { $true } else { $false }) } }
     # Normalise through JSON so callers get PSCustomObject with dot access
     return ($merged | ConvertTo-Json -Depth 10 | ConvertFrom-Json)

@@ -14,6 +14,5 @@ export const SCAN_START_RECHECK_MS = [1_500, 4_000] as const;
 export const TOAST_MS = { default: 4_500, error: 8_000 } as const;
 export const MAX_TOASTS = 4;
 export const CLOCK_TICK_MS = { fast: 1_000, relative: 5_000, slow: 30_000 } as const;
-export const SCROLL_TOP_ON_NAVIGATE = true;
 /** How often the confirmation dialog checks on an elevated run (Windows prompt answered? finished?). */
 export const ACTION_POLL_MS = 2_000;

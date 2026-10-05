@@ -25,7 +25,7 @@ const ACK_TEXT: Record<string, string> = {
   'suspicious-lookalike': 'I understand this program uses the name of a Windows system process but is not the real one. I want to stop it anyway.',
   'dns-limits': 'I understand blocking is by exact host name only, and programs that use their own encrypted DNS can bypass it.',
 };
-const ADMIN_TEXT = { yes: 'Needs administrator permission', maybe: 'May need administrator permission', no: 'No administrator permission needed' } as const;
+const ADMIN_TEXT = { yes: 'Needs administrator permission', no: 'No administrator permission needed' } as const;
 
 const paramRows = (p: Record<string, string | number>): [string, ReactNode][] => Object.entries(p).filter(([k]) => !k.startsWith('_')).map(([k, v]) => [k, <code key={k}>{String(v)}</code>]);
 

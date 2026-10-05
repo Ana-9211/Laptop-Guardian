@@ -379,7 +379,7 @@ test('HTTP: plan, cancel and execute are mutation-protected and refuse protected
     const f = await b.get('/api/remediation/findings');
     assert.strictEqual(f.status, 200); assert.ok(Array.isArray(f.json.findings));
     assert.strictEqual((await b.get('/api/remediation/result/not-a-ticket')).status, 400);
-    assert.strictEqual((await b.get('/api/remediation/catalog')).json.actions.length, R.CATALOG.actions.length);
+    assert.strictEqual((await b.get('/api/remediation/catalog')).status, 404, 'the catalog is internal; there is no endpoint for it');
   } finally { b.close(); }
 });
 

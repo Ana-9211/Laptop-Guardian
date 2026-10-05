@@ -78,7 +78,7 @@ The installer: validates prerequisites, creates `data/ reports/ logs/ config/`, 
 
 ## Prerequisites
 * Windows 10/11, Windows PowerShell 5.1 (ships with Windows). PowerShell 7 is not required.
-* Node.js 18+ (the dashboard bridge). npm is needed once to build the dashboard.
+* Node.js 22+ (the dashboard bridge). npm is needed once to build the dashboard.
 * Microsoft Defender cmdlets for the Defender checks (if a third-party antivirus replaced Defender, those checks report "unavailable").
 * Administrator rights are only needed for SFC, DISM, and `Repair-Volume -Scan`. Everything else runs as your normal user.
 * Optional: a Gemini API key for AI analysis.
@@ -95,19 +95,25 @@ LaptopGuardian/
 │   │   │                Security.psm1 (protected processes/paths, command allowlist, Recycle Bin, AI validation)
 │   │   ├── Processes/   Processes (snapshot, signatures, flags) · Persistence (services/tasks/startup)
 │   │   │                Policy (blacklist/whitelist/ignored + enforcement) · Recommendations (engine + store)
-│   │   ├── Health/ Defender/ Network/ Windows/ Services/   collectors
+│   │   ├── Health/ Defender/ Network/ Windows/ Services/   collectors (Network/Guard.psm1 is the read-only Network Guard snapshot)
 │   │   ├── Storage/     Storage.psm1 + FsWalker.cs (fast, junction-safe, deadline-aware walker) + allowlisted cleanup
 │   │   ├── Files/       candidate detection, conservative classification, duplicate hashing (cached)
 │   │   ├── AI/          Gemini client, privacy scrubbing, enrichment, weekly briefing
 │   │   ├── Reports/     JSON + HTML reports, metrics history, trend/recurrence analysis
 │   │   ├── Pipeline/    shared orchestration (every collector isolated by Invoke-Safely)
 │   │   ├── Shutdown/    controlled shutdown
-│   │   └── Actions/     small, fixed scripts the bridge calls after user confirmation
-│   ├── bridge/          Node server (127.0.0.1 only): REST API + static dashboard
+│   │   ├── Scheduling/  TaskPlan.psm1 (what Task Scheduler should look like; drift detection)
+│   │   ├── Launcher/    Launcher.psm1 (finds or starts the bridge, opens the app window, shortcuts)
+│   │   ├── Tools/       New-GuardianIcon.ps1
+│   │   └── Actions/     the Action Center: Remediation.psm1 (plan/validate/execute), NetworkActions.psm1, Invoke-GuardianAction.ps1,
+│   │                    Request-ElevatedAction.ps1 (the one fixed UAC launch), plus small fixed scripts
+│   ├── bridge/          Node server (127.0.0.1 only): server.js (REST API + static dashboard) and lib/ (status, remediation, findings,
+│   │                    protected targets, Network Guard modules, PowerShell runner)
 │   ├── dashboard/       React + Vite + TypeScript, hand-written CSS, hand-written SVG charts
-│   └── shared/schemas/  JSON schemas (report, metric, recommendation, action event, AI analysis, policy)
-├── config/              config.json · process-policy.json · cleanup-policy.json   (git-ignored)
-├── data/                latest/ metrics/ actions/ recommendations/ state/ secrets/    (git-ignored)
+│   └── shared/          action-catalog.json (the closed list of allowlisted fixes, read by Node and PowerShell) and schemas/
+│                        (JSON schemas for report, metric, recommendation, action event, AI analysis, policy)
+├── config/              config.json · process-policy.json   (git-ignored)
+├── data/                latest/ metrics/ actions/ recommendations/ network/ state/ secrets/    (git-ignored)
 ├── reports/daily/YYYY-MM-DD/  reports/weekly/YYYY-Www/   (report.json + report.html)
 ├── logs/                human-readable text log per day
 ├── tests/               Pester (PowerShell) + node:test (bridge); see Testing
@@ -123,8 +129,8 @@ Every finding passes through five distinct stages. Only the last two can change 
 1. **Observation.** Read-only collection: processes (path, signature, parent, CPU/RAM, services, tasks, startup entries), disks, Defender, firewall, event logs, network, storage. No judgement yet.
 2. **Deterministic analysis.** Local rules turn observations into *flags* (`high-cpu`, `high-memory`, `persistent`, `unusual-location`, `unsigned`, `duplicate`, `blacklisted`…). Rules are explicit and testable. "Unfamiliar" is never treated as "malicious": an unknown process with one weak signal is `UNKNOWN`/`LOW`, never `HIGH`.
 3. **AI analysis (optional).** Only the highest-value process recommendations (limited per run) are sent to Gemini as *structured metadata* (no file contents, command-line arguments, user name, or secrets). The reply must be JSON that passes a strict schema; enums are checked, text is sanitised, and any shell text it proposes must match a hard allowlist or it is dropped. AI output is stored next to — never instead of — the deterministic result. **Risk** (what could go wrong) and **confidence** (how sure the identification is) are stored separately. Weekly, Gemini also receives locally-computed numbers and writes a short briefing; patterns without cited evidence are discarded.
-4. **Recommendation.** A recommendation explains: what it is, why it was flagged (specific evidence), whether it persists and via what mechanism, the suggested action, how to stop it, how to prevent a restart, consequences, risk and confidence. Commands are **displayed only** (syntax-highlighted, with *Copy*, admin/reversible/risk badges). Guardian never executes a displayed command.
-5. **User action / automatic policy.** You choose *Kill once / Blacklist / Whitelist / Ignore*, or move a file to the Recycle Bin, each with a confirmation dialog. Only entries **you** put on the blacklist are ever terminated automatically, and only when Safe Mode is off.
+4. **Recommendation.** A recommendation explains: what it is, why it was flagged (specific evidence), whether it persists and via what mechanism, the suggested action, how to stop it, how to prevent a restart, consequences, risk and confidence. The recommendation's commands are **displayed only** (syntax-highlighted, with *Copy*, admin/reversible/risk badges); Guardian never executes a displayed command. A fix you can run from the dashboard is a different thing: it is one of the fixed actions in the Action Center catalog, shown as an exact plan you confirm.
+5. **User action / automatic policy.** You choose *Kill once / Blacklist / Whitelist / Ignore*, or move a file to the Recycle Bin, each with a confirmation dialog (Guardian checks the drive and Recycle Bin settings first, and confirms the item is in the bin afterwards). Only entries **you** put on the blacklist are ever terminated automatically, and only when Safe Mode is off.
 
 Process risk levels are `LOW / MEDIUM / HIGH / UNKNOWN`. File classes are `KEEP / REVIEW / LIKELY_UNNECESSARY / HIGH_RISK / UNKNOWN` and default to `REVIEW` when uncertain.
 
@@ -141,7 +147,8 @@ Process risk levels are `LOW / MEDIUM / HIGH / UNKNOWN`. File classes are `KEEP 
 | Weekly shutdown | Yes, only if **all** gates pass | run started by the Task Scheduler action (`Weekly.ps1 -Scheduled`; manual and dashboard runs never shut down), *Safety → weekly shutdown* and *Schedule → shutdown* both on, automation not paused, report files written and verified, and the 05:00 target still lies ahead (within 6 h). Minimum 5 min warning. Cancel any time with `shutdown /a` |
 | Kill an unknown process | **Never automatic** | you click *Kill once* |
 | Delete / recycle any file | **Never automatic** | you click *Move to Recycle Bin*; permanent deletion is not offered |
-| Uninstall software, edit registry/services/tasks/firewall, disable Defender | **Never** | Guardian only shows the command |
+| Disable startup entries, scheduled tasks or services; firewall rules; flush DNS; Defender update or scan | **Never automatic** | only as a fix you confirm in the Action Center (a closed list, exact plan, verified afterwards, with an undo where possible) |
+| Uninstall software, edit the registry, disable Defender or the firewall | **Never** | Guardian opens Revo Uninstaller for you but never removes software itself |
 | `sfc /scannow`, `DISM /RestoreHealth` | **Never** | shown as a suggestion only |
 
 ## Scheduling
@@ -165,7 +172,7 @@ Tasks run **only while you are logged on** (the screen may be locked). That is r
 Start: `.\src\powershell\Start-Dashboard.ps1` (Start Menu shortcut, or automatically at logon via the *Dashboard Bridge* task).
 Development: `cd src\dashboard; npm run dev` (proxies `/api` to the bridge; set `GUARDIAN_DEV_HOST=127.0.0.1:5173` for the bridge).
 
-Pages: **Overview** (health score, security, storage, RAM, CPU, battery, last/next scan, three trend charts with 7/30/90/all ranges, recent recommendations, action timeline, errors, security status, weekly AI briefing) · **Daily / Weekly** (current report, history, compare) · **Processes** (sortable table, filters for flagged / persistent / high-resource / recommended / blacklisted / whitelisted, click for the detail drawer with identity, resources, parent, startup, service, tasks, AI analysis, risk and confidence, exact stop and prevent-restart commands, consequences, action history) · **Files & Storage** · **Health** (CPU, RAM, disk, battery, Windows, Defender, firewall, network) · **Reports** (open, search, filter, compare, export, delete) · **Logs** · **Recommendations** · **Blacklist** · **Whitelist** · **Settings**. Dark, light and automatic (follow Windows) themes persist.
+Pages: **Overview** (health score, security, storage, RAM, CPU, battery, last/next scan, three trend charts with 7/30/90/all ranges, recent recommendations, action timeline, errors, security status, weekly AI briefing) · **Daily / Weekly** (current report, history, compare) · **Processes** (sortable table, filters for flagged / persistent / high-resource / recommended / blacklisted / whitelisted, click for the detail drawer with identity, resources, parent, startup, service, tasks, AI analysis, risk and confidence, exact stop and prevent-restart commands, consequences, action history) · **Files & Storage** · **Health** (CPU, RAM, disk, battery, Windows, Defender, firewall, network) · **Reports** (open, search, filter, compare, export, delete) · **Logs** · **Recommendations** · **Blacklist** · **Whitelist** · **Settings**, plus **Action Center** (guided fixes) and **Network Guard** (see below): 14 pages in all. Dark, light and automatic (follow Windows) themes persist.
 
 **Layout and interaction.** The sidebar collapses to an icon rail (remembered; on narrow screens it becomes a slide-in menu). The command bar shows the section, page and a one-line status ("2 items need attention", "Daily audit in progress"), the live bridge connection (Connected / Stale / Offline), when data was last refreshed, **Refresh status**, the AI indicator and the theme switch. Overview opens with the health verdict and five vital signs (each a link to the page that explains it), then what needs attention and recommendations (every row is a link), maintenance and recent activity (each entry opens its log line), and trends. Motion is short and CSS-only and is switched off by the operating system's "reduce motion" setting. The dashboard needs a Chromium-based browser (Edge or Chrome 123+), which the app-style launcher already uses.
 
@@ -177,16 +184,19 @@ Pages: **Overview** (health score, security, storage, RAM, CPU, battery, last/ne
 {
   "schedule": { "daily": {"enabled": true, "time": "19:00"},
                 "weekly": {"enabled": true, "day": "Saturday", "time": "02:00", "shutdownTime": "05:00", "shutdownEnabled": true} },
-  "safety":   { "safeMode": true, "requireConfirmation": true, "autoKillBlacklisted": true, "automationPaused": false, "weeklyShutdown": true },
+  "safety":   { "safeMode": true, "autoKillBlacklisted": true, "automationPaused": false, "weeklyShutdown": true },
   "ai":       { "enabled": false, "model": "gemini-2.5-flash", "maxRequestsPerRun": 15, "maxProcessesPerRun": 10, "dailyTokenBudget": 200000 },
   "cleanup":  { "tempFiles": true, "crashDumps": true, "caches": true, "recycleBin": "never", "tempMinAgeDays": 2 },
   "storage":  { "drives": ["C:"], "excludedDirs": [], "protectedDirs": [], "minLargeFileMB": 500, "oldFileDays": 365, "duplicateScan": true, "duplicateMinMB": 50 },
   "thresholds": { "cpuPct": 50, "memoryMB": 1500, "diskFreeWarnPct": 15, "diskFreeCritPct": 8 },
-  "retention": { "reportsDays": 0, "metricsDays": 0, "actionsDays": 0 }   // 0 = keep forever (nothing is ever auto-deleted without an explicit retention policy)
+  "retention": { "reportsDays": 0 },   // 0 = keep every report forever; metrics history and the audit log are never deleted automatically
+  "network":   { "snapshot": {"auto": true, "everyMinutes": 60, "retentionDays": 30, "maxMB": 20},
+                "deep": {"enabled": false, "retentionDays": 7, "maxMB": 100, "sampleSec": 5},   // switched on only from Network Guard, with confirmation
+                "dnsFiltering": {"enabled": false} }                                          // likewise
 }
 ```
 
-`safeMode`, `automationPaused`, `autoKillBlacklisted`, `weeklyShutdown` are the prominent **Safety** controls. Cleanup toggles can also live in `config/cleanup-policy.json` (overrides `config.cleanup`).
+`safeMode`, `automationPaused`, `autoKillBlacklisted`, `weeklyShutdown` are the prominent **Safety** controls. `config.cleanup` is the only place cleanup settings live. Changes that lower a safety margin (Safe Mode off, auto-kill on, fewer protected folders, emptying the Recycle Bin on every run) are refused by the bridge until you confirm them, and are logged.
 
 ## Gemini setup
 
@@ -208,12 +218,12 @@ Pages: **Overview** (health score, security, storage, RAM, CPU, battery, last/ne
 
 * `reports/daily/2026-10-03/report.json` + `report.html` (self-contained, scripts blocked by CSP) and `reports/weekly/2026-W40/…`. `data/latest/*.json` always holds the newest.
 * History: `data/metrics/metrics.jsonl` (one point per run: CPU, RAM, disk, process counts, flagged, recommendations, actions, errors, startup, service failures, Defender, health score…), `data/actions/actions.jsonl` (every action: timestamp, category, severity, action, target, result, actor, reason, related recommendation, error).
-* Retention is **off** (keep everything) unless you set `retention.*Days` > 0. Reports can be deleted explicitly from the dashboard.
-* Formats are documented in `docs/DATA-CONTRACT.md` and validated by schemas in `src/shared/schemas/`.
+* Retention is **off** (keep everything) unless you set `retention.reportsDays` > 0; only report folders are ever pruned, and never ones that contain links. Metrics history and the audit log are kept. Reports can be deleted explicitly from the dashboard.
+* Formats are documented in `docs/DATA-CONTRACT.md`. The JSON schemas in `src/shared/schemas/` describe the same shapes and the test suite checks fixtures and generated reports against them; the running agents do not validate their own output against them.
 
 ## Security model
 
-* Local-only: the bridge binds `127.0.0.1`, rejects foreign `Host` headers (DNS-rebinding), requires a custom header and same-origin `Origin` on every mutating request, emits no CORS headers, sets a strict CSP, caps request bodies, and serves static files with traversal protection.
+* Local-only: the bridge binds `127.0.0.1`, rejects foreign `Host` headers (DNS-rebinding), requires a per-start session token on every API call (the launcher passes it to the app window in the URL fragment), refuses cross-site fetches, requires a custom header and same-origin `Origin` on every mutating request, emits no CORS headers, sets a strict CSP, caps request bodies, and serves static files with traversal protection.
 * No arbitrary command execution: the bridge only launches **fixed scripts** with typed arguments (`execFile`, never a shell); the API key travels on stdin.
 * Kill and recycle requests must match the latest Guardian snapshot **and** are re-validated by the PowerShell script against a protected list, the live process path, and protected directories.
 * Files go to the **Recycle Bin only**, one file at a time; directories, reparse points, drive/profile roots, Windows, Program Files and user-protected directories are refused.
@@ -262,7 +272,7 @@ Development checks (Node 22.18+; run `npm install` once at the repository root):
 ```powershell
 npm run check          # TypeScript (strict), ESLint incl. react-hooks, ASCII-only dashboard source, Node tests
 npm run build          # production dashboard build
-npm run test:browser   # drives the built dashboard in Edge: all 12 pages, dark/light, 390 px, refresh/offline/scan states
+npm run test:browser   # drives the built dashboard in Edge: every page, dark/light, 390 px, refresh/offline/scan states
 node tests/browser/smoke.mjs --real   # same, read-only against this installation's real data
 ```
 
@@ -275,7 +285,7 @@ Covers configuration, process detection and flagging, persistence mapping, polic
 | Symptom | Fix |
 |---|---|
 | Dashboard won't open | `.\src\powershell\Start-Dashboard.ps1`; check Node ≥ 18 (`node -v`); port in use → change `bridge.port` in config.json |
-| Shortcut shows "Node.js was not found" | Install Node.js 18+ (LTS) from nodejs.org and open Laptop Guardian again. Check with `.\src\powershell\Start-Dashboard.ps1 -Check` |
+| Shortcut shows "Node.js was not found" | Install Node.js 22+ (LTS) from nodejs.org and open Laptop Guardian again. Check with `.\src\powershell\Start-Dashboard.ps1 -Check` |
 | "Port 7878 is in use by another program" | Close that program, or set `bridge.port` in `config\config.json` (1024-65535) and re-run the installer so the shortcuts and tasks agree |
 | Window opens in a normal browser tab, not an app window | Neither Edge nor Chrome was found; install one, or ignore: it works the same |
 | Dashboard shows "Bridge offline" | Click the shortcut again (it restarts the bridge). Details: `logs\launcher.log`, `logs\bridge-err.log` |
@@ -304,7 +314,7 @@ shutdown /a                                   # only if a shutdown is pending an
 * Tasks run only for a logged-on user (DPAPI + interactive session). A cold-powered-off laptop will not run the 02:00 task.
 * Temperature is reported only when Windows exposes `MSAcpi_ThermalZoneTemperature` (often unavailable/admin-only).
 * Without elevation: no SFC/DISM/`Repair-Volume`, process paths of some system services are unreadable (classified by name).
-* The "Recycle Bin older than 30 days" policy is best-effort (Shell COM); `always` uses `Clear-RecycleBin`. Both are permanent.
+* `cleanup.recycleBin: "always"` empties the whole Recycle Bin with `Clear-RecycleBin`; this is permanent and is the only Recycle Bin policy besides `never`.
 * Duplicate detection covers files ≥ `duplicateMinMB` and hashes at most ~30 GB per run; results are display-only.
 * Process "known application" recognition is a curated publisher list + signature check, not a reputation database. Treat classifications as hints.
 * Process history in the drawer comes from reports' top-CPU/top-memory tables.

@@ -25,7 +25,7 @@ export function PolicyPage({ list }: { list: 'blacklist' | 'whitelist' }) {
     try { await api.patch(`/api/policy/${list}/${e.id}`, body); toast('ok', msg); pol.reload(); } catch (x) { toast('error', (x as ApiError).message); }
   };
   const remove = (e: PolicyEntry) => confirm({
-    title: `Remove ${e.name} from the ${list}?`, confirmLabel: 'Remove', danger: isBl ? false : false,
+    title: `Remove ${e.name} from the ${list}?`, confirmLabel: 'Remove', 
     body: isBl ? <>Guardian will stop terminating <code>{e.name}</code>. If it is a nuisance it will be flagged again by the normal checks.</> : <>Guardian may flag and recommend <code>{e.name}</code> again.</>,
     onConfirm: async () => { try { await api.del(`/api/policy/${list}/${e.id}`); toast('ok', `${e.name} removed.`); pol.reload(); } catch (x) { toast('error', (x as ApiError).message); } },
   });

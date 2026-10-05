@@ -15,7 +15,7 @@ import Settings from './pages/Settings';
 
 export interface NavItem { id: string; label: string; icon: IconName; page: ComponentType; group?: string }
 
-/** The twelve pages, in sidebar order. `group` starts a new labelled section. */
+/** The fourteen pages, in sidebar order. `group` starts a new labelled section. */
 export const NAV: NavItem[] = [
   { group: 'Monitor', id: 'overview', label: 'Overview', icon: 'overview', page: Overview },
   { id: 'actions', label: 'Action Center', icon: 'bolt', page: ActionCenter },

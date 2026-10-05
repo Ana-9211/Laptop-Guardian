@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { ApiError, api, network, useQuery } from '../api';
 import type { DeepEvent, NetConnection, NetFirewallRule, NetworkCurrent } from '../types';
 import { Badge, Card, Col, DataTable, Drawer, DownloadButton, Empty, Icon, KV, Sep, useOverlay, useToast } from './ui';
@@ -208,4 +208,3 @@ export function DeepPanel({ current, flow, reload }: { current: NetworkCurrent; 
   );
 }
 
-export function SectionNote({ children }: { children: ReactNode }) { return <p className="small muted">{children}</p>; }

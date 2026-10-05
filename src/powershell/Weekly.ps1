@@ -106,7 +106,6 @@ try {
         } else { [void]$script:incomplete.Add('Filesystem scan (Repair-Volume -Scan) skipped: needs Administrator/time') }
         $script:ctx.Sections | Add-Member -NotePropertyName diskHealth -NotePropertyValue $diskHealth -Force
         $script:ctx.Sections | Add-Member -NotePropertyName fileSystem -NotePropertyValue $fsHealth -Force
-        foreach ($d in $script:ctx.Sections.system.disks) { $m = $diskHealth | Where-Object { $_.media -in 'SSD', 'HDD' } | Select-Object -First 1 }
         return "$($diskHealth.Count) physical disk(s); types: $((@($script:ctx.Sections.system.disks | ForEach-Object { "$($_.drive)=$($_.type)" })) -join ', ')"
     }
 

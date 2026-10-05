@@ -134,7 +134,6 @@ function Test-CommandAllowed {
     if ($Command -match '^(Stop-Process|Stop-Service|Set-Service) -Name ([A-Za-z0-9_.\-]+)') { $n = ($Matches[2] -replace '\.exe$', '').ToLowerInvariant(); if ($script:ProtectedProcessNames -contains $n -or $script:ProtectedServiceNames -contains $n) { return $false } }
     if ($Command -match '^(Stop-Process -Id|taskkill /PID) (\d+)') { if ([int64]$Matches[2] -le 4) { return $false } }
     return $true
-    return $false
 }
 
 # ---------- Recycle Bin ----------
