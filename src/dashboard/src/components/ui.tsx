@@ -43,6 +43,10 @@ const P = {
   offline: 'M3 3l18 18M8.5 8.6A9 9 0 003 12M16 11.2A9 9 0 0121 12M5 15a7 7 0 013-1.9M12 19h.01M10 16.2a4 4 0 014 0',
   elevate: 'M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6zM12 8v5M12 16h.01',
   clock: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2',
+  sidebar: 'M4 5h16v14H4zM9 5v14',
+  monitor: 'M3 5h18v11H3zM8 20h8M12 16v4',
+  bolt: 'M13 3L5 13h6l-1 8 8-10h-6z',
+  activity: 'M3 12h4l3-8 4 16 3-8h4',
 } as const;
 export type IconName = keyof typeof P;
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
@@ -144,12 +148,12 @@ export function ErrorState({ error, onRetry }: { error: { message: string; statu
 }
 
 /* ---------- tooltip ---------- */
-export function Tip({ text, children }: { text: string; children: ReactNode }) {
+export function Tip({ text, children, block }: { text: string; children: ReactNode; block?: boolean }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const id = useId();
   const show = (el: HTMLElement) => { const r = el.getBoundingClientRect(); setPos({ x: Math.min(r.left, window.innerWidth - 290), y: r.bottom + 6 }); };
   return (
-    <span style={{ display: 'inline-flex' }} aria-describedby={pos ? id : undefined}
+    <span style={{ display: block ? 'flex' : 'inline-flex', minWidth: 0 }} aria-describedby={pos ? id : undefined}
       onMouseEnter={(e) => show(e.currentTarget)} onMouseLeave={() => setPos(null)} onFocus={(e) => show(e.currentTarget)} onBlur={() => setPos(null)} onKeyDown={(e) => { if (e.key === 'Escape' && pos) setPos(null); }}>
       {children}
       {pos && <span id={id} role="tooltip" className="tooltip" style={{ left: pos.x, top: pos.y }}>{text}</span>}
@@ -179,7 +183,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {items.map((t) => (
           <div key={t.id} className={`toast ${t.tone}`} role={t.tone === 'error' ? 'alert' : 'status'}>
             <p>{t.text}</p>
-            <button aria-label="Dismiss" onClick={() => setItems((x) => x.filter((i) => i.id !== t.id))}><Icon name="x" size={14} /></button>
+            <button aria-label="Dismiss" title="Dismiss" onClick={() => setItems((x) => x.filter((i) => i.id !== t.id))}><Icon name="x" size={14} /></button>
           </div>
         ))}
       </div>
@@ -225,7 +229,7 @@ export function Drawer({ title, sub, onClose, children, footer }: { title: React
       <div className="drawer" role="dialog" aria-modal="true" aria-labelledby={tid} ref={ref} tabIndex={-1}>
         <div className="drawer-head">
           <div className="grow"><h2 id={tid} style={{ fontSize: 17 }}>{title}</h2>{sub && <div className="muted small" style={{ marginTop: 2 }}>{sub}</div>}</div>
-          <button className="btn ghost icon-btn" onClick={onClose} aria-label="Close panel"><Icon name="x" /></button>
+          <Tip text="Close (Esc)"><button className="btn ghost icon-btn" onClick={onClose} aria-label="Close panel"><Icon name="x" /></button></Tip>
         </div>
         <div className="drawer-body">{children}</div>
         {footer && <div className="drawer-foot">{footer}</div>}
@@ -265,7 +269,7 @@ export function Expander({ head, children, defaultOpen }: { head: ReactNode; chi
   return (
     <div className="expander">
       <button aria-expanded={open} onClick={() => setOpen(!open)}><svg className={`chev ${open ? 'open' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={P.chev} /></svg>{head}</button>
-      {open && <div className="body">{children}</div>}
+      <div className="reveal" data-open={open} aria-hidden={!open}><div><div className="body">{children}</div></div></div>
     </div>
   );
 }
