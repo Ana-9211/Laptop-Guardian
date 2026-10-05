@@ -25,13 +25,15 @@ const stripExe = (n) => lower(n).replace(/\.exe$/, '');
 const isWindowsPath = (p) => !!process.env.SystemRoot && lower(p).startsWith(`${lower(process.env.SystemRoot).replace(/\\+$/, '')}\\`);
 
 /** { protected, reason } for a process. PIDs 4 and below are reserved. */
+const rootsOf = (g) => [].concat(g || []).filter(Boolean).map((r) => String(r).replace(/\\+$/, ''));
+
 function checkProcess({ name, pid, path: exePath, guardianRoot }) {
   if (Number.isInteger(pid) && pid <= 4) return { protected: true, reason: 'reserved system PID' };
   // A Windows system name running from outside the Windows folder is a lookalike. PowerShell checks the signature; here it is only labelled.
   if (CORE_WINDOWS_NAMES.includes(stripExe(name)) && exePath && !isWindowsPath(exePath)) return { protected: false, suspicious: true, reason: `'${stripExe(name)}' is a Windows system name, but this copy is not in the Windows folder` };
   if (PROCESS_NAMES.includes(stripExe(name))) return { protected: true, reason: `'${stripExe(name)}' is on the protected process list` };
   if (exePath && isWindowsPath(exePath)) return { protected: true, reason: 'the executable lives under the Windows directory' };
-  if (guardianRoot && exePath && lower(exePath).startsWith(lower(guardianRoot))) return { protected: true, reason: 'it belongs to Laptop Guardian itself' };
+  if (exePath && rootsOf(guardianRoot).some((g) => lower(exePath).startsWith(lower(g)))) return { protected: true, reason: 'it belongs to Laptop Guardian itself' };
   return { protected: false, reason: null };
 }
 
@@ -61,7 +63,7 @@ function checkPath(p, { protectedDirs = [], guardianRoot } = {}) {
   }
   const all = [...pathPrefixes(), ...protectedDirs.map((d) => String(d).replace(/\\+$/, ''))];
   for (const pre of all) { if (lower(full) === lower(pre) || lower(full).startsWith(`${lower(pre)}\\`)) return { protected: true, reason: `inside a protected location (${pre})` }; }
-  if (guardianRoot) { const g = guardianRoot.replace(/\\+$/, ''); if (lower(full) === lower(g) || lower(full).startsWith(`${lower(g)}\\`)) return { protected: true, reason: 'Laptop Guardian\'s own files' }; }
+  for (const g of rootsOf(guardianRoot)) { if (lower(full) === lower(g) || lower(full).startsWith(`${lower(g)}\\`)) return { protected: true, reason: 'Laptop Guardian\'s own files' }; }
   return { protected: false, reason: null };
 }
 

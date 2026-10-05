@@ -22,6 +22,15 @@ _(written at the end of the run)_
 - Gate: npm run check PASS (108 node tests); Pester one file per process PASS (14 of 14 incl. Integration); smoke --real PASS.
 - Not verifiable here: the GitHub Actions workflow itself has never run (no GitHub access).
 
+### 3a. Install split: program, data and elevated folders - committed
+- Code root and data root are separate concepts now: Get-GuardianCodeRoot (always from the module's own location), Get-GuardianDataRoot (from install.json for an installed copy, which the environment cannot redirect; from GUARDIAN_ROOT or the checkout otherwise), Get-GuardianRoots (both, used by the stop/recycle/block protections). Elevated results, audit lines and hosts backups have their own paths (ActionResults, ElevatedAudit, ElevatedBackups) that point into the administrators-only folder of an installed copy and stay where they were in a checkout.
+- Bridge: reads install.json itself, serves the dashboard and PowerShell from the program folder, keeps data in the data folder, merges the administrators-only audit file into the log, reads elevated results from the administrators-only folder, reports both roots in /api/ping, and treats both folders as protected.
+- Launcher: finds config, logs, bridge.json and the app profile in the data folder.
+- Default bridge port: 7879 for a development checkout, 7878 for an installed copy (PowerShell, Node, launcher, vite dev proxy).
+- Tests: tests/install.test.js (readInstall, port, protected roots, merged audit and results dir) and an installed-copy Describe in tests/Correctness.Tests.ps1 that loads a copy of the PowerShell tree from a temp program folder in a child process.
+- Gate: npm run check PASS (112 node tests); PSScriptAnalyzer clean; Pester one file per process PASS (14 of 14); smoke --real PASS.
+- Note for you: because a checkout now defaults to port 7879, the next restart of the live bridge from this checkout will listen on 7879 unless config.json sets bridge.port. The launcher follows the same rule, so the shortcut still works.
+
 ## Questions for morning
 - Pester 5: the suites rely on Pester 3 behaviour (legacy Should syntax, top-level setup shared with It blocks, Mock -ModuleName by name). A migration touches about 400 tests and I only have Pester 3.4 here to verify, so I kept CI on 3.x. Do you want the migration as its own piece of work later?
 - CI: the Pester job excludes Integration (it registers real scheduled tasks). Several other suites start a real node bridge; they should work on a runner, but the first CI run may show environment-specific failures I cannot see from here.

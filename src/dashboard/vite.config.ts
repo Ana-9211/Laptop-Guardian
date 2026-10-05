@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-const bridge = process.env.GUARDIAN_BRIDGE || 'http://127.0.0.1:7878';
+// A development checkout defaults to port 7879 (an installed copy uses 7878).
+const bridge = process.env.GUARDIAN_BRIDGE || 'http://127.0.0.1:7879';
 export default defineConfig({
   plugins: [react()],
   build: { outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 700 },

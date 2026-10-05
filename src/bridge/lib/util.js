@@ -99,9 +99,26 @@ function localIso(d = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${sign}${pad(Math.floor(a / 60))}:${pad(a % 60)}`;
 }
 
+/**
+ * install.json next to the program files marks an INSTALLED copy: { dataRoot, elevatedDir, ... } written by the installer.
+ * Returns null for a development checkout. A damaged file throws: guessing which folders to trust would be worse than stopping.
+ */
+function readInstall(codeRoot = path.join(__dirname, '..', '..', '..')) {
+  const f = path.join(codeRoot, 'install.json');
+  if (!fs.existsSync(f)) return null;
+  let j;
+  try { j = JSON.parse(fs.readFileSync(f, 'utf8').replace(/^\uFEFF/, '')); } catch { throw new Error(`install.json is damaged (${f}). Run Install-LaptopGuardian.ps1 again from an administrator PowerShell.`); }
+  for (const k of ['dataRoot', 'elevatedDir']) {
+    if (typeof j[k] !== 'string' || !path.win32.isAbsolute(j[k])) throw new Error(`install.json has no valid '${k}' (${f}). Run Install-LaptopGuardian.ps1 again from an administrator PowerShell.`);
+  }
+  return j;
+}
+// The installed copy and a development checkout must not fight over one port.
+const DEFAULT_PORT = readInstall() ? 7878 : 7879;
+
 const DEFAULT_CONFIG = {
   schemaVersion: 1,
-  bridge: { host: '127.0.0.1', port: 7878 },
+  bridge: { host: '127.0.0.1', port: DEFAULT_PORT },
   schedule: {
     daily: { enabled: true, time: '19:00' },
     weekly: { enabled: true, day: 'Saturday', time: '02:00', shutdownTime: '05:00', shutdownEnabled: true },
@@ -198,4 +215,4 @@ function nextRun(time, day, from = new Date()) {
 }
 
 module.exports = {
-  withFileLock, csvCell, riskyChanges, readJson, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };
+  readInstall, DEFAULT_PORT, withFileLock, csvCell, riskyChanges, readJson, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };

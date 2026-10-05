@@ -13,7 +13,8 @@ const MAX_CONCURRENT = 3;
  * Fixed-script PowerShell runner. `script` is a relative path chosen by bridge code (never user input);
  * user data only ever travels as discrete argv entries bound to declared parameters, or via stdin.
  */
-function makeRunner(root) {
+function makeRunner(root, dataRoot = root) {
+  // `root` is where the program files are; `dataRoot` is where config, data, reports and logs live (the same folder in a checkout).
   const psDir = path.join(root, 'src', 'powershell');
   const resolve = (rel) => path.join(psDir, rel);
   let active = 0;
@@ -30,7 +31,7 @@ function makeRunner(root) {
     return new Promise((res) => {
       const argv = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolve(rel), ...args.map(String)];
       let timedOut = false;
-      const child = execFile(POWERSHELL, argv, { windowsHide: true, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GUARDIAN_ROOT: root } }, (err, stdout, stderr) => {
+      const child = execFile(POWERSHELL, argv, { windowsHide: true, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GUARDIAN_ROOT: dataRoot } }, (err, stdout, stderr) => {
         clearTimeout(timer);
         const lines = String(stdout || '').trim().split(/\r?\n/).filter(Boolean);
         let json = null;
@@ -70,7 +71,7 @@ function makeRunner(root) {
   function launch(rel, args = []) {
     if (!exists(rel)) return { ok: false, missing: true, error: `script not installed: ${rel}` };
     const argv = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolve(rel), ...args];
-    const child = spawn(POWERSHELL, argv, { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, GUARDIAN_ROOT: root } });
+    const child = spawn(POWERSHELL, argv, { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, GUARDIAN_ROOT: dataRoot } });
     child.on('error', () => {});
     child.unref();
     return { ok: true, pid: child.pid };

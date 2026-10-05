@@ -64,11 +64,12 @@ function describeAction(spec, params) {
 function createRemediation(deps) {
   const { root, ps, log, tailJsonl, readJson, config, applySchedule } = deps;
   const now = deps.now || Date.now;
-  const resultsDir = path.join(root, 'data', 'state', 'action-results');
+  // An installed copy keeps elevated results in an administrators-only folder; a checkout keeps them under the data folder.
+  const resultsDir = deps.resultsDir || path.join(root, 'data', 'state', 'action-results');
   const plans = new Map();     // token -> plan
   const pending = new Map();   // ticket -> { plan, requestedAt }
 
-  const guardianRoot = () => root;
+  const guardianRoot = () => deps.guardianRoot || root;
   const protectedDirs = () => { try { return config().storage.protectedDirs || []; } catch { return []; } };
   const sweep = () => { for (const [t, p] of plans) { if (p.expires < now() || p.used) plans.delete(t); } };
 

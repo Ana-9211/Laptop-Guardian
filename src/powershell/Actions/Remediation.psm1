@@ -55,7 +55,6 @@ function Get-LiveProcessInfo {
     [pscustomobject]@{ Name = $p.ProcessName; Path = $path; StartTime = $start; CommandLine = $cmd }
 }
 function Test-AdminNow { Test-IsAdmin }
-function Get-GuardianRootPath { if ($env:GUARDIAN_ROOT) { $env:GUARDIAN_ROOT } else { Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) } }
 
 function Get-RunLocationInfo {
     <# Maps a startup entry location to the StartupApproved key that Windows itself uses to enable/disable it. #>
@@ -163,9 +162,10 @@ function Test-ProcessStop {
     if ($P.ContainsKey('startTime') -and $P.startTime -and $live.StartTime -and ($live.StartTime -ne [string]$P.startTime)) { return New-RemResult -Ok $false -Errors @('This PID was started at a different time than the process you reviewed (PID reuse); refresh and review again.') }
     $chk = Test-ProcessKillAllowed -Name $name -Path $live.Path -ProcessId $pid0
     if (-not $chk.Allowed) { return New-RemResult -Ok $false -Errors @("Protected: $($chk.Reason). Guardian will never stop this process, even with confirmation.") }
-    $root = Get-GuardianRootPath
-    if ($root -and (($live.Path -and $live.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) -or ($live.CommandLine -and $live.CommandLine.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0))) {
-        return New-RemResult -Ok $false -Errors @('Protected: this process belongs to Laptop Guardian itself.')
+    foreach ($root in @(Get-GuardianRoots)) {
+        if (($live.Path -and $live.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) -or ($live.CommandLine -and $live.CommandLine.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+            return New-RemResult -Ok $false -Errors @('Protected: this process belongs to Laptop Guardian itself.')
+        }
     }
     $key = Get-StringKey @($pid0, $live.Name, $live.Path, $live.StartTime)
     $susp = [bool]$chk.Suspicious
@@ -284,9 +284,10 @@ function Test-FileRecycle {
     $cfg = Get-GuardianConfig
     if ($path -match '[*?]') { return New-RemResult -Ok $false -Errors @('Wildcards are never accepted.') }
     if (Test-ProtectedPath -Path $path -ExtraProtected @($cfg.storage.protectedDirs)) { return New-RemResult -Ok $false -Errors @('Protected path: Windows, Program Files, ProgramData, your profile root, Guardian data and your protected folders are never touched.') }
-    $root = Get-GuardianRootPath
     $fullPath = Get-LongPathName ([IO.Path]::GetFullPath($path))
-    if ($root -and ($fullPath -ieq $root.TrimEnd('\') -or $fullPath.StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase))) { return New-RemResult -Ok $false -Errors @('Protected path: Laptop Guardian''s own files are never recycled.') }
+    foreach ($root in @(Get-GuardianRoots)) {
+        if ($fullPath -ieq $root.TrimEnd('\') -or $fullPath.StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { return New-RemResult -Ok $false -Errors @('Protected path: Laptop Guardian''s own files are never recycled.') }
+    }
     $files = Read-JsonFile -Path (Get-GuardianPath 'LatestFiles') -Default $null
     $cand = $null
     if ($files) { $cand = @($files.candidates | Where-Object { $_.path -ieq $path } | Select-Object -First 1)[0] }

@@ -7,7 +7,7 @@ $script:BridgeBootGraceSec = 15   # a bridge process younger than this may still
 function Write-LauncherLog {
     param([string]$Root, [string]$Message)
     try {
-        $dir = Join-Path $Root 'logs'; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $dir = Join-Path (Get-LauncherDataRoot $Root) 'logs'; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         $f = Join-Path $dir 'launcher.log'
         if ((Test-Path $f) -and (Get-Item $f).Length -gt 512KB) { Move-Item $f "$f.old" -Force }
         Add-Content -Path $f -Value ("{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $Message) -Encoding UTF8
@@ -23,6 +23,23 @@ function Find-NodeExe {
     return $null
 }
 
+function Get-LauncherInstall {
+    <# install.json beside the program files marks an installed copy. $null for a development checkout. #>
+    param([string]$Root)
+    $f = Join-Path $Root 'install.json'
+    if (-not (Test-Path -LiteralPath $f)) { return $null }
+    try { $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json; if ($j.dataRoot -and [IO.Path]::IsPathRooted([string]$j.dataRoot)) { return $j } } catch { }
+    return $null
+}
+
+function Get-LauncherDataRoot {
+    # Config, data, reports and logs: the data folder of an installed copy, or the checkout itself.
+    param([string]$Root)
+    $i = Get-LauncherInstall -Root $Root
+    if ($i) { return [string]$i.dataRoot }
+    return $Root
+}
+
 function Get-NodeMajor {
     param([string]$Node)
     try { $v = (& $Node -v 2>$null | Select-Object -First 1); if ($v -match 'v(\d+)\.') { return [int]$Matches[1] } } catch { }
@@ -31,8 +48,9 @@ function Get-NodeMajor {
 
 function Get-BridgePort {
     param([string]$Root)
-    $port = 7878
-    try { $cfg = Join-Path $Root 'config\config.json'; if (Test-Path $cfg) { $p = [int](Get-Content $cfg -Raw | ConvertFrom-Json).bridge.port; if ($p -ge 1024 -and $p -le 65535) { $port = $p } } } catch { }
+    # The installed copy and a development checkout use different default ports so they do not collide.
+    $port = if (Get-LauncherInstall -Root $Root) { 7878 } else { 7879 }
+    try { $cfg = Join-Path (Get-LauncherDataRoot $Root) 'config\config.json'; if (Test-Path $cfg) { $p = [int](Get-Content $cfg -Raw | ConvertFrom-Json).bridge.port; if ($p -ge 1024 -and $p -le 65535) { $port = $p } } } catch { }
     return $port
 }
 
@@ -50,7 +68,7 @@ function Get-BridgeToken {
     <# The session token the running bridge wrote for itself. Only trusted when it belongs to the bridge process that answered the ping. #>
     param([string]$Root, $Ping)
     try {
-        $f = Join-Path $Root 'data\state\bridge.json'
+        $f = Join-Path (Get-LauncherDataRoot $Root) 'data\state\bridge.json'
         if (-not (Test-Path -LiteralPath $f)) { return $null }
         $j = Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
         if ($j.PSObject.Properties['token'] -and $j.token -match '^[A-Za-z0-9_-]{16,200}$' -and $Ping -and [int]$j.pid -eq [int]$Ping.pid) { return [string]$j.token }
@@ -155,7 +173,7 @@ function Stop-OwnedBridge {
 function Clear-StaleBridgeFile {
     <# Removes data\state\bridge.json unless it names a live bridge process of this install. #>
     param([string]$Root)
-    $f = Join-Path $Root 'data\state\bridge.json'
+    $f = Join-Path (Get-LauncherDataRoot $Root) 'data\state\bridge.json'
     if (-not (Test-Path $f)) { return }
     try {
         $pidInFile = [int](Get-Content $f -Raw | ConvertFrom-Json).pid
@@ -184,7 +202,7 @@ function Get-LaunchDiagnostics {
         bridgeRunning = [bool]$ping; bridgePid = $(if ($ping) { $ping.pid } else { $null })
         portBlockedByOtherApp = (-not $ping -and (Test-PortInUse -Port $port))
         appBrowser = $(if ($browser) { $browser.Name } else { $null })
-        appWindowOpen = (@(Get-AppWindowProcess -ProfileDir (Join-Path $Root 'data\state\app-profile')).Count -gt 0)
+        appWindowOpen = (@(Get-AppWindowProcess -ProfileDir (Join-Path (Get-LauncherDataRoot $Root) 'data\state\app-profile')).Count -gt 0)
     }
 }
 
@@ -204,7 +222,7 @@ function Start-GuardianDashboard {
         $ping = Get-BridgePing -Port $port
         if ($ping -and (Get-BridgeOwnership -Ping $ping -Root $Root) -ne 'this-install') {
             $who = if ($ping.PSObject.Properties['root'] -and $ping.root) { " ($($ping.root))" } else { '' }
-            $result.message = "Port $port is used by a Laptop Guardian bridge from another installation$who. It was left running. Change bridge.port in $(Join-Path $Root 'config\config.json'), or stop that installation."
+            $result.message = "Port $port is used by a Laptop Guardian bridge from another installation$who. It was left running. Change bridge.port in $(Join-Path (Get-LauncherDataRoot $Root) 'config\config.json'), or stop that installation."
             Show-LauncherError -Root $Root -Message $result.message -Gui:$Gui; return [pscustomobject]$result
         }
         if (-not $ping) {
@@ -236,7 +254,7 @@ function Start-GuardianDashboard {
                 Stop-StaleBridge -Root $Root -MinAgeSec $script:BridgeBootGraceSec   # a hung bridge of this install is replaced; anything else keeps the port
                 if (Test-PortInUse -Port $port) { $result.message = "Port $port is in use by another program. Close it, or change bridge.port in config\config.json."; Show-LauncherError -Root $Root -Message $result.message -Gui:$Gui; return [pscustomobject]$result }
             } else { Clear-StaleBridgeFile -Root $Root }
-            $logDir = Join-Path $Root 'logs'; if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+            $logDir = Join-Path (Get-LauncherDataRoot $Root) 'logs'; if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
             $errLog = Join-Path $logDir 'bridge-err.log'; $outLog = Join-Path $logDir 'bridge-out.log'
             Write-LauncherLog -Root $Root -Message "starting bridge: $node"
             # ShellExecute (no -Redirect* switches) so the bridge does not inherit the caller's pipes - otherwise whoever launched us
@@ -264,7 +282,7 @@ function Start-GuardianDashboard {
         # The token travels in the URL fragment only (never sent to the server, never logged, removed from the address bar by the page).
         $tok = Get-BridgeToken -Root $Root -Ping $ping
         $openUrl = if ($tok) { "${url}#guardian-token=$tok" } else { $url }
-        $appProfile = Join-Path $Root 'data\state\app-profile'
+        $appProfile = Join-Path (Get-LauncherDataRoot $Root) 'data\state\app-profile'
         $existing = @(Get-AppWindowProcess -ProfileDir $appProfile)
         # A window opened before this bridge started holds an old token, so a freshly started bridge always gets a new window.
         if ($existing.Count -gt 0 -and $result.bridge -ne 'started') {

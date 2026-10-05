@@ -43,7 +43,7 @@ function Get-NetworkIdentity {
 }
 function Get-HostsFilePath { Join-Path $env:SystemRoot 'System32\drivers\etc\hosts' }
 function Get-NetworkDataDir { Join-Path (Split-Path (Split-Path (Get-GuardianPath 'RunState'))) 'network' }
-function Get-HostsBackupDir { Get-NetworkDataDir }
+function Get-HostsBackupDir { Get-GuardianPath 'ElevatedBackups' }   # administrators-only in an installed copy
 function Get-RulesRegistryPath { Join-Path (Get-NetworkDataDir) 'rules.json' }
 
 # ---------- target validation ----------
@@ -58,8 +58,7 @@ function Test-ProgramTarget {
     if ((Get-ProtectedProcessNames) -contains $name) { return "Protected: '$name' is a Windows, security or Guardian program and is never blocked." }
     if ($env:SystemRoot -and $full.StartsWith($env:SystemRoot, [StringComparison]::OrdinalIgnoreCase)) { return 'Protected: programs in the Windows directory are never blocked.' }
     foreach ($d in @("$env:ProgramData\Microsoft\Windows Defender", "$env:ProgramFiles\Windows Defender", "$env:ProgramFiles\Windows Defender Advanced Threat Protection", "${env:ProgramFiles(x86)}\Windows Defender")) { if ($d -and $full.StartsWith($d, [StringComparison]::OrdinalIgnoreCase)) { return 'Protected: Microsoft Defender components are never blocked.' } }
-    $root = Get-GuardianRoot   # not the environment variable: it is lost when the action runs elevated through RunAs
-    if ($root -and $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return 'Protected: Laptop Guardian''s own programs are never blocked.' }
+    foreach ($root in @(Get-GuardianRoots)) { if ($root -and $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { return 'Protected: Laptop Guardian''s own programs are never blocked.' } }
     return $null
 }
 function ConvertTo-IpInfo {
