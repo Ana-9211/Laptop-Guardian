@@ -16,6 +16,13 @@ $script:WriteRightsMask = [int](
     [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership -bor
     0x40000000 -bor 0x10000000)   # GenericWrite, GenericAll
 
+# Rights that matter on a folder ABOVE the program folder: only those that could remove, rename or take over the folder beneath it. Creating new files or
+# subfolders there (the stock Windows rule on C: for signed-in users) cannot redirect a path that already exists.
+$script:AncestorRightsMask = [int](
+    [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+    [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership -bor
+    0x40000000 -bor 0x10000000)
+
 function Get-PathAcl { param([string]$Path) Get-Acl -LiteralPath $Path }   # thin wrapper (mocked in tests)
 
 function ConvertTo-Sid {
@@ -25,14 +32,17 @@ function ConvertTo-Sid {
 
 function Get-UntrustedWriters {
     <# Who, other than SYSTEM / Administrators / TrustedInstaller, can modify this path (or owns it)? Returns descriptions; empty = safe. #>
-    param([Parameter(Mandatory)][string]$Path, [string[]]$AllowedOwnerSids = $script:TrustedOwnerSids)
+    param([Parameter(Mandatory)][string]$Path, [string[]]$AllowedOwnerSids = $script:TrustedOwnerSids, [switch]$Ancestor)
+    $mask = if ($Ancestor) { $script:AncestorRightsMask } else { $script:WriteRightsMask }
     $found = New-Object System.Collections.ArrayList
     $acl = Get-PathAcl -Path $Path
     $owner = ConvertTo-Sid $acl.GetOwner([Security.Principal.SecurityIdentifier])
     if ($AllowedOwnerSids -notcontains $owner) { [void]$found.Add("owner $owner") }
     foreach ($r in $acl.Access) {
         if ($r.AccessControlType -ne 'Allow') { continue }
-        if (([int]$r.FileSystemRights -band $script:WriteRightsMask) -eq 0) { continue }
+        # An inherit-only rule is not in force on this folder itself; it applies to the children, which are checked on their own.
+        if (($r.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+        if (([int]$r.FileSystemRights -band $mask) -eq 0) { continue }
         $sid = ConvertTo-Sid $r.IdentityReference
         if ($script:TrustedWriterSids -contains $sid) { continue }
         [void]$found.Add("$($r.IdentityReference) ($sid)")
@@ -50,14 +60,15 @@ function Test-InstallTrusted {
         [void]$problems.Add("This is a development checkout ($CodeRoot), not an installed copy. Files in a checkout can be edited by your own account and by any program you run.")
     } else {
         $targets = New-Object System.Collections.ArrayList
+        $ancestors = @{}
         $p = $CodeRoot.TrimEnd([char]92)
-        while ($p) { [void]$targets.Add($p); $parent = Split-Path -Parent $p; if (-not $parent -or $parent -eq $p) { break }; $p = $parent }
+        while ($p) { [void]$targets.Add($p); if ($p -ne $CodeRoot.TrimEnd([char]92)) { $ancestors[$p] = $true }; $parent = Split-Path -Parent $p; if (-not $parent -or $parent -eq $p) { break }; $p = $parent }
         foreach ($rel in 'src\powershell', 'src\shared\action-catalog.json', 'install.json') { [void]$targets.Add((Join-Path $CodeRoot $rel)) }
         $psDir = Join-Path $CodeRoot 'src\powershell'
         if (Test-Path -LiteralPath $psDir) { foreach ($d in @(Get-ChildItem -LiteralPath $psDir -Directory -Recurse -ErrorAction SilentlyContinue)) { [void]$targets.Add($d.FullName) } }
         foreach ($t in @($targets | Select-Object -Unique)) {
             if (-not (Test-Path -LiteralPath $t)) { [void]$problems.Add("$t is missing."); continue }
-            $w = @(Get-UntrustedWriters -Path $t -AllowedOwnerSids $AllowedOwnerSids)
+            $w = @(Get-UntrustedWriters -Path $t -AllowedOwnerSids $AllowedOwnerSids -Ancestor:($ancestors.ContainsKey($t)))
             if ($w.Count) { [void]$problems.Add("$t can be changed by: $($w -join ', ').") }
         }
     }
