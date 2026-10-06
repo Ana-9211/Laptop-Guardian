@@ -7,6 +7,7 @@ import { LineChart, RangeSelect, Range, filterRange, SERIES_COLORS } from '../co
 import { useActionFlow } from '../components/ActionFlow';
 import { AttemptList, FindingDetail } from '../components/FindingActions';
 import { ActionTimeline } from '../components/common';
+import { PosturePanel } from '../components/network/PosturePanel';
 import { ConnectionDrawer, DeepPanel, DnsPanel, RulesPanel, addr, signedBadge } from '../components/NetworkParts';
 import { useStatus } from '../state/StatusProvider';
 import { useHash, go } from '../router';
@@ -143,7 +144,7 @@ export default function NetworkGuard() {
           )}
 
           {tab === 'dns' && <DnsPanel current={cur} flow={flow} reload={reload} />}
-          {tab === 'firewall' && <RulesPanel rules={cur.rules} flow={flow} programs={programs} />}
+          {tab === 'firewall' && <><PosturePanel current={cur} flow={flow} /><RulesPanel rules={cur.rules} flow={flow} programs={programs} /></>}
           {tab === 'findings' && (
             <Card flush>
               <DataTable<Finding> label="Network findings" cols={findCols} rows={findings} rowKey={(f) => f.id} onRow={(f) => go(`/network?finding=${encodeURIComponent(f.id)}`)} initialSort={{ key: 'risk', dir: 1 }}

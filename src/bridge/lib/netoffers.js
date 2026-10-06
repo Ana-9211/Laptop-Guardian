@@ -32,7 +32,8 @@ function offersFor(f, ctx) {
     actions.push(offer('firewall.block-port', { port: f.listener.port, protocol: f.listener.protocol, duration: TEMP }, { label: 'Block port temporarily (24 h)', protectedReason: netguard.refusePort(f.listener.port, ctx.bridgePort) }));
     actions.push(offer('firewall.block-port', { port: f.listener.port, protocol: f.listener.protocol, duration: 'permanent' }, { label: 'Create port rule', protectedReason: netguard.refusePort(f.listener.port, ctx.bridgePort) }));
   }
-  if (f.firewallProfile) actions.push(offer('firewall.enable-profile', { profile: f.firewallProfile }));
+  if (f.remote) actions.push(offer('firewall.block-remote', { remote: f.remote.address, duration: TEMP }, { label: 'Block this address (24 h)', protectedReason: netguard.refuseRemote(f.remote.address, identity) }));
+  if (f.firewallProfile && f.rule !== 'fw-default-inbound-allow') actions.push(offer('firewall.enable-profile', { profile: f.firewallProfile }));
   if (f.dnsName) {
     actions.push(offer('dns.flush', {}));
     actions.push(offer('dns.unblock-domain', { domain: f.dnsName }, { label: 'Remove the block' }));
@@ -45,7 +46,7 @@ function toActionFindings(netFindings, ctx, history = []) {
     const actions = offersFor(f, ctx);
     const needles = [f.process && f.process.name, f.listener && String(f.listener.port), f.dnsName, f.firewallProfile].filter(Boolean).map((x) => String(x).toLowerCase());
     const attempts = history.filter((h) => /^(process|firewall|dns)\./.test(h.actionId) && needles.some((n) => String(h.target || '').toLowerCase().includes(n))).slice(0, 5);
-    return { ...f, actions, manual: actions.length ? null : { label: 'Review manually', href: '#/network', reason: 'Guardian has no safe, deterministic fix for this one.' }, investigate: { label: 'Investigate', href: `#/network?finding=${encodeURIComponent(f.id)}` }, attempts };
+    return { ...f, actions, manual: actions.length ? null : (f.manual || { label: 'Review manually', href: '#/network', reason: 'Guardian has no safe, deterministic fix for this one.' }), investigate: { label: 'Investigate', href: `#/network?finding=${encodeURIComponent(f.id)}` }, attempts };
   });
 }
 

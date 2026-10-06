@@ -54,6 +54,7 @@ async function startTarget() {
     'Actions/Get-RemediationInfo.ps1': () => ({ ok: true, data: { ok: true, apps: [], revo: { available: false, reason: 'test double' } } }),
     'Actions/Request-ElevatedAction.ps1': () => ({ ok: true, data: { ok: true, requested: true, message: 'simulated prompt' } }),
     'Network/Get-NetworkSnapshot.ps1': () => ({ ok: true, data: makeNetworkSnapshot() }),
+    'Network/Get-FirewallEvents.ps1': () => ({ ok: true, data: { available: false, reason: 'Reading the Security log needs administrator rights.', items: [] } }),
   });
   // Deep mode samples through injected netstat output: the smoke test never reads real connections or captures anything.
   const fakeNetstat = async () => '  TCP    192.168.1.20:50001     203.0.113.5:443        ESTABLISHED     100';
