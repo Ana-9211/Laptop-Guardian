@@ -32,14 +32,14 @@ function writeJsonAtomic(file, data) {
  * JSON file is not interleaved with another writer. A lock older than 30 s is treated as left behind by a crash. If the lock cannot be
  * obtained within `timeoutMs` the work still runs: a stuck lock must never freeze the dashboard.
  */
-function withFileLock(file, fn, timeoutMs = 4000) {
+function withFileLock(file, fn, timeoutMs = 4000, { strict = false } = {}) {
   const lock = `${file}.lock`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const deadline = Date.now() + timeoutMs; let fd = null;
   while (fd === null) {
     try { fd = fs.openSync(lock, 'wx'); } catch (e) {
       try { if (Date.now() - fs.statSync(lock).mtimeMs > 30000) fs.unlinkSync(lock); } catch { /* raced with the holder */ }
-      if (Date.now() > deadline) break;
+      if (Date.now() > deadline) { if (strict) throw new Error(`could not lock ${path.basename(file)}`); break; }
       sleepSync(15 + Math.floor(Math.random() * 30));
     }
   }

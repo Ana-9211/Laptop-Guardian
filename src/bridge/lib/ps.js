@@ -79,7 +79,22 @@ function makeRunner(root, dataRoot = root) {
     return { ok: true, pid: child.pid };
   }
 
-  return { run, launch, exists, _stats: () => ({ active, waiting: waiting.length }) };
+  /**
+   * A long-lived script whose stdout is read as it arrives (the Deep Network Guard sampler). Same fixed-script rule as run(): only a script under
+   * src/powershell, only argv. The caller gets { kill } and must call it; kill ends the whole process tree.
+   */
+  function stream(rel, args = [], { onData = () => {}, onExit = () => {} } = {}) {
+    if (!exists(rel)) return { ok: false, missing: true, error: `script not installed: ${rel}` };
+    const argv = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolve(rel), ...args.map(String)];
+    const child = spawn(POWERSHELL, argv, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env: { ...process.env, GUARDIAN_ROOT: dataRoot } });
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', onData);
+    let done = false; const finish = () => { if (!done) { done = true; onExit(); } };
+    child.on('error', finish); child.on('exit', finish);
+    return { ok: true, pid: child.pid, kill: () => { try { execFile(TASKKILL, ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {}); } catch { /* ignore */ } try { child.kill(); } catch { /* ignore */ } } };
+  }
+
+  return { run, launch, stream, exists, _stats: () => ({ active, waiting: waiting.length }) };
 }
 
 module.exports = { makeRunner, MAX_CONCURRENT };

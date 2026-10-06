@@ -32,6 +32,8 @@ function offersFor(f, ctx) {
     actions.push(offer('firewall.block-port', { port: f.listener.port, protocol: f.listener.protocol, duration: TEMP }, { label: 'Block port temporarily (24 h)', protectedReason: netguard.refusePort(f.listener.port, ctx.bridgePort) }));
     actions.push(offer('firewall.block-port', { port: f.listener.port, protocol: f.listener.protocol, duration: 'permanent' }, { label: 'Create port rule', protectedReason: netguard.refusePort(f.listener.port, ctx.bridgePort) }));
   }
+  if (f.dnsInterface && f.rule === 'unusual-dns-server') actions.push(offer('dns.doh-restore', { interfaceIndex: String(f.dnsInterface.index) }, { label: 'Restore automatic DNS' }));
+  if (f.dnsInterface && f.rule === 'plain-public-dns') actions.push(offer('dns.doh-enable', { provider: f.dnsInterface.provider, interfaceIndex: String(f.dnsInterface.index) }, { label: 'Encrypt DNS (DoH)' }));
   if (f.remote) actions.push(offer('firewall.block-remote', { remote: f.remote.address, duration: TEMP }, { label: 'Block this address (24 h)', protectedReason: netguard.refuseRemote(f.remote.address, identity) }));
   if (f.firewallProfile && f.rule !== 'fw-default-inbound-allow') actions.push(offer('firewall.enable-profile', { profile: f.firewallProfile }));
   if (f.dnsName) {

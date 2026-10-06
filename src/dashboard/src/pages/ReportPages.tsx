@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { usePageState } from '../state/pageState';
 import { useOverview } from '../state/overview';
 import { go } from '../router';
 import { useQuery } from '../api';
@@ -19,8 +19,9 @@ const historyCols = (type: string): Col<ReportRow>[] => [
 
 export function DailyPage() {
   const ov = useOverview();
-  const [tab, setTab] = useState<'latest' | 'history' | 'metrics' | 'actions'>('latest');
-  const [range, setRange] = useState<Range>(30);
+  const [ps, setPs] = usePageState('daily', { tab: 'latest', range: '30' });
+  const tab = (['latest', 'history', 'metrics', 'actions'].includes(ps.tab) ? ps.tab : 'latest') as 'latest' | 'history' | 'metrics' | 'actions'; const range = ([7, 30, 90].includes(Number(ps.range)) ? Number(ps.range) : 30) as Range;
+  const setTab = (t: 'latest' | 'history' | 'metrics' | 'actions') => setPs({ tab: t }); const setRange = (r: Range) => setPs({ range: String(r) });
   const list = useQuery<ReportRow[]>(tab === 'history' ? '/api/reports?type=daily' : null);
   const acts = useQuery<ActionEvent[]>(tab === 'actions' ? '/api/actions?limit=300' : null);
   const d = ov.data?.daily;
@@ -56,7 +57,8 @@ export function DailyPage() {
 
 export function WeeklyPage() {
   const ov = useOverview();
-  const [tab, setTab] = useState<'latest' | 'history' | 'analysis'>('latest');
+  const [ps, setPs] = usePageState('weekly', { tab: 'latest' });
+  const tab = (['latest', 'history', 'analysis'].includes(ps.tab) ? ps.tab : 'latest') as 'latest' | 'history' | 'analysis'; const setTab = (t: 'latest' | 'history' | 'analysis') => setPs({ tab: t });
   const list = useQuery<ReportRow[]>(tab !== 'latest' ? '/api/reports?type=weekly' : null);
   const { busy, start } = useRun();
   const w = ov.data?.weekly;

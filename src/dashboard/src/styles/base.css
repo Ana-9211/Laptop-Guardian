@@ -94,3 +94,14 @@ label.field > span { font-size: 12px; color: var(--text-2); font-weight: 600; }
 .seg button { background: transparent; border: 0; padding: 3px 11px; cursor: pointer; color: var(--text-2); font-size: 12.5px; border-radius: 6px; transition: background var(--t-fast), color var(--t-fast); }
 .seg button:hover { color: var(--text); }
 .seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: var(--shadow-1); }
+
+.chip-link { text-decoration: none; color: inherit; }
+.chip-link:hover .badge, .chip-link:focus-visible .badge { outline: 2px solid var(--accent); outline-offset: 1px; }
+a.card.stat.linked { display: block; text-decoration: none; color: inherit; cursor: pointer; }
+a.card.stat.linked:hover, a.card.stat.linked:focus-visible { border-color: var(--accent); }
+.back-link { margin-right: auto; }
+
+.linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font: inherit; }
+.score-explain summary { cursor: pointer; }
+.checklist li { border-bottom: 1px solid var(--line); }
+.checklist li:last-child { border-bottom: 0; }

@@ -26,15 +26,16 @@ export function PageHead({ title, sub, actions }: { title: string; sub?: ReactNo
   );
 }
 
-export function Stat({ label, value, unit, sub, tone, bar, spark, tip }: { label: string; value: ReactNode; unit?: string; sub?: ReactNode; tone?: string; bar?: number; spark?: ReactNode; tip?: string }) {
+export function Stat({ label, value, unit, sub, tone, bar, spark, tip, href }: { label: string; value: ReactNode; unit?: string; sub?: ReactNode; tone?: string; bar?: number; spark?: ReactNode; tip?: string; href?: string }) {
+  const Wrap = ({ children }: { children: ReactNode }) => (href ? <a className="card stat linked" href={`#${href}`} title={tip ? `${tip} Click for details.` : 'Click for details.'}>{children}</a> : <div className="card stat" title={tip}>{children}</div>);
   return (
-    <div className="card stat" title={tip}>
+    <Wrap>
       <div className="label">{tone && <span className={`dot ${tone}`} />}{label}</div>
       <div className="value">{value}{unit && <small>{unit}</small>}</div>
       <div className="sub">{sub}</div>
       {bar != null && <div className="bar" aria-hidden="true"><i className={tone === 'crit' ? 'crit' : tone === 'warn' ? 'warn' : ''} style={{ width: `${Math.min(100, Math.max(0, bar))}%` }} /></div>}
       {spark && <div className="spark">{spark}</div>}
-    </div>
+    </Wrap>
   );
 }
 

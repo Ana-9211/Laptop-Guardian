@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useOverview } from '../state/overview';
 import { go } from '../router';
+import { usePageState } from '../state/pageState';
+import { ChangesCard, FirstRunChecklist, ScoreExplain } from '../components/Guidance';
+import { BadgeLink, RiskLink } from '../components/Linked';
 import { useQuery } from '../api';
 import type { ActionEvent, Overview as OverviewT, Recommendation } from '../types';
-import { Badge, Card, Empty, ErrorState, Expander, Icon, PageHead, RiskBadge, Sep, Skeleton, SkeletonCards, Tabs } from '../components/ui';
+import { Badge, Card, Empty, ErrorState, Expander, Icon, PageHead, Sep, Skeleton, SkeletonCards, Tabs } from '../components/ui';
 import { LineChart, RangeSelect, Range, filterRange, ScoreRing, SERIES_COLORS, Sparkline } from '../components/Chart';
 import { ActionTimeline, RunButtons } from '../components/common';
 import { AttentionCard, TaskStatusCard } from '../components/AttentionPanels';
@@ -31,15 +34,15 @@ function RecList({ items }: { items: Recommendation[] }) {
   return (
     <div className="list">
       {items.map((r) => (
-        <button key={r.id} className="list-row" data-tone={riskTone(r.risk) || undefined} onClick={() => go(r.kind === 'process' ? `/processes?rec=${r.id}` : `/recommendations?id=${r.id}`)}>
+        <div key={r.id} role="button" tabIndex={0} className="list-row" data-tone={riskTone(r.risk) || undefined} onClick={() => go(r.kind === 'process' ? `/processes?rec=${r.id}` : `/recommendations?id=${r.id}`)} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(r.kind === 'process' ? `/processes?rec=${r.id}` : `/recommendations?id=${r.id}`); } }}>
           <span className="what">
             <b className="trunc">{r.title}</b>
             <span className="small t2 trunc">{r.whatIsIt || r.whyFlagged?.[0] || r.suggestedAction}</span>
             <span className="small muted">{kindLabel(r.kind)}<Sep />{(r.consecutiveDays ?? 0) > 1 ? `${r.consecutiveDays} days in a row` : `seen ${ago(r.lastSeen)}`}</span>
           </span>
-          <RiskBadge risk={r.risk} />
+          <RiskLink risk={r.risk} to={`/recommendations?risk=${r.risk}`} />
           <Icon name="chev" size={14} />
-        </button>
+        </div>
       ))}
     </div>
   );
@@ -68,8 +71,9 @@ export default function Overview() {
   const { status } = useStatus();
   const recs = useQuery<{ items: Recommendation[] }>('/api/recommendations?status=open');
   const acts = useQuery<ActionEvent[]>('/api/actions?limit=12');
-  const [range, setRange] = useState<Range>(30);
-  const [trend, setTrend] = useState<Trend>('health');
+  const [ps, setPs] = usePageState('overview', { range: '30', trend: 'health' });
+  const range = ([7, 30, 90].includes(Number(ps.range)) ? Number(ps.range) : 30) as Range; const trend = (['health', 'storage', 'load'].includes(ps.trend) ? ps.trend : 'health') as Trend;
+  const setRange = (r: Range) => setPs({ range: String(r) }); const setTrend = (t: Trend) => setPs({ trend: t });
   const o: OverviewT | null = ov.data;
   const metrics = useMemo(() => filterRange(o?.metrics || [], range), [o, range]);
   const last = o?.metrics?.[o.metrics.length - 1];
@@ -94,6 +98,7 @@ export default function Overview() {
   return (
     <div className="page">
       <PageHead title="Overview" sub={d ? `${d.host?.name || 'This laptop'}${d.host?.os ? ` - ${d.host.os} ${d.host.build || ''}` : ''}` : 'Waiting for the first scan.'} actions={<RunButtons onStarted={ov.reload} />} />
+      <FirstRunChecklist onChanged={ov.reload} />
       {!d && <div className="notice">No daily report exists yet. That is normal right after installing: run a daily scan with the button above (it only observes), or wait for the scheduled run.</div>}
 
       <section className="hero card" aria-label="Laptop health summary">
@@ -103,9 +108,10 @@ export default function Overview() {
             <span className="eyebrow">Overall health</span>
             <h2 className="verdict" data-tone={scoreTone(d?.healthScore) || undefined}>{verdict(d?.healthScore)}</h2>
             <p className="t2">{d?.summary?.headline || 'Scan results will summarise your laptop here.'}</p>
+            <ScoreExplain report={d} />
             <div className="row hero-meta small muted">
               <span className="row tight"><Icon name="clock" size={13} />{scanText}</span><Sep />
-              <span>{attention === 0 ? 'Nothing needs attention' : attention === 1 ? '1 item needs attention' : `${attention} items need attention`}</span><Sep />
+              <a href="#/actions" title="Open the Action Center">{attention === 0 ? 'Nothing needs attention' : attention === 1 ? '1 item needs attention' : `${attention} items need attention`}</a><Sep />
               <span>Next daily scan: {until(o.next.daily)}</span>
             </div>
           </div>
@@ -139,12 +145,14 @@ export default function Overview() {
         </div>
       </div>
 
+      <ChangesCard />
+
       <Card title="Trends" actions={<RangeSelect value={range} onChange={setRange} />}>
         <div className="stack">
           <Tabs<Trend> label="Trend" value={trend} onChange={setTrend} items={[{ id: 'health', label: 'Health score' }, { id: 'storage', label: 'Free space' }, { id: 'load', label: 'CPU and RAM' }]}>
-          {trend === 'health' && <LineChart title="Health score" x={x} height={220} min={0} max={100} area series={[{ id: 'h', label: 'Health', color: 'var(--accent)', values: metrics.map((m) => m.healthScore) }]} hideLegend digits={0} threshold={{ value: 85, label: 'healthy' }} />}
-          {trend === 'storage' && <LineChart title="Free disk space" x={x} height={220} unit=" GB" area series={[{ id: 'free', label: 'Free space', color: SERIES_COLORS.disk, values: metrics.map((m) => m.diskFreeGB) }]} />}
-          {trend === 'load' && <LineChart title="CPU and RAM" x={x} height={220} unit="%" min={0} max={100} digits={0} series={[{ id: 'cpu', label: 'CPU', color: SERIES_COLORS.cpu, values: metrics.map((m) => m.cpuPct) }, { id: 'ram', label: 'RAM', color: SERIES_COLORS.ram, values: metrics.map((m) => m.ramPct) }]} />}
+          {trend === 'health' && <LineChart pointHref={(i) => `/reports?type=daily&id=${String(x[i] || '').slice(0, 10)}`} title="Health score" x={x} height={220} min={0} max={100} area series={[{ id: 'h', label: 'Health', color: 'var(--accent)', values: metrics.map((m) => m.healthScore) }]} hideLegend digits={0} threshold={{ value: 85, label: 'healthy' }} />}
+          {trend === 'storage' && <LineChart pointHref={(i) => `/reports?type=daily&id=${String(x[i] || '').slice(0, 10)}`} title="Free disk space" x={x} height={220} unit=" GB" area series={[{ id: 'free', label: 'Free space', color: SERIES_COLORS.disk, values: metrics.map((m) => m.diskFreeGB) }]} />}
+          {trend === 'load' && <LineChart pointHref={(i) => `/reports?type=daily&id=${String(x[i] || '').slice(0, 10)}`} title="CPU and RAM" x={x} height={220} unit="%" min={0} max={100} digits={0} series={[{ id: 'cpu', label: 'CPU', color: SERIES_COLORS.cpu, values: metrics.map((m) => m.cpuPct) }, { id: 'ram', label: 'RAM', color: SERIES_COLORS.ram, values: metrics.map((m) => m.ramPct) }]} />}
           </Tabs>
         </div>
       </Card>
@@ -153,12 +161,12 @@ export default function Overview() {
         <Card title="Security status" actions={<a className="small" href="#/health">Open Health</a>}>
           {!d ? <Empty title="No scan data" /> : (
             <div className="stack">
-              <div className="row spread"><span>Microsoft Defender</span><Badge tone={def?.enabled ? 'ok' : 'crit'} dot>{def?.enabled ? 'Enabled' : 'Off'}</Badge></div>
-              <div className="row spread"><span>Real-time protection</span><Badge tone={def?.realTimeProtection ? 'ok' : 'crit'} dot>{def?.realTimeProtection ? 'On' : 'Off'}</Badge></div>
+              <div className="row spread"><span>Microsoft Defender</span><BadgeLink to="/health?tab=defender" tone={def?.enabled ? 'ok' : 'crit'}>{def?.enabled ? 'Enabled' : 'Off'}</BadgeLink></div>
+              <div className="row spread"><span>Real-time protection</span><BadgeLink to="/health?tab=defender" tone={def?.realTimeProtection ? 'ok' : 'crit'}>{def?.realTimeProtection ? 'On' : 'Off'}</BadgeLink></div>
               <div className="row spread"><span>Signatures</span><span className="num t2">{def?.sigVersion || NA}<Sep />{def?.sigAgeDays ?? '?'} d old</span></div>
               <div className="row spread"><span>Last quick scan</span><span className="t2">{def?.scan?.ran ? def.scan.result : 'not run'}<Sep />{ago(def?.lastQuickScan)}</span></div>
-              <div className="row spread"><span>Firewall</span><span className="row tight">{(fw?.profiles || []).map((p: { name: string; enabled: boolean }) => <Badge key={p.name} tone={p.enabled ? 'ok' : 'crit'} dot>{p.name}</Badge>)}</span></div>
-              <div className="row spread"><span>Windows Update</span><Badge tone={(wu?.pendingCount || 0) > 0 ? 'warn' : 'ok'} dot>{(wu?.pendingCount || 0) > 0 ? `${wu.pendingCount} pending` : wu?.status || 'Up to date'}</Badge></div>
+              <div className="row spread"><span>Firewall</span><span className="row tight">{(fw?.profiles || []).map((p: { name: string; enabled: boolean }) => <BadgeLink key={p.name} to="/health?tab=firewall" tone={p.enabled ? 'ok' : 'crit'}>{p.name}</BadgeLink>)}</span></div>
+              <div className="row spread"><span>Windows Update</span><BadgeLink to="/health?tab=windows" tone={(wu?.pendingCount || 0) > 0 ? 'warn' : 'ok'}>{(wu?.pendingCount || 0) > 0 ? `${wu.pendingCount} pending` : wu?.status || 'Up to date'}</BadgeLink></div>
             </div>
           )}
         </Card>
@@ -171,7 +179,7 @@ export default function Overview() {
         </Card>
       </div>
 
-      <Card title="Recent errors" actions={<Badge tone={errors.length ? 'warn' : 'ok'}>{errors.length}</Badge>} flush>
+      <Card title="Recent errors" actions={<BadgeLink to="/logs?sev=error" tone={errors.length ? 'warn' : 'ok'} title="Open the log filtered to errors">{errors.length}</BadgeLink>} flush>
         {errors.length === 0 ? <Empty icon="check" title="No errors in the latest report" /> : errors.map((e, i) => (
           <Expander key={i} head={<><Badge tone="crit">{e.source}</Badge><span className="trunc">{e.message}</span></>}>
             <div className="mono-block">{e.message}</div><div className="small muted">{fmtFull(e.ts)}</div>
