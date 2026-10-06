@@ -37,7 +37,8 @@
 .conn { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; background: var(--tone-soft, var(--sunken)); color: var(--tone, var(--text-2)); white-space: nowrap; transition: background var(--t-med), color var(--t-med); }
 .conn .dot { background: var(--tone, var(--offline)); }
 .refresh-wrap { margin-right: 2px; }
-.refresh-time { white-space: nowrap; }
+.refresh-time { white-space: nowrap; min-width: 11ch; text-align: right; font-variant-numeric: tabular-nums; }   /* a ticking label must not make the toolbar jump */
+.refresh-wrap .btn { min-width: 8.9rem; }   /* "Refresh status" and "Refreshing..." take the same room */
 .refresh-time.is-stale { color: var(--warn); }
 .scan-progress { height: 2px; background: transparent; overflow: hidden; position: relative; }
 .scan-progress::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 32%; background: linear-gradient(90deg, transparent, var(--info), transparent); animation: sweep 1.8s ease-in-out infinite; }
@@ -79,6 +80,7 @@ a.chip:hover span.t, a.chip:hover { text-decoration: none; }
   .menu-btn { display: inline-flex; }
   .page { padding: 16px 14px 44px; } .topbar { padding: 6px 14px; gap: 8px; }
   .crumb .subtitle, .refresh-time, .conn .conn-text, .btn-label, .theme-label { display: none; }
+  .refresh-wrap .btn { min-width: 0; }
   .conn { padding: 0 9px; flex: none; min-width: 28px; justify-content: center; }
   .topbar .btn.primary { padding: 5px 9px; }
   .rail-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; background: none; border: 0; cursor: pointer; text-align: left; font-size: 12.5px; color: var(--text-2); }

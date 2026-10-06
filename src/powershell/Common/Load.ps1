@@ -1,5 +1,6 @@
 # Dot-source this from entrypoints:  . "$PSScriptRoot\Common\Load.ps1"
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Encoding.ps1')   # UTF-8 on stdout/stdin before anything can print
 $script:GuardianPsRoot = Split-Path -Parent $PSScriptRoot
 $mods = @(
     'Common\Core.psm1', 'Common\Security.psm1',

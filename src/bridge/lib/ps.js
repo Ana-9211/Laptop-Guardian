@@ -31,9 +31,11 @@ function makeRunner(root, dataRoot = root) {
     return new Promise((res) => {
       const argv = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', resolve(rel), ...args.map(String)];
       let timedOut = false;
-      const child = execFile(POWERSHELL, argv, { windowsHide: true, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GUARDIAN_ROOT: dataRoot } }, (err, stdout, stderr) => {
+      // stdout is decoded as UTF-8 on purpose: every script sets [Console]::OutputEncoding to UTF-8 (Common/Encoding.ps1). A byte-order mark is dropped.
+      const child = execFile(POWERSHELL, argv, { windowsHide: true, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GUARDIAN_ROOT: dataRoot } }, (err, stdout, stderr) => {
         clearTimeout(timer);
-        const lines = String(stdout || '').trim().split(/\r?\n/).filter(Boolean);
+        stdout = String(stdout || '').replace(/^\uFEFF/, '');
+        const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
         let json = null;
         for (let i = lines.length - 1; i >= 0 && !json; i--) {
           try { json = JSON.parse(lines[i]); } catch { /* keep looking */ }

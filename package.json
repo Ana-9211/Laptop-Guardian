@@ -9,7 +9,7 @@
     "build": "npm --prefix src/dashboard run build",
     "lint": "eslint .",
     "check:ascii": "node scripts/check-ascii.js",
-    "test:node": "node --test tests/bridge.test.js tests/status.test.js tests/schedule.test.js tests/state.test.js tests/remediation.test.js tests/network.test.js tests/ps-runner.test.js tests/install.test.js",
+    "test:node": "node --test tests/bridge.test.js tests/status.test.js tests/schedule.test.js tests/state.test.js tests/remediation.test.js tests/network.test.js tests/ps-runner.test.js tests/install.test.js tests/encoding.test.js",
     "test:ps": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/Run-Tests.ps1",
     "lint:ps": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-ps.ps1",
     "audit:prod": "npm audit --omit=dev && npm --prefix src/dashboard audit --omit=dev",

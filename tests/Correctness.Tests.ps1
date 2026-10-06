@@ -166,6 +166,14 @@ Describe 'Installed copy versus development checkout' {
     }
 }
 
+Describe 'UTF-8 on the pipe' {
+    It 'loading Common\Load.ps1 puts stdout and stdin on UTF-8 without a byte-order mark' {
+        $load = Join-Path $script:RepoRoot 'src\powershell\Common\Load.ps1'
+        $o = & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ". '$load'; ([Console]::OutputEncoding.WebName + '|' + [Console]::OutputEncoding.GetPreamble().Length + '|' + [Console]::InputEncoding.WebName)" 2>&1 | Out-String
+        $o.Trim() | Should Be 'utf-8|0|utf-8'
+    }
+}
+
 Describe 'Shared file lock' {
     It 'is exclusive, is released afterwards, and a stale lock is broken' {
         $f = Join-Path $root 'locked.json'
