@@ -156,6 +156,6 @@ export interface NetworkSettings { snapshot: { auto: boolean; everyMinutes: numb
 export interface NetworkCurrent {
   snapshot: NetSnapshot | null; ageSec: number | null; findings: Finding[]; rules: NetFirewallRule[]; deep: DeepStatus;
   dns: { filtering: { enabled: boolean; blocked: string[] }; cache: NetSnapshot['dns']; history: { ts: string; name: string; type: string; data: string }[] };
-  settings: NetworkSettings; privacy: string;
+  settings: NetworkSettings; privacy: string; posture?: { score: number; reasons: { points: number; reason: string }[] } | null;
 }
 export interface NetHistoryRow { ts: string; established: number; listening: number; remoteAddresses: number; unsignedProcesses: number; dnsEntries: number; findings: number; firewallOff: number; guardianRules: number }

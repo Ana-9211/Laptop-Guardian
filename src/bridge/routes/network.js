@@ -17,6 +17,17 @@ module.exports = function registerNetworkRoutes(ctx) {
     if (r.ok) dnsLogCache = { at: Date.now(), value };
     return value;
   });
+  // Allowed and blocked connections from the Windows Filtering Platform audit log (Security events 5156, 5157, 5152, 5158).
+  let fwLogCache = { at: 0, value: null };
+  route('GET', '/api/network/fw-events', async ({ query }) => {
+    if (fwLogCache.value && Date.now() - fwLogCache.at < 20000) return fwLogCache.value;
+    const hours = Math.min(Math.max(parseInt(query.get('hours') || '24', 10) || 24, 1), 168);
+    const r = await ps.run('Network/Get-FirewallEvents.ps1', ['-Max', '500', '-Hours', String(hours)], { timeoutMs: 60000 });
+    if (r.missing) throw new HttpError(501, r.error);
+    const value = r.ok && r.data ? r.data : { available: false, reason: r.error || 'The firewall log is unavailable.', items: [] };
+    if (r.ok) fwLogCache = { at: Date.now(), value };
+    return value;
+  });
   route('GET', '/api/network/deep', () => deepView());
   route('POST', '/api/network/deep/start', ({ body }) => {
     need(body.confirm === true && body.acknowledged === true, 'Deep Network Guard needs your explicit confirmation and acknowledgement of what it records.');
