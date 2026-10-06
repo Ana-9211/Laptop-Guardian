@@ -78,9 +78,15 @@ function Invoke-BlacklistEnforcement {
     }
     $pol = Get-ProcessPolicy
     $changed = $false
+    $elevated = Test-IsAdmin
     foreach ($p in @($Processes | Where-Object { $_.policy -eq 'blacklist' })) {
         $m = Find-PolicyMatch -Policy $pol -Name $p.name -Path $p.path
         if ($m.list -ne 'blacklist' -or $m.entry.action -ne 'terminate') { continue }
+        # process-policy.json can be edited by any program the user runs, so administrator work does not act on a bare name: the entry must name the exact executable.
+        if ($elevated -and -not ($m.entry.PSObject.Properties['path'] -and $m.entry.path)) {
+            [void](Write-GuardianEvent -Category process -Action 'process:terminate-blocked' -Target "$($p.name)#$($p.pid)" -Result skipped -Actor policy -Reason 'Running as administrator, Guardian only ends a blacklisted program when the entry names its exact executable path.')
+            continue
+        }
         $chk = Test-ProcessKillAllowed -Name $p.name -Path $p.path -ProcessId $p.pid
         if (-not $chk.Allowed -or $chk.Suspicious) {
             # A lookalike of a Windows process is never ended automatically; it needs a person to confirm it in the dashboard.

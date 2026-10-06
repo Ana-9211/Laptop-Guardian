@@ -267,7 +267,7 @@ function createApp(root, opts = {}) {
       safety: c.safety, ai: aiStatus(),
       network: { deepActive: deep.active(), deepSince: deepStartedAt, lastSnapshotAt: (netStore.readLatest() || {}).generatedAt || null, dnsFiltering: !!c.network.dnsFiltering.enabled },
       openRecommendations: recs.length,
-      attention: S.buildAttention({ daily, tasks, run, openRecs: recs.length, highRiskRecs: recs.filter((r) => r.risk === 'HIGH').length, config: c, stale: run.stale }),
+      attention: S.buildAttention({ daily, tasks, run, openRecs: recs.length, highRiskRecs: recs.filter((r) => r.risk === 'HIGH').length, config: c, stale: run.stale, recentActions: acts }),
     };
   });
 

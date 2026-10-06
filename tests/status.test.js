@@ -152,6 +152,15 @@ test('Defender history of quarantined/removed items is info; unresolved threats 
   assert.match(live.find((a) => a.id === 'defender-threats').title, /^1 unresolved/);
 });
 
+test('attention: administrator tasks refused from an untrusted folder are called out, and only while recent', () => {
+  const now = Date.parse('2026-10-06T12:00:00+05:30');
+  const ev = (hoursAgo) => ({ action: 'install:untrusted-refused', ts: new Date(now - hoursAgo * 3600000).toISOString(), reason: 'Administrator actions are refused from this copy. Run .\\Install-LaptopGuardian.ps1 from an administrator PowerShell.' });
+  const recent = S.buildAttention({ daily: null, tasks: [], run: {}, openRecs: 0, highRiskRecs: 0, config: cfg, now, recentActions: [ev(5)] });
+  const hit = recent.find((a) => a.id === 'untrusted-install');
+  assert.ok(hit && hit.level === 'crit' && /Install-LaptopGuardian/.test(hit.detail));
+  assert.ok(!S.buildAttention({ daily: null, tasks: [], run: {}, openRecs: 0, highRiskRecs: 0, config: cfg, now, recentActions: [ev(24 * 5)] }).some((a) => a.id === 'untrusted-install'), 'a refusal older than three days no longer shouts');
+});
+
 test('attention is prioritised: security first, then storage, then maintenance', () => {
   const daily = { generatedAt: new Date().toISOString(), status: 'complete', sections: { defender: { enabled: true, realTimeProtection: false, sigAgeDays: 5, threats: 0 }, system: { disks: [{ freePct: 5 }] } } };
   const tasks = S.assessTasks([{ name: 'Daily Audit', kind: 'daily', state: 'NotRegistered' }], cfg);

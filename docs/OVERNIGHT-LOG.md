@@ -31,6 +31,20 @@ _(written at the end of the run)_
 - Gate: npm run check PASS (112 node tests); PSScriptAnalyzer clean; Pester one file per process PASS (14 of 14); smoke --real PASS.
 - Note for you: because a checkout now defaults to port 7879, the next restart of the live bridge from this checkout will listen on 7879 unless config.json sets bridge.port. The launcher follows the same rule, so the shortcut still works.
 
+### 3b. Trust boundary for administrator runs - committed
+- New module src/powershell/Install/InstallSecurity.psm1 (loaded by Common\Load.ps1): Test-InstallTrusted / Assert-ElevatedCodeTrusted refuse administrator work unless the copy is an installed one (install.json) and every folder it runs from (program folder and parents, the PowerShell tree, the catalog, install.json) can be changed only by SYSTEM, Administrators and TrustedInstaller (owner checked too). The message says exactly what to do (run Install-LaptopGuardian.ps1 from an administrator PowerShell). There is no switch or environment variable that overrides it (a test checks that).
+- Wired into: Daily.ps1 and Weekly.ps1 (when elevated), Invoke-GuardianAction.ps1 (Execute), Request-ElevatedAction.ps1 (before the UAC prompt), Scheduler.ps1 (Set-GuardianTask for Highest tasks, and Request-ElevatedRegister). Standard-user runs are never blocked.
+- New-ProtectedDirectory creates the administrators-only folder with explicit rules (SYSTEM and Administrators full control, Users read-only, no inheritance) and reads the ACL back, throwing loudly if it is not exactly that (owner, inheritance, any extra writer). It writes permissions with [IO.Directory]::SetAccessControl.
+- Untrusted inputs in elevated runs: Limit-ConfigForElevation (clamps every numeric setting to the dashboard's ranges, coerces switches, validates drive letters and folder entries, never uses a config path as a delete target), Get-SafeIgnoredIds (only 12-hex ids), and the blacklist only ends a program when running as administrator if the entry names its exact executable path.
+- Dashboard: an attention item "Administrator tasks are blocked" appears for three days after a refusal. Defender attention no longer treats failed-action statuses (102 to 106) as handled.
+- Tests: tests/InstallSecurity.Tests.ps1 (15), a Policy test, a status test.
+- Gate: npm run check PASS (113); PSScriptAnalyzer clean; Pester one file per process PASS (15 of 15); smoke --real PASS.
+- **Important for you**: your existing Daily and Weekly tasks are registered as Highest and point at this checkout. From now on they will refuse to run (they log install:untrusted-refused and the dashboard shows a red item) until Install-LaptopGuardian.ps1 is run elevated. The installer itself (3c) is NOT written yet; see below.
+- Not verifiable here: the real ACL of Program Files; New-ProtectedDirectory was tested on temp folders with a non-elevated owner.
+
+### 3c. Installer, uninstaller, migration - NOT DONE (carried over)
+A newer instruction (docs/BUILD-LOG-2.md) replaced the rest of this run's order, so the installer rewrite (program/data/ProgramData install, plan-only mode, backup zip, -Rollback, -CleanupLegacy, uninstaller messages) and Batch 5 were not started here. Batch 5's four items are folded into Batch E of BUILD-LOG-2.md. The installer work is listed as Batch F there.
+
 ## Questions for morning
 - Pester 5: the suites rely on Pester 3 behaviour (legacy Should syntax, top-level setup shared with It blocks, Mock -ModuleName by name). A migration touches about 400 tests and I only have Pester 3.4 here to verify, so I kept CI on 3.x. Do you want the migration as its own piece of work later?
 - CI: the Pester job excludes Integration (it registers real scheduled tasks). Several other suites start a real node bridge; they should work on a runner, but the first CI run may show environment-specific failures I cannot see from here.

@@ -122,7 +122,7 @@ function pendingShutdown(actions, now = Date.now()) {
 const LEVEL_RANK = { crit: 0, warn: 1, info: 2 };
 
 /** Prioritised list: safety first (security), then data-at-risk, then maintenance health, then housekeeping. */
-function buildAttention({ daily, tasks, run, openRecs, highRiskRecs, config, now = Date.now(), bridgeOk = true, stale }) {
+function buildAttention({ daily, tasks, run, openRecs, highRiskRecs, config, now = Date.now(), bridgeOk = true, stale, recentActions = [] }) {
   const out = [];
   const add = (level, id, title, detail, href, cta) => out.push({ id, level, title, detail, href: href || null, cta: cta || null });
   const sec = daily?.sections || {};
@@ -132,8 +132,8 @@ function buildAttention({ daily, tasks, run, openRecs, highRiskRecs, config, now
     else if (def.realTimeProtection === false) add('crit', 'defender-rt', 'Defender real-time protection is off', 'Files are not being scanned as they are opened.', '#/health', 'Open Health');
     if ((def.threats || 0) > 0) {
       // Defender threat history keeps quarantined/removed items; only unresolved ones are urgent.
-      // ThreatStatusID: 2 cleaned, 3 quarantined, 4 removed, 102/103/104 blocked/cleaned/removed.
-      const HANDLED = new Set(['2', '3', '4', '102', '103', '104', 'cleaned', 'quarantined', 'removed']);
+      // ThreatStatusID: 2 cleaned, 3 quarantined, 4 removed, 6 blocked. A failed action (102-106) or a plain detection is NOT handled.
+      const HANDLED = new Set(['2', '3', '4', '6', 'cleaned', 'quarantined', 'removed', 'blocked']);
       const list = Array.isArray(def.scan?.threats) ? def.scan.threats : null;
       const active = list ? list.filter((t) => !HANDLED.has(String(t.status).toLowerCase())).length : def.threats;
       if (active > 0) add('crit', 'defender-threats', `${active} unresolved Defender threat${active > 1 ? 's' : ''}`, 'Open Windows Security > Protection history to review and remove them.', '#/health', 'Open Health');
@@ -150,6 +150,9 @@ function buildAttention({ daily, tasks, run, openRecs, highRiskRecs, config, now
     else if (disk.freePct < warn) add('warn', 'disk-low', `Disk is ${Math.round(100 - disk.freePct)}% full`, 'Free space is below your threshold.', '#/files', 'Review files');
   }
   if (highRiskRecs > 0) add('warn', 'recs-high', `${highRiskRecs} high-risk recommendation${highRiskRecs > 1 ? 's' : ''} open`, 'Review the evidence before deciding. Nothing is changed automatically.', '#/recommendations', 'Review');
+  // The Daily/Weekly tasks run as administrator; from a folder ordinary programs can edit they refuse to start (see Install-LaptopGuardian.ps1).
+  const refused = (recentActions || []).filter((a) => a.action === 'install:untrusted-refused' && now - Date.parse(a.ts) < 3 * 86400000).pop();
+  if (refused) add('crit', 'untrusted-install', 'Administrator tasks are blocked', `Daily and Weekly did not run: ${String(refused.reason || '').slice(-260)}`, '#/logs?q=untrusted', 'See the log');
   if (!bridgeOk) add('crit', 'bridge', 'Dashboard bridge is unreachable', 'Data on screen may be out of date.', null, null);
   for (const t of tasks || []) {
     if (t.level === 'crit' || t.level === 'warn') add(t.level, `task-${t.kind}`, `${t.name}: ${t.summary}`, t.issues[0] || (t.lastResult?.hex ? `Result ${t.lastResult.hex}` : ''), t.repair?.needed ? '#/actions?finding=task:schedule' : '#/settings', t.repair?.needed ? 'Fix options' : 'Open Settings');

@@ -18,6 +18,8 @@ function Out-Json($o) { $o | ConvertTo-Json -Compress -Depth 4 }
 $spec = Get-ActionSpec -Id $Action
 if (-not $spec) { Out-Json @{ ok = $false; requested = $false; message = "'$Action' is not an allowlisted action." }; exit 1 }
 if ($spec.admin -eq $false) { Out-Json @{ ok = $false; requested = $false; message = 'This action does not need administrator permission.' }; exit 1 }
+# The UAC prompt would start code from this folder as administrator. If anything ordinary programs can edit sits in that path, say so and stop.
+try { Assert-ElevatedCodeTrusted -WillElevate } catch { Out-Json @{ ok = $false; requested = $false; message = $_.Exception.Message }; exit 1 }
 $entry = Join-Path $PSScriptRoot 'Invoke-GuardianAction.ps1'
 $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$entry`"", '-Action', $Action, '-Mode', 'Execute', '-ParamsB64', $ParamsB64, '-Ticket', $Ticket)
 try {

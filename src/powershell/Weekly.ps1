@@ -15,6 +15,9 @@ Start-RunContext -RunType 'weekly'
 $started = Get-Date
 $runMode = if ($Scheduled) { 'scheduled' } else { 'manual' }
 $config = Get-GuardianConfig
+# Administrator runs only come from a trusted installed copy, and an elevated run never lets the user-editable config steer it.
+try { Assert-ElevatedCodeTrusted } catch { Write-Host $_.Exception.Message; exit 1 }
+if (Test-IsAdmin) { $config = Limit-ConfigForElevation -Config $config }
 $exit = 0
 $phases = New-Object System.Collections.ArrayList
 
@@ -122,7 +125,7 @@ try {
         $script:fileData = Invoke-FileAnalysis -Config $config -DeadlineSec $budget
         # Apply user-ignored files
         $ig = Read-JsonFile -Path (Join-Path (Get-GuardianPath 'Root') 'data\state\ignored-files.json') -Default $null
-        $igIds = if ($ig -is [array]) { @($ig) } elseif ($ig -and $ig.PSObject.Properties['ids']) { @($ig.ids) } else { @() }
+        $igIds = @(Get-SafeIgnoredIds -Raw $ig)   # a user-editable file: only well-formed ids are used, and only as lookup keys
         if ($igIds.Count) { $set = @{}; foreach ($i in $igIds) { $set[[string]$i] = $true }; foreach ($c in $script:fileData.candidates) { if ($set.ContainsKey($c.id)) { $c.ignored = $true } } }
         Write-JsonFile -Path (Get-GuardianPath 'LatestFiles') -Object $script:fileData -Depth 8
         $script:ctx.Sections.files = [pscustomobject]@{ candidateCount = @($script:fileData.candidates).Count; reclaimableGB = $script:fileData.reclaimableGB }
