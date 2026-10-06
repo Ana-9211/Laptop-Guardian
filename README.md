@@ -20,6 +20,7 @@ A local-first Windows auditing, monitoring, recommendation and reporting platfor
 
 ```powershell
 cd C:\Users\You\Downloads\LaptopGuardian
+.\Install-LaptopGuardian.ps1 -Check           # read-only self-check: Node, free space, ports 7878/7879, permissions, existing tasks, leftovers
 .\Install-LaptopGuardian.ps1 -PlanOnly        # read what it will do; changes nothing
 .\Install-LaptopGuardian.ps1 -Elevate         # UAC prompt, then installs
 ```
