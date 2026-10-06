@@ -199,7 +199,8 @@ Describe 'Shortcuts' {
     It 'installer creates Start Menu + Desktop shortcuts by default, offers opt-outs, and tests never touch real shortcuts' {
         $inst = Get-Content (Join-Path $repo 'Install-LaptopGuardian.ps1') -Raw
         $inst | Should Match 'NoDesktopShortcut'; $inst | Should Match 'SkipShortcuts'; $inst | Should Match 'Test-GuardianShortcut'
-        (Get-Content (Join-Path $repo 'tests\Integration.Tests.ps1') -Raw) | Should Match '-SkipShortcuts'
+        (Get-Content (Join-Path $repo 'tests\Integration.Tests.ps1') -Raw) | Should Not Match '(?<!Un)Install-LaptopGuardian\.ps1'   # the real installer is only ever run with -PlanOnly in tests
+        (Get-Content (Join-Path $repo 'tests\Installer.Tests.ps1') -Raw) | Should Match '-PlanOnly'
         (Test-Path (Join-Path $repo 'Open-LaptopGuardian.cmd')) | Should Be $true
         (Test-Path (Join-Path $repo 'src\assets\guardian.ico')) | Should Be $true
     }

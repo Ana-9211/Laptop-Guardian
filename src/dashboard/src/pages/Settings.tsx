@@ -1,38 +1,17 @@
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, bridge, useQuery } from '../api';
 import type { Config, Policy } from '../types';
-import { Badge, Card, ErrorState, Icon, PageHead, SkeletonCards, Switch, useConfirm, useToast } from '../components/ui';
+import { Badge, ErrorState, Icon, PageHead, SkeletonCards, Switch, useConfirm, useToast } from '../components/ui';
 import { useOverview } from '../state/overview';
-import { fmtDate } from '../format';
 import { useStatus } from '../state/StatusProvider';
-import { ScheduleRepairNotice } from '../components/ScheduleRepair';
 import { setNavGuard } from '../router';
-
-type Draft = Config;
-const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
-const strip = (c: Config) => { const x = clone(c) as Partial<Config>; delete x._ai; delete x.bridge; delete x.schemaVersion;
-  // Deep Network Guard and DNS filtering are switched only from Network Guard, with their own confirmation.
-  if (x.network) { delete (x.network as { deep?: unknown }).deep; delete (x.network as { dnsFiltering?: unknown }).dnsFiltering; }
-  return x; };
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-// Shown until "Test connection" fetches the live list for this key. Retired models are not listed.
-const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite'];
-
-function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}{hint && <span className="hint" style={{ fontWeight: 400 }}>{hint}</span>}</label>;
-}
-/** Numeric input that never turns an empty or out-of-range entry into a value: it keeps the text while typing and commits only valid numbers, clamping on blur. */
-function Num({ value, onChange, min = 0, max = 1_000_000_000, step }: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
-  const [text, setText] = useState(String(value));
-  useEffect(() => { setText((t) => (Number(t) === value ? t : String(value))); }, [value]);
-  const bad = text.trim() === '' || !Number.isFinite(Number(text)) || Number(text) < min || Number(text) > max;
-  return <input type="number" inputMode="decimal" min={min} max={max} step={step} value={text} aria-invalid={bad || undefined} title={bad ? `Enter a number from ${min} to ${max}` : undefined}
-    onChange={(e) => { setText(e.target.value); const v = Number(e.target.value); if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= min && v <= max) onChange(v); }}
-    onBlur={() => { const v = Number(text); const c = text.trim() === '' || !Number.isFinite(v) ? value : Math.min(max, Math.max(min, v)); setText(String(c)); if (c !== value) onChange(c); }} />;
-}
-const Lines = ({ value, onChange, rows = 3, placeholder }: { value: string[]; onChange: (v: string[]) => void; rows?: number; placeholder?: string }) => (
-  <textarea rows={rows} value={value.join('\n')} placeholder={placeholder} spellCheck={false} style={{ fontFamily: 'var(--mono)', fontSize: 12.5, width: '100%' }} onChange={(e) => onChange(e.target.value.split('\n').map((x) => x.trim()).filter(Boolean))} />
-);
+import { clone, strip, type Draft } from '../components/settings/fields';
+import { AiCard } from '../components/settings/AiCard';
+import { ScheduleCard } from '../components/settings/ScheduleCard';
+import { CleanupCard } from '../components/settings/CleanupCard';
+import { PolicyCard } from '../components/settings/PolicyCard';
+import { StorageCard } from '../components/settings/StorageCard';
+import { RetentionCard } from '../components/settings/RetentionCard';
 
 export default function Settings() {
   const cfgQ = useQuery<Config>('/api/config');
@@ -138,105 +117,18 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Gemini */}
-      <Card title="Gemini (AI analysis)" actions={<Badge tone={d.ai.enabled && keyOn ? 'info' : ''} dot>{d.ai.enabled ? (keyOn ? 'Enabled' : 'Needs key') : 'Off'}</Badge>}>
-        <div className="stack-lg">
-          <div className="notice"><b>Privacy.</b> When enabled, Laptop Guardian sends <b>structured metadata only</b> to Google&apos;s Gemini API: process names, paths, publishers, signatures, resource numbers, and aggregated findings. It never sends file contents, documents, passwords or tokens. Responses are schema-validated and can never run commands. Without AI everything still works.</div>
-          <Switch checked={d.ai.enabled} onChange={(v) => upd((x) => { x.ai.enabled = v; })} label="Enable AI analysis" />
-          <form className="grid g2" onSubmit={(e) => { e.preventDefault(); if (key) saveKey(); }} autoComplete="off">
-            <Field label="API key" hint={keyOn ? 'A key is stored, encrypted with Windows DPAPI for your account. It is never shown again, never sent to this page and never committed to Git.' : 'Get a key from Google AI Studio. It is stored encrypted for your Windows account only.'}>
-              <div className="row" style={{ flexWrap: 'nowrap' }}>
-                <input type={show ? 'text' : 'password'} autoComplete="off" spellCheck={false} placeholder={keyOn ? 'Key stored (hidden)' : 'Paste API key'} value={key} onChange={(e) => setKey(e.target.value)} style={{ flex: 1, fontFamily: 'var(--mono)' }} aria-label="Gemini API key" />
-                <button type="button" className="btn icon-btn" aria-label={show ? 'Hide key' : 'Show key'} aria-pressed={show} onClick={() => setShow(!show)}><Icon name={show ? 'eyeoff' : 'eye'} /></button>
-              </div>
-            </Field>
-            <div className="row" style={{ alignSelf: 'end' }}>
-              <button type="submit" className="btn primary" disabled={!key || busy === 'key'}><Icon name="lock" size={13} />{keyOn ? 'Replace key' : 'Save key'}</button>
-              <button type="button" className="btn" disabled={!keyOn || busy === 'test'} onClick={test}>{busy === 'test' ? 'Testing...' : 'Test connection'}</button>
-              {keyOn && <button type="button" className="btn danger" onClick={removeKey}>Remove key</button>}
-            </div>
-          </form>
-          {testMsg && <div className={`notice ${testMsg.ok ? 'ok' : 'crit'}`} role="status">{testMsg.text}</div>}
-          <div className="grid g4">
-            <Field label="Model"><input list="models" value={d.ai.model} onChange={(e) => upd((x) => { x.ai.model = e.target.value; })} /><datalist id="models">{(liveModels.length ? liveModels : FALLBACK_MODELS).map((m) => <option key={m} value={m} />)}</datalist></Field>
-            <Field label="Max requests per run"><Num min={0} max={500} value={d.ai.maxRequestsPerRun} onChange={(v) => upd((x) => { x.ai.maxRequestsPerRun = v; })} /></Field>
-            <Field label="Max processes per run"><Num min={0} max={100} value={d.ai.maxProcessesPerRun} onChange={(v) => upd((x) => { x.ai.maxProcessesPerRun = v; })} /></Field>
-            <Field label="Daily token budget"><Num min={0} step={10000} value={d.ai.dailyTokenBudget} onChange={(v) => upd((x) => { x.ai.dailyTokenBudget = v; })} /></Field>
-          </div>
-          <div>
-            <h3 style={{ marginBottom: 6 }}>Request history</h3>
-            {usage.data ? (<>
-              <div className="row small t2" style={{ gap: 18 }}><span>{usage.data.totals.requests} requests</span><span>{usage.data.totals.failures} failed</span><span>{usage.data.totals.tokensToday.toLocaleString()} tokens today</span><span>{usage.data.totals.tokensAll.toLocaleString()} tokens total</span></div>
-              {usage.data.requests.length === 0 ? <div className="small muted" style={{ marginTop: 6 }}>No requests yet. Gemini token pricing varies by model; check the current Google rates.</div> : (
-                <div className="table-wrap" style={{ maxHeight: 200, marginTop: 8, border: '1px solid var(--line)', borderRadius: 6 }}><table className="t"><thead><tr><th>Time</th><th>Model</th><th>Kind</th><th>Result</th><th className="r">Tokens</th></tr></thead><tbody>{usage.data.requests.slice(0, 20).map((r, i) => <tr key={i}><td className="small">{fmtDate(r.ts)}</td><td className="mono">{r.model}</td><td>{r.kind}</td><td><Badge tone={r.ok ? 'ok' : 'crit'} dot>{r.ok ? 'ok' : r.error || 'failed'}</Badge></td><td className="r num">{(r.promptTokens || 0) + (r.outputTokens || 0)}</td></tr>)}</tbody></table></div>)}
-            </>) : usage.error ? <ErrorState error={usage.error} onRetry={usage.reload} /> : <div className="small muted">Loading...</div>}
-          </div>
-        </div>
-      </Card>
+      <AiCard d={d} upd={upd} keyOn={keyOn} keyText={key} setKey={setKey} show={show} setShow={setShow} busy={busy} testMsg={testMsg} liveModels={liveModels} usage={usage} saveKey={saveKey} removeKey={removeKey} test={test} />
 
-      {/* Schedule */}
-      <Card title="Schedule">
-        <div className="stack-lg">
-          <div className="grid g3" style={{ alignItems: 'start' }}>
-            <div className="stack"><Switch checked={d.schedule.daily.enabled} onChange={(v) => upd((x) => { x.schedule.daily.enabled = v; })} label={<b>Daily audit</b>} />
-              <Field label="Time"><input type="time" value={d.schedule.daily.time} onChange={(e) => upd((x) => { x.schedule.daily.time = e.target.value; })} /></Field></div>
-            <div className="stack"><Switch checked={d.schedule.weekly.enabled} onChange={(v) => upd((x) => { x.schedule.weekly.enabled = v; })} label={<b>Weekly deep analysis</b>} />
-              <div className="row"><Field label="Day"><select value={d.schedule.weekly.day} onChange={(e) => upd((x) => { x.schedule.weekly.day = e.target.value; })}>{DAYS.map((x) => <option key={x}>{x}</option>)}</select></Field>
-                <Field label="Start"><input type="time" value={d.schedule.weekly.time} onChange={(e) => upd((x) => { x.schedule.weekly.time = e.target.value; })} /></Field></div></div>
-            <div className="stack"><b>Weekly shutdown</b>
-              <Field label="Target shutdown time" hint={`Unfinished work is recorded as incomplete when this is reached. Shutdown is ${d.safety.weeklyShutdown && d.schedule.weekly.shutdownEnabled ? 'on' : 'off'}; change it with the switch in Safety above.`}><input type="time" value={d.schedule.weekly.shutdownTime} onChange={(e) => upd((x) => { x.schedule.weekly.shutdownTime = e.target.value; })} /></Field></div>
-          </div>
-          <ScheduleRepairNotice />
-          <div className="small muted">Scheduling uses Windows Task Scheduler; no Guardian process stays running. Saving a changed schedule updates the tasks; elevated tasks are never downgraded and need your permission to change. The laptop must be on (or wake for the task) at these times.{ov.data && <> Next: daily {fmtDate(ov.data.next.daily)} - weekly {fmtDate(ov.data.next.weekly)}.</>}</div>
-        </div>
-      </Card>
+      <ScheduleCard d={d} upd={upd} ov={ov} />
 
-      {/* Cleanup */}
-      <Card title="Cleanup">
-        <div className="stack-lg">
-          <div className="notice warn">Cleanup only runs when Safe mode is off. It touches clearly temporary data only. Documents, source code, installed programs, Downloads and unknown files are never deleted automatically.</div>
-          <div className="grid g2">
-            <Switch checked={d.cleanup.tempFiles} onChange={(v) => upd((x) => { x.cleanup.tempFiles = v; })} label="Clean temporary files" hint="Deletes files in user and Windows temp folders older than the age below. Apps using a temp file at that moment are skipped." />
-            <Switch checked={d.cleanup.crashDumps} onChange={(v) => upd((x) => { x.cleanup.crashDumps = v; })} label="Clean crash dumps" hint="Removes minidumps and memory dumps. You lose the data used to diagnose a past blue screen." />
-            <Switch checked={d.cleanup.caches} onChange={(v) => upd((x) => { x.cleanup.caches = v; })} label="Clean known safe caches" hint="Windows thumbnail and error-report caches. Rebuilt automatically; the first use afterwards may be slightly slower." />
-            <Field label="Recycle Bin" hint="Never is safest: Guardian will not empty the Recycle Bin."><select value={d.cleanup.recycleBin} onChange={(e) => upd((x) => { x.cleanup.recycleBin = e.target.value; })}><option value="never">Never empty</option><option value="always">Empty on every run (not recommended)</option></select></Field>
-            <Field label="Only clean temp files older than (days)"><Num min={0} max={365} value={d.cleanup.tempMinAgeDays} onChange={(v) => upd((x) => { x.cleanup.tempMinAgeDays = v; })} /></Field>
-          </div>
-        </div>
-      </Card>
+      <CleanupCard d={d} upd={upd} />
 
-      {/* Process policies */}
-      <Card title="Process policies">
-        <div className="stack">
-          {pol.data ? <div className="row" style={{ gap: 20 }}><span><b className="num">{pol.data.blacklist.length}</b> <a href="#/blacklist">blacklisted</a></span><span><b className="num">{pol.data.whitelist.length}</b> <a href="#/whitelist">whitelisted</a></span><span><b className="num">{pol.data.ignored.length}</b> ignored recommendations</span></div> : pol.error ? <ErrorState error={pol.error} onRetry={pol.reload} /> : <div className="small muted">Loading...</div>}
-          <p className="small muted">Whether blacklisted programs are ended automatically is a Safety setting (above). Only entries on your blacklist are ever ended; unknown programs never are.</p>
-          <div className="grid g4">
-            <Field label="Flag CPU above (%)"><Num min={1} max={100} value={d.thresholds.cpuPct} onChange={(v) => upd((x) => { x.thresholds.cpuPct = v; })} /></Field>
-            <Field label="Flag memory above (MB)"><Num min={50} value={d.thresholds.memoryMB} onChange={(v) => upd((x) => { x.thresholds.memoryMB = v; })} /></Field>
-          </div>
-        </div>
-      </Card>
+      <PolicyCard d={d} upd={upd} pol={pol} />
 
-      {/* Storage */}
-      <Card title="Storage scanning">
-        <div className="grid g2">
-          <Field label="Scanned drives" hint="One per line, e.g. C:"><Lines value={d.storage.drives} onChange={(v) => upd((x) => { x.storage.drives = v; })} rows={2} /></Field>
-          <Field label="Excluded directories" hint="Never scanned."><Lines value={d.storage.excludedDirs} onChange={(v) => upd((x) => { x.storage.excludedDirs = v; })} rows={2} placeholder="D:\Games" /></Field>
-          <Field label="Protected directories" hint="Scanned for reporting but never recommended for removal."><Lines value={d.storage.protectedDirs} onChange={(v) => upd((x) => { x.storage.protectedDirs = v; })} rows={2} placeholder="C:\Users\You\Documents" /></Field>
-          <div className="grid g2" style={{ alignContent: 'start' }}>
-            <Field label="Minimum large file (MB)"><Num min={1} value={d.storage.minLargeFileMB} onChange={(v) => upd((x) => { x.storage.minLargeFileMB = v; })} /></Field>
-            <Field label="Old file after (days)"><Num min={1} value={d.storage.oldFileDays} onChange={(v) => upd((x) => { x.storage.oldFileDays = v; })} /></Field>
-            <Field label="Duplicate minimum (MB)"><Num min={1} value={d.storage.duplicateMinMB} onChange={(v) => upd((x) => { x.storage.duplicateMinMB = v; })} /></Field>
-            <div style={{ alignSelf: 'end' }}><Switch checked={d.storage.duplicateScan} onChange={(v) => upd((x) => { x.storage.duplicateScan = v; })} label="Scan for duplicates" /></div>
-          </div>
-        </div>
-      </Card>
+      <StorageCard d={d} upd={upd} />
 
-      <Card title="Retention">
-        <div className="grid g3">
-          <Field label="Keep reports for (days)" hint="0 keeps every report forever. Metrics history and the audit log are never deleted automatically."><Num min={0} max={3650} value={d.retention.reportsDays} onChange={(v) => upd((x) => { x.retention.reportsDays = v; })} /></Field>
-        </div>
-      </Card>
+      <RetentionCard d={d} upd={upd} />
+
 
       <div style={{ position: 'sticky', bottom: 0, background: 'var(--bg)', borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', gap: 10, alignItems: 'center', zIndex: 10 }}>
         <button className="btn primary" disabled={!dirty || busy === 'save'} onClick={() => save()}>{busy === 'save' ? 'Saving...' : 'Save changes'}</button>

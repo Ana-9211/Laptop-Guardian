@@ -7,6 +7,7 @@ import { useTheme, nextTheme, themeLabel } from './theme';
 import { findNav, groupOf } from './nav';
 import { useNavCollapsed } from './layoutPrefs';
 import { OverviewContext } from './state/overview';
+import { FindingsContext, RemediationHistoryContext, type FindingsData, type HistoryData } from './state/findings';
 import { StatusProvider, useStatus } from './state/StatusProvider';
 import { ConnectionPill, RefreshButton, StatusRail, contextSubtitle } from './components/StatusBar';
 import { ScanBanner } from './components/ScanBanner';
@@ -40,6 +41,8 @@ function Shell() {
   const menuWasOpen = useRef(false);
   const [collapsed, toggleCollapsed] = useNavCollapsed();
   const { status, live } = useStatus();
+  const findings = useQuery<FindingsData>('/api/remediation/findings');
+  const remHistory = useQuery<HistoryData>('/api/remediation/history?limit=200');
   const overview = useQuery<Overview>('/api/overview'); // reloaded by the status provider (one poll loop), not by its own timer
   const o = overview.data;
 
@@ -58,6 +61,8 @@ function Shell() {
 
   return (
     <OverviewContext.Provider value={overview}>
+    <FindingsContext.Provider value={findings}>
+    <RemediationHistoryContext.Provider value={remHistory}>
       <div className="shell" data-collapsed={collapsed}>
         <a className="skip" href="#main" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>Skip to content</a>
         {menuOpen && <div className="nav-scrim" onClick={() => setMenuOpen(false)} aria-hidden="true" />}
@@ -87,6 +92,8 @@ function Shell() {
           <main id="main" tabIndex={-1} className="main-focus"><PageBoundary key={nav.id}><Page /></PageBoundary></main>
         </div>
       </div>
+    </RemediationHistoryContext.Provider>
+    </FindingsContext.Provider>
     </OverviewContext.Provider>
   );
 }

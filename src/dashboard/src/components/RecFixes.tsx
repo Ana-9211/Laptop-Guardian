@@ -1,11 +1,10 @@
-import { useQuery } from '../api';
-import type { Finding } from '../types';
+import { useFindings } from '../state/findings';
 import { ActionOfferCard } from './FindingActions';
 import type { useActionFlow } from './ActionFlow';
 
 /** The fixes Guardian offers for one recommendation (everything except the plain stop, which has its own button). */
 export function RecFixes({ recId, flow }: { recId: string; flow: ReturnType<typeof useActionFlow> }) {
-  const q = useQuery<{ findings: Finding[] }>('/api/remediation/findings');
+  const q = useFindings();
   if (q.error) return <p className="small muted">Fix options are unavailable: {q.error.message}</p>;
   if (!q.data) return <p className="small muted">Checking what can be fixed...</p>;
   const f = q.data.findings.find((x) => x.recommendationId === recId);

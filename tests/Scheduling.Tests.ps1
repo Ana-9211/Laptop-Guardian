@@ -131,7 +131,7 @@ Describe 'Shutdown policy' {
         (Get-Content (Join-Path $PSScriptRoot '..\src\powershell\Scheduler.ps1') -Raw) | Should Match 'Weekly\.ps1`" -Scheduled'
     }
     It 'bridge never launches a weekly run that can shut down' {
-        (Get-Content (Join-Path $PSScriptRoot '..\src\bridge\server.js') -Raw) | Should Match "launchScan\('Weekly', \['-NoShutdown'\]\)"
+        (Get-Content (Join-Path $PSScriptRoot '..\src\bridge\routes\schedule.js') -Raw) | Should Match "launchScan\('Weekly', \['-NoShutdown'\]\)"
     }
     It 'computes seconds until a wall-clock time (fixed clock, so it cannot flake around midnight)' { $now = [datetime]'2026-10-05 12:00:10'; (Get-SecondsUntil '12:30' -Now $now) | Should Be 1790; (Get-SecondsUntil '11:30' -Now $now) | Should BeLessThan 0 }
 }

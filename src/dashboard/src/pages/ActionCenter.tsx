@@ -1,5 +1,5 @@
+import { useFindings, useRemediationHistory } from '../state/findings';
 import { useMemo, useState } from 'react';
-import { useQuery } from '../api';
 import type { Finding, HistoryItem, RevoInfo } from '../types';
 import { Badge, Card, Col, DataTable, Drawer, Empty, ErrorState, Icon, PageHead, RiskBadge, SearchBox, SkeletonCards, Stat, Tabs } from '../components/ui';
 import { FindingDetail } from '../components/FindingActions';
@@ -24,8 +24,8 @@ function RevoNote({ revo }: { revo: RevoInfo | null }) {
 export default function ActionCenter() {
   const { params } = useHash();
   const { check } = useStatus();
-  const findings = useQuery<{ generatedAt: string; revo: RevoInfo | null; findings: Finding[] }>('/api/remediation/findings');
-  const hist = useQuery<{ items: HistoryItem[] }>('/api/remediation/history?limit=200');
+  const findings = useFindings();
+  const hist = useRemediationHistory();
   const [tab, setTab] = useState<Tab>('findings');
   const [kind, setKind] = useState(''); const [text, setText] = useState('');
   const flow = useActionFlow(() => { findings.reload(); hist.reload(); void check(true); });

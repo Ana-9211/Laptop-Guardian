@@ -86,3 +86,17 @@ function Start-MockGemini {
     Start-Sleep -Milliseconds 800
     return $job
 }
+
+function Get-RemediationSource {
+    <# The whole remediation module as text: the .psm1 plus every family file it dot-sources. Source-scan tests must cover all of it. #>
+    $dir = Join-Path $script:RepoRoot 'src\powershell\Actions'
+    $files = @(Join-Path $dir 'Remediation.psm1') + @(Get-ChildItem (Join-Path $dir 'Remediation') -Filter *.ps1 | ForEach-Object FullName)
+    ($files | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
+}
+
+function Get-NetworkActionsSource {
+    <# The whole network-actions module as text: the .psm1 plus every family file it dot-sources. #>
+    $dir = Join-Path $script:RepoRoot 'src\powershell\Actions'
+    $files = @(Join-Path $dir 'NetworkActions.psm1') + @(Get-ChildItem (Join-Path $dir 'NetworkActions') -Filter *.ps1 | ForEach-Object FullName)
+    ($files | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
+}

@@ -261,7 +261,7 @@ Describe 'administrator-only maintenance actions' {
         (Run 'system.integrity-check' @{}).details.dismClean | Should Be $true
         Mock -ModuleName $M Invoke-IntegrityTools { [pscustomobject]@{ dismExit = 0; dismText = 'The component store is repairable.'; sfcExit = 1; sfcText = '' } }
         $d = (Run 'system.integrity-check' @{}).details; $d.dismClean | Should Be $false; $d.sfcClean | Should Be $false
-        (Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Remediation.psm1') -Raw) | Should Not Match '/scannow|/RestoreHealth|/ScanHealth'
+        (Get-RemediationSource) | Should Not Match '/scannow|/RestoreHealth|/ScanHealth'
     }
     It 'firewall: only ever turns a profile ON, and refuses when it is already on' {
         Mock -ModuleName $M Test-AdminNow { $true }
@@ -270,7 +270,7 @@ Describe 'administrator-only maintenance actions' {
         Mock -ModuleName $M Set-NetFirewallProfile { param($Name, $Enabled) $global:T_Fw = [string]$Enabled }
         (Run 'firewall.enable-profile' @{ profile = 'Public' }).verified | Should Be $true
         (First (Run 'firewall.enable-profile' @{ profile = 'Public' })) | Should Match 'already on'
-        (Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Remediation.psm1') -Raw) | Should Not Match 'Enabled False'
+        (Get-RemediationSource) | Should Not Match 'Enabled False'
     }
     It 'DNS flush: verifies the cache did not grow' {
         Mock -ModuleName $M Test-AdminNow { $true }; Mock -ModuleName $M Clear-DnsClientCache { }
@@ -306,7 +306,7 @@ Describe 'Revo Uninstaller integration' {
         $r = Run 'app.revo-launch' @{ appName = 'Old Tool' }
         $r.ok | Should Be $true; $r.verified | Should Be $false; $r.details.pendingVerification | Should Be $true; $r.message | Should Match 'has not uninstalled'
         Assert-MockCalled -ModuleName $M Start-RevoProcess -Exactly 1 -ParameterFilter { $Exe -like '*RevoUnin.exe' }
-        (Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Remediation.psm1') -Raw) | Should Not Match 'RevoUnin\.exe.{0,40}(/|-)(path|file|mode|delete)'
+        (Get-RemediationSource) | Should Not Match 'RevoUnin\.exe.{0,40}(/|-)(path|file|mode|delete)'
     }
     It 'verification reports uninstalled only when the program is really gone' {
         Mock -ModuleName $M Find-InstalledProgram $app
@@ -315,7 +315,7 @@ Describe 'Revo Uninstaller integration' {
         $r = Run 'app.verify-removed' @{ appName = 'Old Tool' }; $r.verified | Should Be $true; $r.details.removed | Should Be $true
     }
     It 'Revo shortcut inspection never launches anything and reports a clear reason when untrusted' {
-        $src = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Remediation.psm1') -Raw
+        $src = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Remediation\Apps.ps1') -Raw
         $i = $src.IndexOf('function Get-RevoInfo'); $j = $src.IndexOf('# ---------- protections'); $body = $src.Substring($i, $j - $i)
         $body | Should Not Match 'Start-Process|Invoke-Item|&\s'
     }
@@ -325,7 +325,7 @@ Describe 'Entry scripts' {
     $entry = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Invoke-GuardianAction.ps1') -Raw
     $elev = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Request-ElevatedAction.ps1') -Raw
     It 'have no way to run a supplied command' {
-        foreach ($s in $entry, $elev, (Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Remediation.psm1') -Raw)) { $s | Should Not Match 'Invoke-Expression|\biex\b|-EncodedCommand|ScriptBlock\]::Create|Add-Type.*DllImport' }
+        foreach ($s in $entry, $elev, (Get-RemediationSource)) { $s | Should Not Match 'Invoke-Expression|\biex\b|-EncodedCommand|ScriptBlock\]::Create|Add-Type.*DllImport' }
     }
     It 'elevation has exactly one RunAs and only for the fixed entry script' {
         ([regex]::Matches($elev, '-Verb RunAs')).Count | Should Be 1

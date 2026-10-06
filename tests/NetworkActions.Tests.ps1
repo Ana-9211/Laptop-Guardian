@@ -131,7 +131,7 @@ Describe 'Firewall rules: ownership and lifecycle (all mocked)' {
         @($global:T_Removed) | Should Be 'LG-1000000-abcdef'
     }
     It 'cmdlets that create or delete rules appear only inside the guarded wrappers' {
-        $src = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\NetworkActions.psm1') -Raw
+        $src = Get-NetworkActionsSource
         ([regex]::Matches($src, 'New-NetFirewallRule')).Count | Should Be 1
         ([regex]::Matches($src, 'Remove-NetFirewallRule')).Count | Should Be 1
         $src | Should Not Match 'Set-NetFirewallProfile|netsh|Disable-NetFirewallRule -All|Remove-NetFirewallRule -All|-Enabled False|Set-MpPreference|Add-MpPreference'
@@ -195,7 +195,7 @@ Describe 'DNS hosts-file blocking (temp files only)' {
     }
     It 'needs elevation to edit the real hosts file' { $global:T_Hosts = New-Hosts $original; Mock -ModuleName $M Test-AdminNet { $false }; Mock -ModuleName $M Test-DnsFilteringEnabled { $true }; Mock -ModuleName $M Get-HostsFilePath { $global:T_Hosts }; (Run 'dns.block-domain' @{ domain = 'a.example.org' }).needsElevation | Should Be $true }
     It 'the real hosts path is only ever used through Get-HostsFilePath' {
-        $src = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\NetworkActions.psm1') -Raw
+        $src = Get-NetworkActionsSource
         ([regex]::Matches($src, 'drivers\\etc\\hosts')).Count | Should Be 1
     }
     Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue

@@ -1,5 +1,4 @@
-import { useQuery } from '../api';
-import type { Finding } from '../types';
+import { useFindings } from '../state/findings';
 import { Badge, Card, Icon, RiskBadge } from './ui';
 import { ActionButton, useActionFlow } from './ActionFlow';
 import { useStatus } from '../state/StatusProvider';
@@ -7,7 +6,7 @@ import { useStatus } from '../state/StatusProvider';
 /** Health findings with a direct, confirmed fix. Hidden when everything is fine. Each row links to the full detail. */
 export function HealthActions() {
   const { check } = useStatus();
-  const q = useQuery<{ findings: Finding[] }>('/api/remediation/findings');
+  const q = useFindings();
   const flow = useActionFlow(() => { q.reload(); void check(true); });
   const items = (q.data?.findings || []).filter((f) => f.kind === 'health');
   if (!items.length) return flow.node;

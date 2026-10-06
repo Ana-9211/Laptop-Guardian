@@ -29,6 +29,15 @@ Batch F (installer) moves to right after A. Reason: the previous commit makes th
 - NOT verified here (needs you): a real elevated install to Program Files, the real ACL on %ProgramData%, UAC relaunch with -Elevate, the real migration of your data, -Rollback against real tasks, and the uninstall helper deleting the program folder.
 - Gate: npm run check PASS (115); lint:ps clean; Pester one file per process PASS (16 files incl. Installer, Integration).
 
+### B. Behaviour-preserving deep clean - committed
+- Bridge: server.js (896 lines) is now a thin wiring file. lib/context.js (shared state), lib/network-context.js, lib/http.js (error type, headers, body, static files, request pipeline), lib/constants.js, and routes/{status,reports,files,settings,ai,schedule,network,remediation}.js. Same routes in the same order, same checks.
+- PowerShell: Remediation.psm1 and NetworkActions.psm1 keep their header and exports; each action family is a file under ActionsRemediation and ActionsNetworkActions that the module dot-sources. Same module scope on purpose, so every Pester mock and export is unchanged. Source-scan tests read all the pieces (Get-RemediationSource, Get-NetworkActionsSource).
+- Dashboard: components/ui.tsx became components/ui/{icons,display,controls,feedback,overlay,actions,table}.tsx with an index barrel (no import changed). Settings.tsx is the page plus components/settings/ (fields and six cards). NetworkParts.tsx re-exports components/network/*. The Action Center findings and history are one shared query (state/findings.ts) used by Action Center, Health, Recommendations and Network Guard.
+- Dead code: no exported function was entirely unused (checked with a script); the unused http.js exports were removed. Over-exported helpers were left alone.
+- docs/ARCHITECTURE.md written: folders, module map, request path, how to add an action or an endpoint, tests.
+- Test updates caused by moved code: source-scan tests follow the files; the Launcher/Scheduling checks point at the new files.
+- Gate: npm run check 115 PASS; tsc and eslint clean; lint:ps clean; Pester one file per process PASS (Installer, Launcher, Scheduling re-run after fixing paths); smoke fixture and --real PASS.
+
 ## Questions for morning
 
 ## Still open
