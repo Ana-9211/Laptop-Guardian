@@ -6,6 +6,8 @@ const U = require('../lib/util');
 const S = require('../lib/status');
 const { VERSION, RE_DAILY, RE_WEEKLY, REC_STATUSES } = require('../lib/constants');
 
+const ARCHIVE_SEARCH_BYTES = 8 * 1024 * 1024;
+
 module.exports = function registerStatusRoutes(ctx) {
   const { root, codeRoot, P, tailActions, config, log, need, str, listReports, loadRecs, filterMetrics, aiStatus, route, locked, shutdownArmed, dirCount, startedAt, codeMtime, restartNeeded, currentRun, cachedJson, getTasks, elevationPending, state, netStore, deep } = ctx;
   // `root` lets the launcher confirm a bridge belongs to THIS installation before it ever considers stopping it.
@@ -121,11 +123,21 @@ module.exports = function registerStatusRoutes(ctx) {
   route('GET', '/api/actions', ({ query }) => {
     const limit = Math.min(Math.max(parseInt(query.get('limit') || '200', 10) || 200, 1), 2000);
     const cat = query.get('category'); const sev = query.get('severity'); const q = (query.get('q') || '').toLowerCase(); const before = query.get('before');
-    let rows = tailActions(20000).reverse();
-    if (cat) rows = rows.filter((r) => r.category === cat);
-    if (sev) rows = rows.filter((r) => r.severity === sev);
-    if (before) rows = rows.filter((r) => r.ts < before);
-    if (q) rows = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(q));
+    const keep = (r) => (!cat || r.category === cat) && (!sev || r.severity === sev) && (!before || r.ts < before) && (!q || JSON.stringify(r).toLowerCase().includes(q));
+    let rows = tailActions(20000).reverse().filter(keep);
+    // Older rows live in monthly archive files (see lib/maintenance.js). They are searched only on request, newest month first, and never more than
+    // ARCHIVE_SEARCH_BYTES in total, so one search cannot read an unbounded amount of history.
+    if (query.get('archived') === '1' && rows.length < limit) {
+      const dir = path.join(path.dirname(P.actions), 'archive');
+      let files = []; try { files = fs.readdirSync(dir).filter((n) => /^actions-\d{4}-\d{2}\.jsonl$/.test(n)).sort().reverse(); } catch { /* no archive yet */ }
+      let budget = ARCHIVE_SEARCH_BYTES;
+      for (const n of files) {
+        if (budget <= 0 || rows.length >= limit) break;
+        const f = path.join(dir, n); let size = 0; try { size = fs.statSync(f).size; } catch { continue; }
+        budget -= Math.min(size, budget);
+        rows = rows.concat(U.tailJsonl(f, Number.MAX_SAFE_INTEGER, Math.min(size, ARCHIVE_SEARCH_BYTES)).reverse().filter(keep).map((r) => ({ ...r, archived: true })));
+      }
+    }
     return rows.slice(0, limit);
   });
 };

@@ -23,7 +23,7 @@ export function PosturePanel({ current, flow }: { current: NetworkCurrent; flow:
       <Card title="Connection log (Windows Filtering Platform)" actions={<span className="row tight">
         <ActionButton actionId="setup.enable-firewall-audit" params={{}} label="Turn on connection logging" flow={flow} />
         <ActionButton actionId="setup.disable-firewall-audit" params={{}} label="Turn it off" flow={flow} />
-        <DownloadButton path="/api/network/fw-events?hours=24" name="firewall-events.json" className="btn sm">Export</DownloadButton></span>}>
+        <DownloadButton path="/api/network/fw-events/export" method="POST" body={{ hours: 24 }} name="laptop-guardian-firewall-log.csv" className="btn sm">Export CSV</DownloadButton></span>}>
         {log.error ? <ErrorState error={log.error} onRetry={log.reload} /> : !log.data ? <p className="small muted">Reading the Security log...</p>
           : !log.data.available ? <div className="notice warn">{log.data.reason} Turning logging on also needs administrator permission; Windows asks first. The log uses disk space and records addresses, ports and programs, never packet contents.</div>
           : log.data.items.length === 0 ? <p className="small muted">{log.data.reason || 'No events in the last 24 hours.'}</p>
