@@ -65,12 +65,28 @@ function Test-RevoLaunch {
     if (-not $revo.available) { return New-RemResult -Ok $false -Errors @("Revo Uninstaller is not usable: $($revo.reason) Use Windows Settings > Apps to uninstall it instead.") }
     return New-RemResult -Ok $true -IdentityKey (Get-StringKey @($a.name, $a.version, $a.publisher)) -Details ([ordered]@{ app = $a.name; version = $a.version; publisher = $a.publisher; installLocation = $a.installLocation; revo = $revo.target; revoVersion = $revo.version })
 }
+function Get-AppRemovalRecordPath { Join-Path (Split-Path -Parent (Get-GuardianPath 'RunState')) 'app-removals.json' }
+function Save-AppRemovalRecord {
+    <# Remembers where an application lived before it is uninstalled, so the leftover check can tell what belonged to it. #>
+    param($App)
+    try {
+        $f = Get-AppRemovalRecordPath
+        $all = Read-JsonFile -Path $f -Default $null
+        $map = [ordered]@{}
+        if ($all) { foreach ($p in $all.PSObject.Properties) { $map[$p.Name] = $p.Value } }
+        $get = { param($k) if ($App -is [System.Collections.IDictionary]) { if ($App.Contains($k)) { [string]$App[$k] } else { '' } } else { [string](Get-OptionalProp $App $k) } }
+        $map[[string]$App['app']] = [ordered]@{ installLocation = (& $get 'installLocation'); publisher = (& $get 'publisher'); version = (& $get 'version'); recordedAt = (Get-IsoNow) }
+        Write-JsonFile -Path $f -Object $map
+    } catch { }
+}
+function Get-AppRemovalRecord { param([string]$Name) $all = Read-JsonFile -Path (Get-AppRemovalRecordPath) -Default $null; if ($all -and ($all.PSObject.Properties.Name -contains $Name)) { $all.$Name } else { $null } }
 function Start-RevoProcess { param([string]$Exe) Start-Process -FilePath $Exe -WorkingDirectory (Split-Path -Parent $Exe) -PassThru }
 function Invoke-RevoLaunch {
     param([hashtable]$P, $Validated)
     $revo = Get-RevoInfo
     if (-not $revo.available) { return New-RemResult -Ok $false -Errors @('Revo is no longer usable.') }
     try { $proc = Start-RevoProcess -Exe $revo.target } catch { return New-RemResult -Ok $false -Errors @("Could not start Revo: $($_.Exception.Message)") }
+    Save-AppRemovalRecord -App $Validated.details
     $msg = "Revo Uninstaller opened. In Revo, select '$($P.appName)' and follow its steps. Guardian has not uninstalled anything; use Check that it is gone afterwards."
     return New-RemResult -Ok $true -Verified $false -Message $msg -Details ([ordered]@{ pendingVerification = $true; app = [string]$P.appName; revoPid = $(if ($proc) { $proc.Id } else { 0 }) }) -Undo $null
 }
@@ -81,4 +97,43 @@ function Invoke-AppVerify {
     $still = @(Find-InstalledProgram -AppName $name)
     if ($still.Count -gt 0) { return New-RemResult -Ok $true -Verified $false -Message "'$name' is still listed as installed. It has not been uninstalled." -Details ([ordered]@{ removed = $false; reason = 'still-installed' }) }
     return New-RemResult -Ok $true -Verified $true -Message "'$name' is no longer in the installed programs list." -Details ([ordered]@{ removed = $true })
+}
+
+# ---------- app.cleanup-leftovers (read-only report: Guardian never deletes a leftover folder itself) ----------
+function Get-LeftoverCandidates {
+    <# Locations that can be tied to the application: the install folder recorded before the uninstall, and per-user or shared data folders
+       named EXACTLY like the application. Nothing is matched loosely, so a leftover is only listed when there is evidence it belonged to the app. #>
+    param([string]$AppName, $Record)
+    $out = New-Object System.Collections.ArrayList
+    $add = { param($Path, $Kind, $Evidence) if ($Path -and (Test-Path -LiteralPath $Path -PathType Container)) { [void]$out.Add([pscustomobject]@{ path = $Path; kind = $Kind; evidence = $Evidence }) } }
+    if ($Record -and $Record.installLocation) { & $add ([string]$Record.installLocation) 'install-folder' 'This was the install folder recorded for the application before it was uninstalled.' }
+    $safeName = $AppName -replace '[\\/:*?"<>|]', ''
+    if ($safeName.Length -ge 3) {
+        foreach ($b in @(@($env:LOCALAPPDATA, 'user data (local)'), @($env:APPDATA, 'user data (roaming)'), @((Join-Path $env:LOCALAPPDATA 'Programs'), 'per-user program folder'), @($env:ProgramData, 'shared data'))) {
+            if ($b[0]) { & $add (Join-Path $b[0] $safeName) 'data-folder' "A folder named exactly '$safeName' in $($b[1])." }
+        }
+    }
+    return @($out)
+}
+function Get-FolderSummary { param([string]$Path) $m = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum); [pscustomobject]@{ files = [int]$m[0].Count; sizeMB = [math]::Round(([double]$m[0].Sum) / 1MB, 1) } }
+function Test-AppCleanupLeftovers {
+    param([hashtable]$P)
+    $name = [string]$P.appName
+    if ($name -match $script:RemoveRefusePattern) { return New-RemResult -Ok $false -Errors @('Protected: Guardian does not look for leftovers of security software, drivers, firmware tools or Windows runtime components.') }
+    if (@(Find-InstalledProgram -AppName $name).Count -gt 0) { return New-RemResult -Ok $false -Errors @("'$name' is still installed. Uninstall it first (Revo's own leftover scan runs as part of that).") }
+    return New-RemResult -Ok $true -IdentityKey $name
+}
+function Invoke-AppCleanupLeftovers {
+    param([hashtable]$P)
+    $name = [string]$P.appName
+    $cfg = Get-GuardianConfig
+    $rec = Get-AppRemovalRecord -Name $name
+    $items = New-Object System.Collections.ArrayList
+    foreach ($c in @(Get-LeftoverCandidates -AppName $name -Record $rec)) {
+        if (Test-ProtectedPath -Path $c.path -ExtraProtected @($cfg.storage.protectedDirs)) { continue }
+        $s = Get-FolderSummary -Path $c.path
+        [void]$items.Add([ordered]@{ path = $c.path; kind = $c.kind; evidence = $c.evidence; files = $s.files; sizeMB = $s.sizeMB })
+    }
+    $msg = if ($items.Count -eq 0) { "No leftover folder that can be tied to '$name' was found. Revo's own leftover scan can still look in the registry." } else { "$($items.Count) leftover location(s) can be tied to '$name'. Guardian only lists them: remove them with Revo's leftover scan (Advanced mode) or delete them yourself after checking. Guardian never deletes folders." }
+    return New-RemResult -Ok $true -Verified $true -Message $msg -Details ([ordered]@{ app = $name; leftovers = @($items); recorded = [bool]$rec })
 }

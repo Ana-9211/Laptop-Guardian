@@ -102,3 +102,7 @@ a.chip:hover span.t, a.chip:hover { text-decoration: none; }
   input, select { min-height: 38px; } input[type="checkbox"] { min-height: 0; width: 18px; height: 18px; }
   .nav a.item { padding: 10px; } .switch { min-height: 36px; }
 }
+
+.attn-item { border-bottom: 1px solid var(--line); }
+.attn-item .list-row { border-bottom: 0; }
+.attn-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 14px 10px 44px; }

@@ -20,7 +20,7 @@ const ELEVATE_SCRIPT = 'Actions/Request-ElevatedAction.ps1';
 const TICKET_RE = /^[0-9a-f]{32}$/;
 const MAX_HISTORY = 500;
 const REQUIRED_ACKS = {
-  'process.stop': ['unsaved-work'], 'app.revo-launch': ['unsaved-work'], 'service.disable': ['dependent-programs'],
+  'process.stop': ['unsaved-work'], 'app.revo-launch': ['unsaved-work'], 'app.uninstall': ['unsaved-work'], 'service.disable': ['dependent-programs'],
   'firewall.block-program': ['connectivity'], 'firewall.block-port': ['connectivity'], 'firewall.block-remote': ['connectivity'], 'dns.block-domain': ['dns-limits'],
   'firewall.allow-program': ['allow-exposure'], 'service.stop': ['dependent-programs'],
 };

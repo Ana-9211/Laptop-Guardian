@@ -315,11 +315,11 @@ test('Revo is offered only for a recognised installed application with a trusted
   const apps = [{ name: 'Old Tool', installLocation: 'C:\\Program Files\\Acme\\Old Tool', systemComponent: false, isUpdate: false }, { name: 'SysThing', installLocation: 'C:\\Program Files\\Sys', systemComponent: true, isUpdate: false }];
   const rec = procRec({ target: { name: 'oldtool', pid: 5, path: 'C:\\Program Files\\Acme\\Old Tool\\oldtool.exe' }, persistence: { persistent: false, mechanisms: [] } });
   const revoOk = { available: true };
-  assert.ok(F.buildFindings(baseCtx({ recs: [rec], apps, revo: revoOk }))[0].actions.some((a) => a.actionId === 'app.revo-launch' && a.params.appName === 'Old Tool' && a.label === 'Uninstall cleanly with Revo'));
-  assert.ok(!F.buildFindings(baseCtx({ recs: [rec], apps, revo: { available: false } }))[0].actions.some((a) => a.actionId === 'app.revo-launch'), 'Revo missing: no Revo action');
-  assert.ok(!F.buildFindings(baseCtx({ recs: [rec], apps: [], revo: revoOk }))[0].actions.some((a) => a.actionId === 'app.revo-launch'), 'not a recognised app');
+  assert.ok(F.buildFindings(baseCtx({ recs: [rec], apps, revo: revoOk }))[0].actions.some((a) => a.actionId === 'app.uninstall' && a.params.appName === 'Old Tool' && a.label === 'Uninstall cleanly with Revo'));
+  assert.ok(!F.buildFindings(baseCtx({ recs: [rec], apps, revo: { available: false } }))[0].actions.some((a) => a.actionId === 'app.uninstall'), 'Revo missing: no Revo action');
+  assert.ok(!F.buildFindings(baseCtx({ recs: [rec], apps: [], revo: revoOk }))[0].actions.some((a) => a.actionId === 'app.uninstall'), 'not a recognised app');
   const sys = procRec({ target: { name: 'sys', pid: 6, path: 'C:\\Program Files\\Sys\\sys.exe' }, persistence: { persistent: false, mechanisms: [] } });
-  assert.ok(!F.buildFindings(baseCtx({ recs: [sys], apps, revo: revoOk }))[0].actions.some((a) => a.actionId === 'app.revo-launch'), 'system components never');
+  assert.ok(!F.buildFindings(baseCtx({ recs: [sys], apps, revo: revoOk }))[0].actions.some((a) => a.actionId === 'app.uninstall'), 'system components never');
 });
 
 test('file findings: only REVIEW and LIKELY_UNNECESSARY files, Recycle Bin action only, protected paths ineligible', () => {

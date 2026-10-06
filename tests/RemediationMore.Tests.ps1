@@ -241,3 +241,34 @@ Describe 'a queued full run (scan.queue-next-run) is honoured once' {
     }
 }
 Remove-TestRoot $root
+
+# ---------- Revo: this Revo (2.7) has no command line, so app.uninstall is the guided path; leftovers are only reported ----------
+$root2 = New-TestRoot; Import-Guardian; Initialize-GuardianDirectories
+Import-Module (Join-Path $script:RepoRoot 'src\powershell\Actions\Remediation.psm1') -Force -DisableNameChecking
+Describe 'app.uninstall (guided) and app.cleanup-leftovers' {
+    It 'app.uninstall shares the Revo launch validation: refuses security software and unknown apps' {
+        Mock -ModuleName $M Get-InstalledPrograms { @([pscustomobject]@{ name = 'Old Tool'; version = '1.0'; publisher = 'Acme'; installLocation = 'D:\Old Tool'; systemComponent = $false; isUpdate = $false }) }
+        (First (Run 'app.uninstall' @{ appName = 'Microsoft Defender Antivirus' } 'Validate')) | Should Match 'Protected'
+        (First (Run 'app.uninstall' @{ appName = 'random' } 'Validate')) | Should Match 'not in the installed programs'
+    }
+    It 'launching Revo records the install folder; the leftover check lists only what can be tied to the app and deletes nothing' {
+        $d = New-TempDir; $inst = Join-Path $d 'Old Tool'; New-Item -ItemType Directory -Path $inst | Out-Null; Set-Content "$inst\left.dat" ('x' * 4096)
+        $global:T_Inst = $inst; $global:T_Apps = @([pscustomobject]@{ name = 'Old Tool'; version = '1.0'; publisher = 'Acme'; installLocation = $inst; systemComponent = $false; isUpdate = $false })
+        Mock -ModuleName $M Get-InstalledPrograms { $global:T_Apps }
+        Mock -ModuleName $M Get-RevoInfo { [pscustomobject]@{ available = $true; target = 'C:\Program Files\VS Revo Group\Revo Uninstaller\RevoUnin.exe'; version = '2.7.0.0'; publisher = 'VS Revo Group'; signed = $true; arguments = ''; shortcut = 'x'; supportedOptions = 'none' } }
+        Mock -ModuleName $M Start-RevoProcess { [pscustomobject]@{ Id = 4242 } }
+        $r = Run 'app.uninstall' @{ appName = 'Old Tool' }; $r.ok | Should Be $true; $r.verified | Should Be $false
+        (First (Run 'app.cleanup-leftovers' @{ appName = 'Old Tool' } 'Validate')) | Should Match 'still installed'
+        $global:T_Apps = @()   # "uninstalled": the program is gone from the list, its folder is not
+        Mock -ModuleName $M Test-ProtectedPath { $false }
+        $c = Run 'app.cleanup-leftovers' @{ appName = 'Old Tool' }; $c.ok | Should Be $true
+        @($c.details.leftovers | Where-Object { $_.kind -eq 'install-folder' }).Count | Should Be 1
+        $c.details.leftovers[0].evidence | Should Match 'recorded'
+        Test-Path "$inst\left.dat" | Should Be $true
+        Remove-Item $d -Recurse -Force
+    }
+    It 'refuses leftover checks for security software and never lists protected paths' {
+        (First (Run 'app.cleanup-leftovers' @{ appName = 'Windows Firewall Helper' } 'Validate')) | Should Match 'Protected'
+    }
+}
+Remove-TestRoot $root2

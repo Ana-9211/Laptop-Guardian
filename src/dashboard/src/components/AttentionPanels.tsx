@@ -4,6 +4,7 @@ import { ScheduleRepairNotice } from './ScheduleRepair';
 import { useStatus } from '../state/StatusProvider';
 import { fmtDate, fmtFull, ago, NA } from '../format';
 import type { TaskRow } from '../types';
+import { ActionButton, useActionFlow } from './ActionFlow';
 
 const TONE: Record<string, string> = { ok: 'ok', info: 'info', warn: 'warn', crit: 'crit' };
 const LABEL: Record<string, string> = { ok: 'OK', 'never-run': 'Waiting for first run', missing: 'Not installed', disabled: 'Disabled', off: 'Off in Settings', running: 'Running', failed: 'Failed' };
@@ -14,7 +15,8 @@ const TASK_BLURB: Record<TaskRow['kind'], string> = {
 };
 
 export function AttentionCard() {
-  const { status: s, live } = useStatus();
+  const { status: s, live, check } = useStatus();
+  const flow = useActionFlow(() => { void check(true); });
   return (
     <Card title="What needs attention" flush actions={s && <Badge tone={s.attention.some((a) => a.level === 'crit') ? 'crit' : s.attention.some((a) => a.level === 'warn') ? 'warn' : 'ok'}>{s.attention.length}</Badge>}>
       {!s ? (live.link === 'offline' ? <div className="small t2 pad">The bridge is offline, so priorities cannot be computed. Open Laptop Guardian again to restart it.</div> : <div className="pad"><SkeletonCards n={1} /></div>)
@@ -30,12 +32,22 @@ export function AttentionCard() {
                   {a.href && <Icon name="chev" size={14} />}
                 </>
               );
-              return a.href
-                ? <a key={a.id} className="list-row" data-tone={a.level} href={a.href} role="listitem">{inner}</a>
-                : <div key={a.id} className="list-row" data-tone={a.level} role="listitem">{inner}</div>;
+              const note = a.noAction || a.manualNote;
+              return (
+                <div key={a.id} className="attn-item" data-tone={a.level} role="listitem">
+                  {a.href ? <a className="list-row" data-tone={a.level} href={a.href}>{inner}</a> : <div className="list-row" data-tone={a.level}>{inner}</div>}
+                  {(a.actions.length > 0 || note) && (
+                    <div className="attn-actions">
+                      {a.actions.map((x) => <ActionButton key={x.actionId + JSON.stringify(x.params)} actionId={x.actionId} params={x.params} label={x.label} flow={flow} />)}
+                      {note && <span className="small muted">{a.actions.length ? 'Note: ' : 'No automatic fix: '}{note}</span>}
+                    </div>
+                  )}
+                </div>
+              );
             })}
           </div>
         )}
+      {flow.node}
     </Card>
   );
 }

@@ -191,3 +191,32 @@ test('polls never wait for Task Scheduler: cold start answers immediately with p
     assert.strictEqual(later.schedule.tasks[0].status, 'never-run');
   } finally { a2.close(); fs.rmSync(r2, { recursive: true, force: true }); }
 });
+
+test('every attention item has an action button or an explicit reason no safe action exists (and its actions are in the catalog)', () => {
+  const R = require('../src/bridge/lib/remediation');
+  const sec = { defender: { enabled: true, realTimeProtection: false, threats: 2, sigAgeDays: 9, scan: { threats: [{ status: '1' }] } }, firewall: { profiles: [{ name: 'Public', enabled: false }] }, system: { disks: [{ freePct: 4 }] } };
+  const mkTask = (kind, over) => ({ kind, name: kind, level: 'warn', status: 'failed', summary: 's', issues: ['x'], repair: { needed: false }, lastResult: {}, ...over });
+  const cfg2 = { ...cfg, safety: { ...cfg.safety, safeMode: false, automationPaused: true } };
+  const variants = [
+    { daily: { sections: sec, generatedAt: '2020-01-01T00:00:00Z', status: 'partial', incomplete: ['a'] }, tasks: [mkTask('daily', { repair: { needed: true, requiresElevation: true } }), mkTask('weekly', { status: 'missing' }), mkTask('dashboard', { status: 'other' })], run: {}, stale: { type: 'daily' }, openRecs: 3, highRiskRecs: 1, bridgeOk: false, config: cfg2, recentActions: [{ action: 'install:untrusted-refused', ts: new Date().toISOString(), reason: 'r' }] },
+    { daily: { sections: { defender: { enabled: false } } , generatedAt: new Date().toISOString() }, tasks: [], run: {}, openRecs: 2, highRiskRecs: 0, config: cfg },
+    { daily: { sections: { defender: { enabled: true, threats: 3, scan: { threats: [{ status: '3' }] } } }, generatedAt: new Date().toISOString() }, tasks: [], run: {}, openRecs: 0, highRiskRecs: 0, config: cfg },
+    { daily: null, tasks: [], run: {}, openRecs: 0, highRiskRecs: 0, config: cfg },
+  ];
+  const seen = new Set();
+  for (const v of variants) {
+    for (const item of S.buildAttention(v)) {
+      seen.add(item.id);
+      assert.ok((item.actions && item.actions.length) || (item.noAction && item.noAction.length > 10), `${item.id}: needs an action or a reason`);
+      for (const a of item.actions) assert.ok(R.byId.get(a.actionId), `${item.id}: ${a.actionId} is not a catalog action`);
+    }
+  }
+  for (const id of ['defender-off', 'defender-rt', 'defender-threats', 'defender-history', 'defender-sigs', 'firewall', 'disk-crit', 'recs-high', 'recs-open', 'untrusted-install', 'bridge', 'task-daily', 'task-weekly', 'stale-run', 'no-scan', 'scan-old', 'scan-partial', 'safe-off', 'paused']) assert.ok(seen.has(id), `the test covers ${id}`);
+});
+
+test('every finding has an action or a manual step with a reason', () => {
+  const F = require('../src/bridge/lib/findings');
+  const f = F.buildFindings({ recs: [{ id: 'r1', status: 'open', kind: 'process', title: 't', risk: 'LOW', target: { name: 'x' }, persistence: { mechanisms: [] } }], processes: [], files: { candidates: [{ id: 'f1', name: 'a', path: 'D:\\a.iso', sizeMB: 5, classification: 'REVIEW' }] }, daily: { sections: { defender: { available: true, enabled: true, sigAgeDays: 9, lastQuickScan: null }, firewall: { profiles: [{ name: 'Private', enabled: false }] }, network: { dnsOk: false } } }, weekly: null, tasks: [], apps: [], revo: null, history: [], protectedDirs: [], now: Date.now() });
+  assert.ok(f.length >= 4);
+  for (const x of f) assert.ok((x.actions && x.actions.length) || (x.manual && x.manual.reason), `${x.id}: needs an action or a manual reason`);
+});

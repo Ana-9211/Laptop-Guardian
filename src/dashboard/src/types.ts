@@ -80,7 +80,8 @@ export interface ScheduleApplyResult {
   report: { kind: string; outcome: string; detail?: string }[];
 }
 export interface ScheduleSaveResult extends ScheduleApplyResult { saved: boolean; changed: boolean }
-export interface AttentionItem { id: string; level: Exclude<Level, 'ok'>; title: string; detail: string; href: string | null; cta: string | null }
+export interface AttentionAction { actionId: string; label: string; params: Record<string, string | number> }
+export interface AttentionItem { id: string; level: Exclude<Level, 'ok'>; title: string; detail: string; href: string | null; cta: string | null; actions: AttentionAction[]; noAction: string | null; manualNote: string | null }
 export interface RunInfo {
   lastDaily?: Any; lastWeekly?: Any; stale?: { type: string; phase?: string; startedAt?: string } | null;
   running?: { type: string; phase?: string; startedAt?: string; mode?: 'scheduled' | 'manual'; shutdownPossible?: boolean; elapsedSec?: number | null } | null;
@@ -132,7 +133,7 @@ export interface Finding {
 }
 export interface RevoInfo { available: boolean; target?: string | null; version?: string | null; reason?: string | null; supportedOptions?: string }
 export interface Plan extends ActionOffer {
-  token: string; ok: true; adminRequired: boolean; identityKey: string; details: Record<string, unknown> | null; warnings: string[]; expiresAt: string; confirmLabel: string;
+  token: string; ok: true; adminRequired: boolean; identityKey: string; details: Record<string, unknown> | null; warnings: string[]; expiresAt: string; confirmLabel: string; typedConfirmation?: string | null;
 }
 export interface ExecResult { ok: boolean; message?: string; errors?: string[]; verified?: boolean; details?: Record<string, unknown> | null; undo?: { action: string; params: Record<string, string> } | null; needsElevation?: boolean }
 export type ExecStatus = 'done' | 'done-unverified' | 'failed' | 'declined' | 'needs-elevation' | 'awaiting-permission' | 'running' | 'lost' | 'awaiting-schedule-permission';

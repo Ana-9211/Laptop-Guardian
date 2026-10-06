@@ -122,6 +122,39 @@ function pendingShutdown(actions, now = Date.now()) {
 const LEVEL_RANK = { crit: 0, warn: 1, info: 2 };
 
 /** Prioritised list: safety first (security), then data-at-risk, then maintenance health, then housekeeping. */
+/**
+ * Every attention item carries either one or more catalog actions (`actions`) or the reason no safe action exists (`noAction`).
+ * tests/status.test.js fails when an item has neither. Action params here are the exact catalog params.
+ */
+function withAction(item, ctx) {
+  const A = (actionId, label, params = {}) => ({ actionId, label, params });
+  const id = item.id;
+  const open = (page, label) => A('system.open-settings', label, { page });
+  let actions = []; let noAction = null;
+  if (id === 'defender-off') { actions = [open('windows-security', 'Open Windows Security')]; noAction = 'Defender is switched off or another antivirus has taken over; only Windows Security can change that.'; }
+  else if (id === 'defender-rt') actions = [A('defender.enable-realtime', 'Turn on real-time protection')];
+  else if (id === 'defender-threats') actions = [open('protection-history', 'Open protection history'), A('defender.quick-scan', 'Run a quick scan')];
+  else if (id === 'defender-history') { actions = [open('protection-history', 'Open protection history')]; noAction = 'Already quarantined or removed by Defender; nothing is left to fix.'; }
+  else if (id === 'defender-sigs') actions = [A('defender.update-signatures', 'Update signatures')];
+  else if (id === 'firewall') { const p = ctx.fwProfile; if (p) actions = [A('firewall.enable-profile', `Turn on ${p} firewall`, { profile: p })]; else noAction = 'Open Health to see which profile is off.'; }
+  else if (id === 'disk-crit' || id === 'disk-low') actions = [A('storage.clean-temp', 'Clean temporary files', { scope: 'all' }), A('cleanup.empty-recycle-bin', 'Empty the Recycle Bin')];
+  else if (id === 'recs-high' || id === 'recs-open') noAction = 'Each suggestion needs your judgment; Guardian will not decide for you. Review them one by one.';
+  else if (id === 'untrusted-install') noAction = 'Needs a one-time step outside the app: run Install-LaptopGuardian.ps1 from an administrator PowerShell window.';
+  else if (id === 'bridge') noAction = 'The dashboard cannot reach its own bridge; reopen Laptop Guardian from its shortcut.';
+  else if (id.startsWith('task-')) {
+    const t = (ctx.tasks || []).find((x) => `task-${x.kind}` === id) || {};
+    if (t.repair && t.repair.needed) actions = [A('schedule.repair', t.repair.requiresElevation ? 'Repair with administrator permission' : 'Repair schedule')];
+    else if (t.status === 'missing') actions = [A('setup.register-tasks', 'Register the tasks')];
+    else if (t.status === 'failed') actions = [A('scan.run-now', 'Run it now', { kind: t.kind === 'weekly' ? 'weekly' : 'daily' })];
+    else noAction = 'Open Settings to change this schedule.';
+  } else if (id === 'stale-run' || id === 'no-scan' || id === 'scan-old') actions = [A('scan.run-now', 'Run a daily scan now', { kind: 'daily' })];
+  else if (id === 'scan-partial') actions = [A('scan.queue-next-run', 'Make the next run a full one', { kind: 'nearest' })];
+  else if (id === 'safe-off') actions = [A('setup.enable-safe-defaults', 'Turn Safe Mode on')];
+  else if (id === 'paused') noAction = 'You paused automation on purpose; resume it in Settings when you are ready.';
+  else noAction = 'No safe automatic fix exists for this item.';
+  return { ...item, actions, noAction: actions.length ? null : noAction, manualNote: actions.length ? noAction : null };
+}
+
 function buildAttention({ daily, tasks, run, openRecs, highRiskRecs, config, now = Date.now(), bridgeOk = true, stale, recentActions = [] }) {
   const out = [];
   const add = (level, id, title, detail, href, cta) => out.push({ id, level, title, detail, href: href || null, cta: cta || null });
@@ -167,7 +200,8 @@ function buildAttention({ daily, tasks, run, openRecs, highRiskRecs, config, now
   if (openRecs > 0 && !highRiskRecs) add('info', 'recs-open', `${openRecs} open recommendation${openRecs > 1 ? 's' : ''}`, 'Process and file suggestions are waiting for your review.', '#/recommendations', 'Review');
   if (!config.safety.safeMode) add('info', 'safe-off', 'Safe Mode is off', 'Blacklisted processes and allowlisted temp cleanup can run automatically.', '#/settings', 'Open Settings');
   if (config.safety.automationPaused) add('info', 'paused', 'Automation is paused', 'Scans still observe; automatic actions and the weekly shutdown are suspended.', '#/settings', 'Open Settings');
-  return out.map((x, i) => ({ ...x, _i: i })).sort((a, b) => (LEVEL_RANK[a.level] - LEVEL_RANK[b.level]) || (a._i - b._i)).map(({ _i, ...x }) => x);
+  const ctx = { tasks, fwProfile: fwOff ? fwOff.name : null };
+  return out.map((x, i) => ({ ...x, _i: i })).sort((a, b) => (LEVEL_RANK[a.level] - LEVEL_RANK[b.level]) || (a._i - b._i)).map(({ _i, ...x }) => withAction(x, ctx));
 }
 
 module.exports = { describeResult, assessTasks, sanitizeRun, pendingShutdown, buildAttention, hhmm };

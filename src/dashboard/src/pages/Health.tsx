@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useOverview } from '../state/overview';
 import { Badge, Card, Empty, ErrorState, KV, PageHead, SkeletonCards, Stat, Tabs } from '../components/ui';
 import { HealthActions } from '../components/HealthActions';
+import { QuickActions } from '../components/QuickActions';
 import { LineChart, Range, RangeSelect, filterRange, SERIES_COLORS } from '../components/Chart';
 import { ago, fmtDate, fmtMB, pct, NA } from '../format';
 import type { Any } from '../types';
@@ -24,6 +25,7 @@ export default function Health() {
     <div className="page">
       <PageHead title="Health" sub={`At last scan (${ago(d.generatedAt)}), not live. Numbers come from the daily report; run a scan for fresh ones.`} actions={['cpu', 'ram', 'disk', 'battery'].includes(tab) ? <RangeSelect value={range} onChange={setRange} /> : undefined} />
       <HealthActions />
+      <QuickActions set="health" />
       <Tabs<Tab> value={tab} onChange={setTab} label="Health areas" items={[{ id: 'cpu', label: 'CPU' }, { id: 'ram', label: 'RAM' }, { id: 'disk', label: 'Disk' }, { id: 'battery', label: 'Battery' }, { id: 'windows', label: 'Windows' }, { id: 'defender', label: 'Defender' }, { id: 'firewall', label: 'Firewall' }, { id: 'network', label: 'Network' }]}>
 
       {tab === 'cpu' && <>
