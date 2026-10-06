@@ -138,3 +138,74 @@ test('bridge: /api/metrics and /api/overview answer from the live tail plus summ
     assert.strictEqual(o.status, 200); assert.ok(Array.isArray(o.json.metrics));
   } finally { b.close(); }
 });
+
+test('retention settings: the windows come from the config, are clamped to 30-730 again in maintenance, and the audit log is archived, never deleted', () => {
+  const root = tmp(); const P = { metrics: path.join(root, 'metrics.jsonl'), metricsDaily: path.join(root, 'md.jsonl'), actions: path.join(root, 'a', 'actions.jsonl'), actionsDaily: path.join(root, 'a', 'ad.jsonl') };
+  try {
+    writeMetrics(P.metrics, 400, 2);
+    fs.mkdirSync(path.dirname(P.actions), { recursive: true });
+    const rows = Array.from({ length: 400 }, (_, k) => 399 - k).map((i) => JSON.stringify({ id: 'x' + i, ts: iso(NOW - i * DAY), category: 'scan', severity: 'info' }));
+    fs.writeFileSync(P.actions, rows.join('\n') + '\n');
+    runMaintenance({ P, log: () => {}, now: NOW, retention: { metricsRawDays: 365, auditRawDays: 365 } });
+    const liveDays = (f) => new Set(fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).ts.slice(0, 10))).size;
+    assert.ok(liveDays(P.metrics) >= 363 && liveDays(P.metrics) <= 366, 'metrics follow the 365 day setting');
+    assert.ok(liveDays(P.actions) >= 363 && liveDays(P.actions) <= 366, 'audit rows follow the 365 day setting');
+    // a hand-edited absurd value (1 day, or text) cannot shrink the window below 30 days or turn it into something else
+    runMaintenance({ P, log: () => {}, now: NOW, retention: { metricsRawDays: 1, auditRawDays: 'soon' } });
+    assert.ok(liveDays(P.metrics) >= 29 && liveDays(P.metrics) <= 31, 'clamped up to 30 days');
+    assert.ok(liveDays(P.actions) >= 89 && liveDays(P.actions) <= 91, 'unusable text falls back to the 90 day default');
+    const archived = fs.readdirSync(path.join(root, 'a', 'archive')).reduce((a, n) => a + count(path.join(root, 'a', 'archive', n)), 0);
+    assert.strictEqual(count(P.actions) + archived, 400, 'every audit row still exists, live or archived');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('retention settings through the bridge: saved within 30-730, refused outside, defaults unchanged', async () => {
+  const b = await startBridge({ ps: fakeRunner({}) });
+  try {
+    const c = await b.get('/api/config');
+    assert.strictEqual(c.json.retention.metricsRawDays, 180); assert.strictEqual(c.json.retention.auditRawDays, 90);
+    for (const bad of [{ metricsRawDays: 29 }, { metricsRawDays: 731 }, { auditRawDays: 5 }, { auditRawDays: 1e9 }, { auditRawDays: 'x' }]) {
+      const r = await b.put('/api/config', { retention: bad }); assert.strictEqual(r.status, 400, JSON.stringify(bad));
+    }
+    const ok = await b.put('/api/config', { retention: { metricsRawDays: 365, auditRawDays: 30 } });
+    assert.strictEqual(ok.status, 200, JSON.stringify(ok.json)); assert.strictEqual(b.readConfig().retention.auditRawDays, 30);
+  } finally { b.close(); }
+});
+
+test('Logs: archived audit rows are searched only on request, newest month first, within a byte cap, and marked archived', async () => {
+  const b = await startBridge({ ps: fakeRunner({}) });
+  try {
+    const dir = path.join(b.root, 'data', 'actions', 'archive'); fs.mkdirSync(dir, { recursive: true });
+    const row = (i, m) => JSON.stringify({ id: `old${m}${i}`, ts: `2025-${m}-10T10:00:${String(i % 60).padStart(2, '0')}+05:30`, category: 'policy', severity: 'info', action: 'policy.blacklist.add', target: i === 7 ? 'needle.exe' : `p${i}` });
+    fs.writeFileSync(path.join(dir, 'actions-2025-03.jsonl'), Array.from({ length: 50 }, (_, i) => row(i, '03')).join('\n') + '\n');
+    fs.writeFileSync(path.join(dir, 'actions-2025-04.jsonl'), Array.from({ length: 50 }, (_, i) => row(i, '04')).join('\n') + '\n');
+    const live = await b.get('/api/actions?limit=2000&q=needle'); assert.strictEqual(live.json.filter((r) => r.archived).length, 0, 'not searched by default');
+    const r = await b.get('/api/actions?limit=2000&q=needle&archived=1');
+    assert.deepStrictEqual(r.json.filter((x) => x.archived).map((x) => x.id), ['old047', 'old037']);
+    assert.ok(r.json.filter((x) => x.archived).every((x) => x.target === 'needle.exe'));
+    // the cap: a huge archive month is read only up to 8 MB
+    const big = path.join(dir, 'actions-2025-05.jsonl');
+    const line = JSON.stringify({ id: 'b', ts: '2025-05-10T10:00:00+05:30', category: 'scan', severity: 'info', action: 'x', target: 'y'.repeat(900) }) + '\n';
+    const fd = fs.openSync(big, 'w'); for (let i = 0; i < 12000; i++) fs.writeSync(fd, line); fs.closeSync(fd);
+    assert.ok(fs.statSync(big).size > 10 * 1024 * 1024);
+    const t0 = Date.now(); const cap = await b.get('/api/actions?limit=2000&archived=1'); assert.ok(Date.now() - t0 < 5000);
+    assert.ok(cap.json.length <= 2000); assert.ok(cap.json.some((x) => x.archived));
+  } finally { b.close(); }
+});
+
+test('firewall connection log CSV export: POST, formula-guarded, audited, and an honest error when the log cannot be read', async () => {
+  const items = [{ ts: '2026-10-07T10:00:00+05:30', eventId: 5157, result: 'blocked', direction: 'outbound', protocol: 'TCP', pid: 9, application: '=HYPERLINK("http://x")', localAddress: '10.0.0.2', localPort: 50000, remoteAddress: '203.0.113.9', remotePort: 443 }, { ts: 't', eventId: 5156, result: 'allowed', direction: 'inbound', protocol: 'UDP', pid: 4, application: 'a,b', localAddress: '', localPort: 0, remoteAddress: '', remotePort: 0 }];
+  let avail = true;
+  const ps = fakeRunner({ 'Network/Get-FirewallEvents.ps1': () => ({ ok: true, data: avail ? { available: true, reason: null, items } : { available: false, reason: 'Reading the Security log needs administrator rights.', items: [] } }) });
+  const b = await startBridge({ ps });
+  try {
+    const get = await b.get('/api/network/fw-events/export'); assert.strictEqual(get.status, 405, 'export is POST only');
+    const r = await b.post('/api/network/fw-events/export', { hours: 6 });
+    assert.strictEqual(r.status, 200); assert.match(r.text, /^ts,eventId,result,direction,protocol,pid,application,/);
+    assert.ok(r.text.includes("'=HYPERLINK"), 'formula guard'); assert.ok(r.text.includes('"a,b"'), 'quoting');
+    assert.deepStrictEqual(ps.calls.find((c) => c.rel === 'Network/Get-FirewallEvents.ps1').args, ['-Max', '2000', '-Hours', '6']);
+    const log = await b.get('/api/actions?q=fwlog.export'); assert.strictEqual(log.json.length, 1);
+    avail = false;
+    const bad = await b.post('/api/network/fw-events/export', {}); assert.strictEqual(bad.status, 409); assert.match(bad.json.error, /administrator/);
+  } finally { b.close(); }
+});

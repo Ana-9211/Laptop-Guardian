@@ -42,6 +42,7 @@ export interface FilesData {
   downloads?: { count?: number; sizeGB?: number; oldCount?: number };
 }
 export interface ActionEvent {
+  archived?: boolean;
   id: string; ts: string; category: string; severity: 'info' | 'warning' | 'error' | string; action: string; target?: string | null; result?: string;
   actor?: string; reason?: string | null; relatedRecommendation?: string | null; error?: string | null; runType?: string | null;
 }
@@ -110,7 +111,7 @@ export interface Config {
   cleanup: { tempFiles: boolean; crashDumps: boolean; caches: boolean; recycleBin: string; tempMinAgeDays: number };
   storage: { drives: string[]; excludedDirs: string[]; protectedDirs: string[]; minLargeFileMB: number; oldFileDays: number; duplicateScan: boolean; duplicateMinMB: number };
   thresholds: { cpuPct: number; memoryMB: number; diskFreeWarnPct: number; diskFreeCritPct: number };
-  retention: { reportsDays: number };
+  retention: { reportsDays: number; metricsRawDays: number; auditRawDays: number };
   network?: { snapshot: { auto: boolean; everyMinutes: number; retentionDays: number; maxMB: number }; deep: { enabled: boolean; sampleSec: number; retentionDays: number; maxMB: number }; dnsFiltering: { enabled: boolean } } & Record<string, unknown>;
   _ai?: { enabled: boolean; keyConfigured: boolean; model: string };
 }

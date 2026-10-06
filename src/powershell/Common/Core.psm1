@@ -210,7 +210,7 @@ function Get-DefaultConfig {
         cleanup       = [ordered]@{ tempFiles = $true; crashDumps = $true; caches = $true; recycleBin = 'never'; tempMinAgeDays = 2 }
         storage       = [ordered]@{ drives = @('C:'); excludedDirs = @(); protectedDirs = @(); minLargeFileMB = 500; oldFileDays = 365; duplicateScan = $true; duplicateMinMB = 50 }
         thresholds    = [ordered]@{ cpuPct = 50; memoryMB = 1500; diskFreeWarnPct = 15; diskFreeCritPct = 8 }
-        retention     = [ordered]@{ reportsDays = 0 }
+        retention     = [ordered]@{ reportsDays = 0; metricsRawDays = 180; auditRawDays = 90 }
         # Network Guard. Deep capture and DNS filtering are off by default and are switched on only through their own confirmed actions.
         network       = [ordered]@{
             snapshot      = [ordered]@{ auto = $true; everyMinutes = 60; retentionDays = 30; maxMB = 20 }
