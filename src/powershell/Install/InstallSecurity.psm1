@@ -131,7 +131,7 @@ function Test-ProtectedDirectoryAcl {
 $script:ConfigLimits = [ordered]@{
     'cleanup.tempMinAgeDays' = @(1, 365); 'storage.minLargeFileMB' = @(1, 1000000); 'storage.oldFileDays' = @(1, 3650); 'storage.duplicateMinMB' = @(1, 100000)
     'thresholds.cpuPct' = @(1, 100); 'thresholds.memoryMB' = @(50, 1000000); 'thresholds.diskFreeWarnPct' = @(1, 90); 'thresholds.diskFreeCritPct' = @(1, 89)
-    'retention.reportsDays' = @(0, 3650); 'ai.maxRequestsPerRun' = @(0, 500); 'ai.maxProcessesPerRun' = @(0, 100); 'ai.dailyTokenBudget' = @(0, 50000000)
+    'retention.reportsDays' = @(0, 3650); 'retention.metricsRawDays' = @(30, 730); 'retention.auditRawDays' = @(30, 730); 'ai.maxRequestsPerRun' = @(0, 500); 'ai.maxProcessesPerRun' = @(0, 100); 'ai.dailyTokenBudget' = @(0, 50000000)
 }
 
 function Limit-ConfigForElevation {

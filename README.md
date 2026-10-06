@@ -192,7 +192,7 @@ Pages: **Overview** (health score, security, storage, RAM, CPU, battery, last/ne
   "cleanup":  { "tempFiles": true, "crashDumps": true, "caches": true, "recycleBin": "never", "tempMinAgeDays": 2 },
   "storage":  { "drives": ["C:"], "excludedDirs": [], "protectedDirs": [], "minLargeFileMB": 500, "oldFileDays": 365, "duplicateScan": true, "duplicateMinMB": 50 },
   "thresholds": { "cpuPct": 50, "memoryMB": 1500, "diskFreeWarnPct": 15, "diskFreeCritPct": 8 },
-  "retention": { "reportsDays": 0 },   // 0 = keep every report forever; metrics history and the audit log are never deleted automatically
+  "retention": { "reportsDays": 0, "metricsRawDays": 180, "auditRawDays": 90 },   // reportsDays 0 = keep every report; the other two (30 to 730) only decide when old metric rows become daily summaries and old audit rows move to monthly archive files
   "network":   { "snapshot": {"auto": true, "everyMinutes": 60, "retentionDays": 30, "maxMB": 20},
                 "deep": {"enabled": false, "retentionDays": 7, "maxMB": 100, "sampleSec": 5},   // switched on only from Network Guard, with confirmation
                 "dnsFiltering": {"enabled": false} }                                          // likewise
@@ -278,7 +278,7 @@ Every fix follows one flow: **plan** (Guardian re-checks the live target and sho
 * **Undo in toasts**: recommendation status changes, blacklist, whitelist and ignore-list changes, and file ignores can be undone from the notification for 12 seconds.
 * **Links and remembered views**: stat tiles, risk chips, count badges, chart points (open that day's report) and table rows link to a filtered view or open a drawer. Tabs, filters and sort order are kept in the address (so a link or a refresh restores them) and in this browser, and a drawer opened from a link offers *Back*.
 * **CSV export** of Action Center history, the log, the process table and the connection table, exactly as filtered. Cells that a spreadsheet could run as a formula are neutralised.
-* **File growth**: raw metrics are kept for 180 days and raw audit rows for 90 days; older rows become daily summaries (audit rows are also kept, untouched, in monthly archive files). See `docs/DATA-CONTRACT.md`.
+* **File growth**: raw metrics are kept for 180 days and raw audit rows for 90 days by default (Settings > Retention, 30 to 730 days each); older metric rows become daily summaries and older audit rows move, untouched, to monthly archive files. Nothing in the audit log is ever deleted. See `docs/DATA-CONTRACT.md`.
 
 ## Testing
 

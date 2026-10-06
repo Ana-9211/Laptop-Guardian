@@ -110,7 +110,7 @@ export interface Config {
   cleanup: { tempFiles: boolean; crashDumps: boolean; caches: boolean; recycleBin: string; tempMinAgeDays: number };
   storage: { drives: string[]; excludedDirs: string[]; protectedDirs: string[]; minLargeFileMB: number; oldFileDays: number; duplicateScan: boolean; duplicateMinMB: number };
   thresholds: { cpuPct: number; memoryMB: number; diskFreeWarnPct: number; diskFreeCritPct: number };
-  retention: { reportsDays: number };
+  retention: { reportsDays: number; metricsRawDays: number; auditRawDays: number };
   network?: { snapshot: { auto: boolean; everyMinutes: number; retentionDays: number; maxMB: number }; deep: { enabled: boolean; sampleSec: number; retentionDays: number; maxMB: number }; dnsFiltering: { enabled: boolean } } & Record<string, unknown>;
   _ai?: { enabled: boolean; keyConfigured: boolean; model: string };
 }

@@ -9,12 +9,15 @@ const path = require('path');
 const C = require('./compact');
 const { METRICS_RAW_DAYS, AUDIT_RAW_DAYS } = require('./constants');
 
-function runMaintenance({ P, log, now = Date.now(), deep = null, running = false }) {
+function runMaintenance({ P, log, now = Date.now(), deep = null, running = false, retention = {} }) {
+  // Settings values, clamped again here so a hand-edited config can never make the window absurdly small or turn compaction into deletion.
+  const clamp = (v, d) => (Number.isFinite(Number(v)) ? Math.min(730, Math.max(30, Math.round(Number(v)))) : d);
+  const metricsDays = clamp(retention.metricsRawDays, METRICS_RAW_DAYS); const auditDays = clamp(retention.auditRawDays, AUDIT_RAW_DAYS);
   if (running) return { skipped: 'a scan is running' };
   const out = {};
   const steps = [
-    ['metrics', () => C.compactJsonl(P.metrics, { keepDays: METRICS_RAW_DAYS, now, summarize: C.summarizeMetrics, summaryFile: P.metricsDaily })],
-    ['actions', () => C.compactJsonl(P.actions, { keepDays: AUDIT_RAW_DAYS, now, summarize: C.summarizeActions, summaryFile: P.actionsDaily, archiveDir: path.dirname(P.actions) + path.sep + 'archive', archivePrefix: 'actions' })],
+    ['metrics', () => C.compactJsonl(P.metrics, { keepDays: metricsDays, now, summarize: C.summarizeMetrics, summaryFile: P.metricsDaily })],
+    ['actions', () => C.compactJsonl(P.actions, { keepDays: auditDays, now, summarize: C.summarizeActions, summaryFile: P.actionsDaily, archiveDir: path.dirname(P.actions) + path.sep + 'archive', archivePrefix: 'actions' })],
   ];
   if (deep && deep.prune) steps.push(['deep', () => { deep.prune(now); return { pruned: true }; }]);
   for (const [name, fn] of steps) {
