@@ -114,7 +114,7 @@ export const remediation = {
   history: () => api.get<{ items: HistoryItem[] }>('/api/remediation/history?limit=200'),
   plan: (actionId: string, params: Record<string, string | number>) => api.post<Plan>('/api/remediation/plan', { actionId, params }),
   cancel: (token: string) => api.post<{ ok: boolean }>('/api/remediation/cancel', { token }),
-  execute: (token: string, acknowledged: string[]) => api.post<ExecResponse>('/api/remediation/execute', { token, confirm: true, acknowledged }),
+  execute: (token: string, acknowledged: string[], typed?: string) => api.post<ExecResponse>('/api/remediation/execute', { token, confirm: true, acknowledged, ...(typed ? { typed } : {}) }),
   result: (ticket: string) => api.get<ExecResponse>(`/api/remediation/result/${ticket}`),
   undo: (eventId: string) => api.post<Plan>('/api/remediation/undo', { eventId }),
 };

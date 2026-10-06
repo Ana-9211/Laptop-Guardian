@@ -44,7 +44,7 @@ function processFinding(rec, ctx) {
   }
   const exe = t.path || (live && live.path);
   const app = exe && ctx.apps ? ctx.apps.find((a) => a.installLocation && exe.toLowerCase().startsWith(`${a.installLocation.toLowerCase()}\\`) && !a.systemComponent && !a.isUpdate) : null;
-  if (app && ctx.revo && ctx.revo.available) actions.push(offer('app.revo-launch', { appName: app.name }));
+  if (app && ctx.revo && ctx.revo.available) actions.push(offer('app.uninstall', { appName: app.name }));
   const evidence = [
     t.name && { label: 'Process', value: `${t.name}${t.pid ? ` (PID ${t.pid})` : ''}` },
     exe && { label: 'Path', value: exe },
@@ -58,7 +58,7 @@ function processFinding(rec, ctx) {
     evidence, risk: rec.risk, confidence: rec.confidence, consequences: rec.consequences || null, ai: rec.ai || null,
     actions, manual: actions.length ? null : manual('Review manually', '#/recommendations', 'Guardian has no safe, deterministic fix for this one.'),
     investigate: { label: 'Investigate', href: `#/processes?rec=${rec.id}` },
-    attemptKey: { actionIds: ['process.stop', 'startup.disable', 'task.disable', 'service.disable', 'app.revo-launch'], needle: t.name || rec.title },
+    attemptKey: { actionIds: ['process.stop', 'startup.disable', 'task.disable', 'service.disable', 'app.revo-launch', 'app.uninstall'], needle: t.name || rec.title },
   };
 }
 

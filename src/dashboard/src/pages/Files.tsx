@@ -5,6 +5,7 @@ import { Badge, Card, Col, DataTable, Empty, ErrorState, KV, PageHead, RiskBadge
 import { LineChart, RangeSelect, Range, filterRange, SERIES_COLORS } from '../components/Chart';
 import { fmtDate, fmtMB, NA } from '../format';
 import { useActionFlow } from '../components/ActionFlow';
+import { QuickActions } from '../components/QuickActions';
 import { classLabel } from '../labels';
 
 type Tab = 'overview' | 'large' | 'duplicates' | 'recommended' | 'ignored' | 'trends';
@@ -60,6 +61,7 @@ export default function Files() {
   return (
     <div className="page">
       <PageHead title="Files & Storage" sub={d?.generatedAt ? `Weekly storage scan from ${fmtDate(d.generatedAt)}. Guardian never deletes files on its own; Recycle Bin moves need your confirmation.` : 'Storage analysis runs weekly.'} />
+      <QuickActions set="storage" />
       {q.error ? <ErrorState error={q.error} onRetry={q.reload} /> : !d ? <SkeletonCards n={4} /> : (
         <>
           <Tabs<Tab> value={tab} onChange={setTab} label="Storage views" items={[{ id: 'overview', label: 'Overview' }, { id: 'large', label: 'Large files', count: d.largest?.length }, { id: 'duplicates', label: 'Duplicates', count: d.duplicates?.length }, { id: 'recommended', label: 'Recommended', count: active.length }, { id: 'ignored', label: 'Ignored', count: ignored.length }, { id: 'trends', label: 'Trends' }]}>

@@ -14,7 +14,7 @@ type Phase =
   | { name: 'idle' }
   | { name: 'planning'; label: string }
   | { name: 'refused'; label: string; message: string; reasons: string[] }
-  | { name: 'confirm'; plan: Plan; acks: string[]; busy: boolean }
+  | { name: 'confirm'; plan: Plan; acks: string[]; typed: string; busy: boolean }
   | { name: 'waiting'; plan: Plan; ticket: string; status: 'awaiting-permission' | 'running' }
   | { name: 'result'; plan: Plan; response: ExecResponse };
 
@@ -90,7 +90,7 @@ export function useActionFlow(onDone?: () => void) {
     setPhase({ name: 'idle' });
   }, []);
 
-  const showPlan = useCallback((plan: Plan) => setPhase({ name: 'confirm', plan, acks: [], busy: false }), []);
+  const showPlan = useCallback((plan: Plan) => setPhase({ name: 'confirm', plan, acks: [], typed: '', busy: false }), []);
   const prepare = useCallback(async (make: () => Promise<Plan>, label: string) => {
     const n = ++seq.current;
     setPhase({ name: 'planning', label });
@@ -115,10 +115,10 @@ export function useActionFlow(onDone?: () => void) {
 
   const confirm = useCallback(async () => {
     if (phase.name !== 'confirm' || phase.busy) return;
-    const { plan, acks } = phase;
+    const { plan, acks, typed } = phase;
     setPhase({ ...phase, busy: true });
     try {
-      const r = await remediation.execute(plan.token, acks);
+      const r = await remediation.execute(plan.token, acks, typed);
       if (r.status === 'awaiting-permission' && r.ticket) setPhase({ name: 'waiting', plan, ticket: r.ticket, status: 'awaiting-permission' });
       else settle(plan, r);
     } catch (e) { settle(plan, { status: 'failed', result: { ok: false, errors: [(e as ApiError).message] } }); }
@@ -135,14 +135,15 @@ export function useActionFlow(onDone?: () => void) {
   const node = phase.name === 'idle' ? null : (
     <FlowDialog phase={phase} onClose={close}
       onAck={(a, on) => setPhase((p) => (p.name === 'confirm' ? { ...p, acks: on ? [...p.acks, a] : p.acks.filter((x) => x !== a) } : p))}
+      onTyped={(v) => setPhase((p) => (p.name === 'confirm' ? { ...p, typed: v } : p))}
       onConfirm={() => void confirm()} onFollowUp={(id, params) => void run(id, params)} />
   );
   return { run, runUndo, node, active: phase.name !== 'idle' };
 }
 
-interface DialogProps { phase: Exclude<Phase, { name: 'idle' }>; onClose: () => void; onAck: (a: string, on: boolean) => void; onConfirm: () => void; onFollowUp: (actionId: string, params: Record<string, string | number>) => void }
+interface DialogProps { phase: Exclude<Phase, { name: 'idle' }>; onClose: () => void; onAck: (a: string, on: boolean) => void; onConfirm: () => void; onTyped: (v: string) => void; onFollowUp: (actionId: string, params: Record<string, string | number>) => void }
 
-function FlowDialog({ phase, onClose, onAck, onConfirm, onFollowUp }: DialogProps) {
+function FlowDialog({ phase, onClose, onAck, onConfirm, onTyped, onFollowUp }: DialogProps) {
   const ref = useOverlay(onClose);
   const tid = useId();
   let title = ''; let body: ReactNode = null; let foot: ReactNode = null;
@@ -156,7 +157,7 @@ function FlowDialog({ phase, onClose, onAck, onConfirm, onFollowUp }: DialogProp
     body = <div className="stack"><div className="notice crit" role="alert"><b>{phase.message}</b></div>{phase.reasons.length > 1 && <ul className="plain-list">{phase.reasons.map((r) => <li key={r}>{r}</li>)}</ul>}<p className="small muted">Nothing was changed. This check protects you: protected Windows and security targets, and anything that changed since you looked, are refused even with confirmation.</p></div>;
     foot = <button className="btn primary" onClick={onClose} data-autofocus>Close</button>;
   } else if (phase.name === 'confirm') {
-    const p = phase.plan; const allAcked = p.requiredAcks.every((a) => phase.acks.includes(a));
+    const p = phase.plan; const allAcked = p.requiredAcks.every((a) => phase.acks.includes(a)) && (!p.typedConfirmation || phase.typed === p.typedConfirmation);
     title = p.label;
     body = (
       <div className="stack-lg">
@@ -167,6 +168,7 @@ function FlowDialog({ phase, onClose, onAck, onConfirm, onFollowUp }: DialogProp
         <section><div className="eyebrow">{p.reversible ? 'How to undo' : 'Undo'}</div><p className="t2">{p.undo}</p></section>
         {p.adminRequired && <div className="notice warn"><b>Windows will ask for permission.</b> Guardian runs only this one allowlisted action elevated, then closes it. If you decline, nothing changes. The Windows prompt itself only says &quot;Windows PowerShell&quot;, so check it against the exact action below.</div>}
         <details className="exact"><summary>Exact action</summary><KV items={[['Action', <code key="a">{p.actionId}</code>], ...paramRows(p.params)]} /><p className="small muted">This is a fixed Guardian action, not a command. Parameters are validated and the live target is checked again immediately before it runs.</p></details>
+        {p.typedConfirmation && <label className="field"><span>This cannot be undone. Type <b>{p.typedConfirmation}</b> to confirm.</span><input value={phase.typed} onChange={(e) => onTyped(e.target.value)} autoComplete="off" spellCheck={false} aria-label="Type the file name to confirm" /></label>}
         {p.requiredAcks.map((a) => <label key={a} className="ack"><input type="checkbox" checked={phase.acks.includes(a)} onChange={(e) => onAck(a, e.target.checked)} /><span>{ACK_TEXT[a] || a}</span></label>)}
       </div>
     );

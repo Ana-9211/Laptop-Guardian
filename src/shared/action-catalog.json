@@ -907,6 +907,42 @@
       "consequences": "The file does not go to the Recycle Bin and cannot be restored.",
       "undo": "Not possible.",
       "verify": "Checks that the file no longer exists."
+    },
+    {
+      "long": false,
+      "reversible": false,
+      "id": "app.uninstall",
+      "category": "software",
+      "label": "Uninstall cleanly with Revo",
+      "risk": "MEDIUM",
+      "admin": false,
+      "params": {
+        "appName": {
+          "pattern": "appName"
+        }
+      },
+      "summary": "Opens Revo Uninstaller (its own window) so you can uninstall {appName} with its leftover scan. This version of Revo (2.7) has no command line for uninstalling, so Guardian cannot pick the app for you or run the uninstall itself: you choose {appName} in Revo and follow its steps. Guardian reports success only after it can verify the app is gone.",
+      "consequences": "Revo shows its own prompts and removes the program and leftovers according to your choices there. Unsaved work in the app is lost.",
+      "undo": "Reinstall the application if you remove it by mistake. Revo can create a restore point first; enable that in Revo.",
+      "verify": "Checks that the Revo process started; then \"Check that it is gone\" reads the installed-programs list."
+    },
+    {
+      "long": false,
+      "reversible": false,
+      "id": "app.cleanup-leftovers",
+      "category": "software",
+      "label": "Look for leftovers",
+      "risk": "LOW",
+      "admin": false,
+      "params": {
+        "appName": {
+          "pattern": "appName"
+        }
+      },
+      "summary": "After {appName} is uninstalled, lists the folders that can be tied to it (its recorded install folder and data folders named exactly like it) with the evidence for each. Read only.",
+      "consequences": "Nothing is deleted. Guardian never removes folders; use Revo's leftover scan or delete them yourself after checking.",
+      "undo": "Nothing to undo.",
+      "verify": "Re-reads the installed-programs list and each candidate folder."
     }
   ]
 }

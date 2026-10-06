@@ -38,6 +38,31 @@ Batch F (installer) moves to right after A. Reason: the previous commit makes th
 - Test updates caused by moved code: source-scan tests follow the files; the Launcher/Scheduling checks point at the new files.
 - Gate: npm run check 115 PASS; tsc and eslint clean; lint:ps clean; Pester one file per process PASS (Installer, Launcher, Scheduling re-run after fixing paths); smoke fixture and --real PASS.
 
+### C. An action for every finding - committed
+Audit (item, before, now):
+| Item | Before | Now |
+|---|---|---|
+| Defender off | link only | Open Windows Security button + reason (only Windows Security can change it) |
+| Defender real-time off | link only | defender.enable-realtime |
+| Defender threats | link only | Open protection history, Defender quick scan |
+| Defender signatures old | fix option | defender.update-signatures (unchanged) |
+| Firewall profile off | fix option | firewall.enable-profile with the profile |
+| Disk low / critical | link to Files | storage.clean-temp, cleanup.empty-recycle-bin |
+| High-risk / open recommendations | link | reason: needs your judgment |
+| Administrator tasks blocked | link | reason + the exact manual step (install from an administrator PowerShell) |
+| Task needs repair / missing / failed | fix option | schedule.repair, setup.register-tasks, scan.run-now |
+| Stale run, no scan, scan old | link | scan.run-now |
+| Scan with gaps | link | scan.queue-next-run |
+| Safe Mode off | link | setup.enable-safe-defaults |
+| Automation paused | link | reason (you paused it on purpose) |
+| Bridge unreachable | none | reason |
+New catalog actions (17 + 2): scan.run-now, scan.queue-next-run, scan.schedule-once, scan.cancel-once, setup.register-tasks, setup.enable-safe-defaults, setup.enable-dns-log, setup.enable-firewall-audit/disable, defender.enable-realtime, system.run-windows-update-scan, system.open-settings (fixed table of Windows pages), service.stop/start, storage.clean-temp, cleanup.empty-recycle-bin, file.delete-permanent (typed file name, only Recycle Bin or cleanup locations, never protected paths, checked in Node and PowerShell), app.uninstall, app.cleanup-leftovers. Every catalog action now has a verify step; a schema test checks risk, admin mode, typed params, undo ids, summary placeholders.
+- Attention items carry actions or noAction (status.js withAction); tests/status.test.js fails when an item or a finding has neither (runs in npm run check).
+- Overview "What needs attention" shows the buttons and reasons. Health and Files & Storage have an always-available actions card. The confirmation dialog asks for the typed file name where the plan requires it.
+- **Revo finding (checked, not assumed)**: C:Program FilesVS Revo GroupRevo UninstallerRevoUnin.exe, version 2.7.0.0, signed by VS Revo Group. The shortcut has no arguments, the folder has no command-line help, and neither the executable's strings nor the 1.5 MB help PDF mention any uninstall, silent or leftover command-line option (only /hunter and an unrelated /scannow string). So the guided path was built: app.uninstall launches Revo, records the app's install folder first, shows the checklist, and app.verify-removed confirms removal; app.cleanup-leftovers only LISTS folders that can be tied to the app (recorded install folder, data folders named exactly like it) with the evidence and never deletes any. Real Revo behaviour is untested here; try one real uninstall yourself.
+- Not done in C: deep links and filtered views for every badge, chart point and table row (only the attention queue and action buttons were done); buttons on Processes rows and Network Guard ports already existed from earlier batches. Listed under Still open.
+- Gate: npm run check 127 PASS; tsc/eslint clean; lint:ps clean; Pester RemediationMore 34 and Remediation PASS; smoke fixture PASS.
+
 ## Questions for morning
 
 ## Still open
