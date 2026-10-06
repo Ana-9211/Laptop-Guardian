@@ -13,6 +13,7 @@ import { PolicyCard } from '../components/settings/PolicyCard';
 import { StorageCard } from '../components/settings/StorageCard';
 import { RetentionCard } from '../components/settings/RetentionCard';
 import { SafeModePreview } from '../components/Guidance';
+import { DiagnosticsCard } from '../components/settings/DiagnosticsCard';
 
 export default function Settings() {
   const cfgQ = useQuery<Config>('/api/config');
@@ -130,6 +131,8 @@ export default function Settings() {
       <StorageCard d={d} upd={upd} />
 
       <RetentionCard d={d} upd={upd} />
+
+      <DiagnosticsCard />
 
 
       <div style={{ position: 'sticky', bottom: 0, background: 'var(--bg)', borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', gap: 10, alignItems: 'center', zIndex: 10 }}>

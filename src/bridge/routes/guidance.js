@@ -6,9 +6,11 @@ const S = require('../lib/status');
 const { buildChecklist } = require('../lib/setup');
 const { diffReports } = require('../lib/changes');
 const { previewSafeModeOff } = require('../lib/dryrun');
+const { buildDiagnostics } = require('../lib/diagnostics');
+const { VERSION } = require('../lib/constants');
 
 module.exports = function registerGuidanceRoutes(ctx) {
-  const { P, config, policy, route, listReports, cachedTasks, aiStatus, tailActions, netStore, guardianRoots, reportDir } = ctx;
+  const { P, config, policy, route, listReports, cachedTasks, aiStatus, tailActions, netStore, guardianRoots, reportDir, root, codeRoot, startedAt, codeMtime, restartNeeded, state, deep, sampler, cachedJson } = ctx;
 
   route('GET', '/api/setup', () => {
     const c = config();
@@ -21,6 +23,17 @@ module.exports = function registerGuidanceRoutes(ctx) {
     const rows = listReports('daily').slice(0, 2);
     const read = (r) => (r ? U.readJson(path.join(reportDir('daily', r.id), 'report.json'), null) : null);
     return diffReports(read(rows[0]), read(rows[1]));
+  });
+
+  // Facts for a bug report. The text is masked (user name, home paths); the structured fields are for the Settings page on this laptop.
+  route('GET', '/api/diagnostics', () => {
+    let install = null; try { install = U.readInstall(codeRoot); } catch { install = null; }
+    const c = config();
+    return buildDiagnostics({
+      version: VERSION, startedAt, codeMtime: new Date(codeMtime()).toISOString(), restartNeeded: restartNeeded(), port: state.boundPort, install, root, codeRoot,
+      runState: U.readJson(P.runState, {}) || {}, daily: cachedJson(P.latest('daily.json')), weekly: cachedJson(P.latest('weekly.json')),
+      deep: deep.status(), sampler: sampler ? sampler.status() : null, tasks: S.assessTasks(cachedTasks(), c), config: c,
+    });
   });
 
   route('GET', '/api/safemode/preview', () => {
