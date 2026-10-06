@@ -1,6 +1,7 @@
+import { useRemediationHistory } from '../state/findings';
 import { useMemo, useState } from 'react';
 import { ApiError, network, useQuery } from '../api';
-import type { ActionEvent, Finding, HistoryItem, NetConnection, NetHistoryRow, NetworkCurrent } from '../types';
+import type { ActionEvent, Finding, NetConnection, NetHistoryRow, NetworkCurrent } from '../types';
 import { Badge, Card, Col, DataTable, Drawer, Empty, ErrorState, PageHead, RiskBadge, SearchBox, Sep, SkeletonCards, Stat, Tabs, useToast, Icon } from '../components/ui';
 import { LineChart, RangeSelect, Range, filterRange, SERIES_COLORS } from '../components/Chart';
 import { useActionFlow } from '../components/ActionFlow';
@@ -22,7 +23,7 @@ export default function NetworkGuard() {
   const q = useQuery<NetworkCurrent>('/api/network/current');
   const hist = useQuery<{ items: NetHistoryRow[] }>('/api/network/history?range=90');
   const acts = useQuery<ActionEvent[]>('/api/actions?category=network&limit=12');
-  const fixes = useQuery<{ items: HistoryItem[] }>('/api/remediation/history?limit=200');
+  const fixes = useRemediationHistory();
   const [tab, setTab] = useState<Tab>('overview');
   const [range, setRange] = useState<Range>(30);
   const [text, setText] = useState(''); const [state, setState] = useState(''); const [onlyUnsigned, setOnlyUnsigned] = useState(false);

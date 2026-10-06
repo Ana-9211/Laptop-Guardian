@@ -113,4 +113,4 @@ function createHandler({ routes, allowedHosts, tokenOk, distDir }) {
   };
 }
 
-module.exports = { HttpError, need, securityHeaders, sendJson, readBody, serveStatic, createHandler };
+module.exports = { HttpError, need, createHandler };
