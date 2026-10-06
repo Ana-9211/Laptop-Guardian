@@ -28,6 +28,8 @@ function New-MetricFromReport {
         recommendationCount = @($Recommendations | Where-Object { $_.status -eq 'open' }).Count; actionCount = @($Events).Count; errorCount = (Get-RunProblemCount -Report $Report -Errors $Errors)
         startupCount = $s.startup.count; serviceFailures = @($s.services.failed).Count; batteryPct = $(if ($s.system.battery) { $s.system.battery.pct } else { $null })
         downloadsGB = $s.storage.downloads.sizeGB; defenderSigAgeDays = $s.defender.sigAgeDays; defenderThreats = $s.defender.threats; healthScore = $Report.healthScore
+        # the deductions behind the score ("-10 RAM above 90%"), so the score can be explained over time
+        healthReasons = @($Report.healthReasons | Where-Object { $_ } | ForEach-Object { [string]$_ })
     }
 }
 
