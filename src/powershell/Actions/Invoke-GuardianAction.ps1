@@ -37,6 +37,8 @@ try {
         $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ParamsB64))
         $params = ConvertTo-Hashtable (ConvertFrom-Json $json)
     }
+    # Administrator work only runs from a trusted installed copy (a no-op for a standard-user run).
+    if ($Mode -eq 'Execute') { Assert-ElevatedCodeTrusted }
     $result = Invoke-GuardianRemediation -Action $Action -Mode $Mode -Params $params
 } catch {
     $result = [pscustomobject]@{ ok = $false; action = $Action; mode = $Mode; message = ''; errors = @($_.Exception.Message); needsAdmin = $false; needsElevation = $false; identityKey = ''; verified = $false; details = $null; undo = $null }

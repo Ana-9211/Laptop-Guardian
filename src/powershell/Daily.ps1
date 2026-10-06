@@ -14,6 +14,9 @@ Start-RunContext -RunType 'daily'
 $started = Get-Date
 $runMode = if ($Scheduled) { 'scheduled' } else { 'manual' }
 $config = Get-GuardianConfig
+# Administrator runs only come from a trusted installed copy, and an elevated run never lets the user-editable config steer it.
+try { Assert-ElevatedCodeTrusted } catch { Write-Host $_.Exception.Message; exit 1 }
+if (Test-IsAdmin) { $config = Limit-ConfigForElevation -Config $config }
 $exit = 0
 
 if (-not (Enter-GuardianLock -Name 'daily')) { Write-Host 'Another daily run is active; exiting.'; exit 0 }

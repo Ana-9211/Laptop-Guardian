@@ -50,6 +50,26 @@ Describe 'Blacklist enforcement' {
             (Get-ProcessPolicy).blacklist[0].terminatedCount | Should Be 1
         } finally { Stop-Process -Id $v.Id -Force -ErrorAction SilentlyContinue }
     }
+    It 'running as administrator, a name-only blacklist entry is not enforced (the policy file is user-editable); one scoped to the exact executable is' {
+        Write-JsonFile -Path (Get-GuardianPath 'ProcessPolicy') -Object @{ blacklist = @(); whitelist = @(); ignored = @() }
+        Add-PolicyEntry -List blacklist -Name 'guardianvictim' -Reason 'name only' | Out-Null
+        $v = New-Victim; Start-Sleep -Milliseconds 500
+        try {
+            Mock -ModuleName Policy Test-IsAdmin { $true }
+            @(Invoke-BlacklistEnforcement -Processes @(New-Snapshot $v 'blacklist') -Config $cfgOn).Count | Should Be 0
+            (Get-Process -Id $v.Id -ErrorAction SilentlyContinue) | Should Not BeNullOrEmpty
+            (Read-JsonLines (Get-GuardianPath 'Actions') | Where-Object { $_.action -eq 'process:terminate-blocked' -and $_.reason -match 'exact executable' }) | Should Not BeNullOrEmpty
+            Write-JsonFile -Path (Get-GuardianPath 'ProcessPolicy') -Object @{ blacklist = @(); whitelist = @(); ignored = @() }
+            Add-PolicyEntry -List blacklist -Name 'guardianvictim' -Path $victimExe -Reason 'scoped' | Out-Null
+            $res = @(Invoke-BlacklistEnforcement -Processes @(New-Snapshot $v 'blacklist') -Config $cfgOn)
+            $res.Count | Should Be 1; $res[0].result | Should Be 'terminated'
+        } finally {
+            Mock -ModuleName Policy Test-IsAdmin { $false }; Stop-Process -Id $v.Id -Force -ErrorAction SilentlyContinue
+            # put the policy back the way the following tests expect it (a name-only entry)
+            Write-JsonFile -Path (Get-GuardianPath 'ProcessPolicy') -Object @{ blacklist = @(); whitelist = @(); ignored = @() }
+            Add-PolicyEntry -List blacklist -Name 'guardianvictim' -Reason 'test' | Out-Null
+        }
+    }
     It 'does NOTHING in safe mode' {
         $cfg = [pscustomobject]@{ safety = [pscustomobject]@{ safeMode = $true; automationPaused = $false; autoKillBlacklisted = $true } }
         $v = New-Victim; Start-Sleep -Milliseconds 500

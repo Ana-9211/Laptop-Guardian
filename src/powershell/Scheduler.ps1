@@ -58,6 +58,8 @@ function Get-DesiredTasks {
 
 function Set-GuardianTask {
     param([string]$Kind, $Cfg, [string]$RunLevel)
+    # A Highest task runs this folder's scripts as administrator on every schedule, so the folder must be trusted first.
+    if ($RunLevel -eq 'Highest') { Assert-ElevatedCodeTrusted -WillElevate }
     $ps = Get-SystemPowerShellPath
     $user = "$env:USERDOMAIN\$env:USERNAME"
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel $RunLevel
@@ -132,6 +134,7 @@ function Unregister-Guardian {
 function Request-ElevatedRegister {
     <# The one and only elevated entry point: Register, with fixed arguments, through the normal UAC consent prompt. #>
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$PSCommandPath`"", '-Action', 'Register', '-TaskFolder', "`"$folder`"")
+    try { Assert-ElevatedCodeTrusted -WillElevate } catch { return [pscustomobject]@{ requested = $false; message = $_.Exception.Message } }
     try {
         Start-Process -FilePath (Get-SystemPowerShellPath) -ArgumentList $argList -Verb RunAs -WindowStyle Hidden | Out-Null
         [void](Write-GuardianEvent -Category config -Action 'scheduler:elevation-requested' -Actor user -Reason 'user asked to apply the schedule with administrator permission')
