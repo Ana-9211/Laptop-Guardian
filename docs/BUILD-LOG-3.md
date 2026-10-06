@@ -60,5 +60,5 @@ Manual steps for you, in this order:
 7. Try the real DoH change on one interface (Network Guard, DNS), then Restore previous, and confirm the DNS servers are back as before.
 8. Optionally turn on firewall connection logging and look at the Connection log.
 
-## Interrupted gate (work on branch wip/steps-1-3, NOT merged)
-Steps 1, 1b, 2 and 3 are implemented. The Pester step of their gate was killed by the system for low memory after Core, Correctness and Doh had passed; per the memory note it was not restarted. Verified before the kill: npm run check 147 pass (before the guidance and csv tests were added), lint:ps clean, fixture smoke pass for the link checks. NOT run: the rest of the Pester suite, npm run check with the new guidance.test.js and csv.test.js, the final fixture smoke (guidance section) and the --real smoke. Step 3 PowerShell part (healthReasons stored in metrics rows) is not done. Step 4: Pester 5 is not installed (only 3.4.0), nothing was installed; CI stays on 3.x.
+## Gate history
+The branch wip/steps-1-3 was gated (check, lint, Pester, fixture and --real smoke) and merged into master; its two earlier gate runs killed for low memory are history.
