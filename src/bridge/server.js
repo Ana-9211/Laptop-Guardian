@@ -13,14 +13,17 @@ const { VERSION } = require('./lib/constants');
 const { createContext } = require('./lib/context');
 const { createNetworkContext } = require('./lib/network-context');
 const { createHandler } = require('./lib/http');
+const { runMaintenance } = require('./lib/maintenance');
 
-const ROUTES = ['status', 'reports', 'files', 'settings', 'ai', 'schedule', 'network', 'remediation'];
+const ROUTES = ['status', 'reports', 'files', 'settings', 'ai', 'schedule', 'network', 'remediation', 'guidance'];
 
 function createApp(root, opts = {}) {
   const ctx = createContext(root, opts);
   Object.assign(ctx, createNetworkContext(ctx));
   for (const name of ROUTES) require('./routes/' + name)(ctx);   // order matters: the first matching route wins
-  const { P, config, log, token, tokenOk, startedAt, state, deep, netTimers, takeSnapshot, queryTasks } = ctx;
+  const { P, config, log, token, tokenOk, startedAt, state, deep, netTimers, takeSnapshot, queryTasks, currentRun } = ctx;
+  /** Housekeeping for the JSONL files (see lib/maintenance.js). Tests call it directly through server.maintenance(). */
+  const maintenance = (now) => runMaintenance({ P, log, now, deep, running: !!(currentRun() && currentRun().running) });
 
   const allowedHosts = new Set();
   const handle = createHandler({ routes: ctx.routes, allowedHosts, tokenOk, distDir: P.dist });
@@ -30,6 +33,7 @@ function createApp(root, opts = {}) {
   server.keepAliveTimeout = 5000;
   server.maxConnections = 64;
   server.token = token;
+  server.maintenance = maintenance;
   server.listen_ = (port, cb) => {
     server.listen(port, '127.0.0.1', () => {
       const actual = server.address().port;
@@ -40,7 +44,9 @@ function createApp(root, opts = {}) {
         const every = Math.max(5, config().network.snapshot.everyMinutes) * 60000;
         const first = setTimeout(() => { if (config().network.snapshot.auto) takeSnapshot('scheduled').catch(() => {}); }, 30000);
         const loop = setInterval(() => { if (config().network.snapshot.auto) takeSnapshot('scheduled').catch(() => {}); }, every);
-        netTimers.push(first, loop); netTimers.forEach((t) => t.unref && t.unref());
+        const m1 = setTimeout(() => maintenance(), 90000);
+        const m2 = setInterval(() => maintenance(), 24 * 3600 * 1000);
+        netTimers.push(first, loop, m1, m2); netTimers.forEach((t) => t.unref && t.unref());
       }
       server.on('close', () => { netTimers.forEach(clearTimeout); netTimers.forEach(clearInterval); deep.stop(); });
       if (opts.pidFile !== false) {

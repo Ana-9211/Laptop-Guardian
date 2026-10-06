@@ -5,6 +5,7 @@ import { Badge, Card, Drawer, Empty, ErrorState, PageHead, SearchBox, Seg, Skele
 import { ReportView } from '../components/ReportView';
 import { fmtFull, scoreTone, NA } from '../format';
 import { go, useHash } from '../router';
+import { usePageState } from '../state/pageState';
 
 type Type = 'all' | 'daily' | 'weekly';
 const key = (r: { type: string; id: string }) => `${r.type}/${r.id}`;
@@ -56,9 +57,9 @@ export default function Reports() {
   const toast = useToast();
   const { confirm, node } = useConfirm();
   const { params } = useHash();
-  const [type, setType] = useState<Type>('all');
-  const [status, setStatus] = useState('');
-  const [text, setText] = useState('');
+  const [ps, setPs] = usePageState('reports', { kind: 'all', status: '', q: '' });
+  const type = (['all', 'daily', 'weekly'].includes(ps.kind) ? ps.kind : 'all') as Type; const status = ps.status; const text = ps.q;
+  const setType = (t: Type) => setPs({ kind: t }); const setStatus = (s: string) => setPs({ status: s }); const setText = (q: string) => setPs({ q });
   const [open, setOpen] = useState<ReportRow | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [cmp, setCmp] = useState(false);

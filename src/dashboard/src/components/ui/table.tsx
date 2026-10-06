@@ -1,9 +1,17 @@
 import { useState, type ReactNode } from 'react';
+
+const SORT_PREFIX = 'lg-sort-';
+const readSort = (key: string | undefined, valid: string[]): { key: string; dir: 1 | -1 } | null => {
+  if (!key) return null;
+  try { const j = JSON.parse(localStorage.getItem(SORT_PREFIX + key) || 'null'); return j && valid.includes(j.key) && (j.dir === 1 || j.dir === -1) ? j : null; } catch { return null; }
+};
 import { Icon } from './icons';
 
 export interface Col<T> { key: string; label: string; render: (r: T) => ReactNode; sort?: (r: T) => number | string; align?: 'r'; width?: number | string }
-export function DataTable<T>({ cols, rows, rowKey, onRow, selected, initialSort, empty, label, stickyLast }: { stickyLast?: boolean; cols: Col<T>[]; rows: T[]; rowKey: (r: T) => string; onRow?: (r: T) => void; selected?: string | null; initialSort?: { key: string; dir: 1 | -1 }; empty?: ReactNode; label: string }) {
-  const [sort, setSort] = useState(initialSort || null);
+export function DataTable<T>({ cols, rows, rowKey, onRow, selected, initialSort, empty, label, stickyLast, persistKey }: { persistKey?: string; stickyLast?: boolean; cols: Col<T>[]; rows: T[]; rowKey: (r: T) => string; onRow?: (r: T) => void; selected?: string | null; initialSort?: { key: string; dir: 1 | -1 }; empty?: ReactNode; label: string }) {
+  // With a persistKey the chosen sort is remembered per browser, so the table comes back the way it was left.
+  const [sort, setSortState] = useState(() => readSort(persistKey, cols.filter((c) => c.sort).map((c) => c.key)) || initialSort || null);
+  const setSort = (s: { key: string; dir: 1 | -1 } | null) => { setSortState(s); if (persistKey && s) { try { localStorage.setItem(SORT_PREFIX + persistKey, JSON.stringify(s)); } catch { /* not remembered */ } } };
   const col = cols.find((c) => c.key === sort?.key);
   const sorted = col?.sort && sort ? [...rows].sort((a, b) => { const x = col.sort!(a); const y = col.sort!(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir; }) : rows;
   if (!rows.length) return <>{empty}</>;

@@ -2,6 +2,7 @@
 export type Risk = 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN';
 
 export interface Metric {
+  healthReasons?: string[];
   ts: string; runType?: string; cpuPct?: number; ramPct?: number; ramUsedGB?: number; ramTotalGB?: number;
   diskUsedPct?: number; diskFreeGB?: number; diskTotalGB?: number; diskFreePct?: number;
   processCount?: number; flaggedCount?: number; recommendationCount?: number; actionCount?: number; errorCount?: number;
@@ -54,7 +55,7 @@ export interface Policy { blacklist: PolicyEntry[]; whitelist: PolicyEntry[]; ig
 export type Any = any;
 export interface Report {
   schema?: string; type: 'daily' | 'weekly'; id: string; generatedAt: string; durationSec?: number; status: string; incomplete?: string[];
-  healthScore?: number; host?: { name?: string; user?: string; os?: string; build?: string };
+  healthScore?: number; healthReasons?: string[]; host?: { name?: string; user?: string; os?: string; build?: string };
   summary?: { headline?: string; bullets?: string[] }; sections?: Any; recommendations?: string[]; actions?: ActionEvent[];
   errors?: { ts: string; source: string; message: string }[];
   ai?: { enabled?: boolean; used?: boolean; requests?: number; failures?: number; briefing?: string | null; patterns?: { title: string; detail: string; evidence?: string[] }[] };
@@ -146,6 +147,7 @@ export interface NetFirewallRule { name: string; displayName: string; enabled: b
 export interface NetSnapshot {
   generatedAt: string; durationMs: number; elevated: boolean; connections: NetConnection[]; udp: { proto: 'UDP'; localAddress: string; localPort: number; pid: number }[];
   processes: Record<string, { name: string; path: string | null; signed: boolean | null; publisher: string | null }>;
+  dnsConfig?: { interfaces: { index: number; alias: string; dhcp: boolean; dnsServers: string[] }[]; doh: { server: string; template: string }[] } | null;
   dns: { name: string; type: string; data: string; ttl: number }[];
   firewall: { profiles: { name: string; enabled: boolean; defaultInboundAction: string; defaultOutboundAction: string }[]; rules: NetFirewallRule[] };
   identity: { gateway: string[]; dns: string[]; dhcp: string[] }; errors: string[];
@@ -159,3 +161,10 @@ export interface NetworkCurrent {
   settings: NetworkSettings; privacy: string; posture?: { score: number; reasons: { points: number; reason: string }[] } | null;
 }
 export interface NetHistoryRow { ts: string; established: number; listening: number; remoteAddresses: number; unsignedProcesses: number; dnsEntries: number; findings: number; firewallOff: number; guardianRules: number }
+
+export interface SetupItem { id: string; title: string; detail: string; done: boolean; optional: boolean; unknown?: boolean; action: { actionId: string; label: string; params: Record<string, string | number> } | null; link: string | null }
+export interface SetupChecklist { items: SetupItem[]; complete: boolean; remaining: number }
+export interface ChangeItem { label: string; from: string; to: string; delta: string; tone: string }
+export interface ChangesData { available: boolean; reason?: string; from?: string | null; to?: string | null; items: ChangeItem[] }
+export interface DryRunLine { kind: string; label: string; detail: string }
+export interface DryRun { safeMode: boolean; wouldDo: DryRunLine[]; wouldNotDo: DryRunLine[]; notes: string[]; basedOn: { scan: string | null; processes: number } }

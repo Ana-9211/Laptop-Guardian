@@ -32,7 +32,7 @@ export function useOverlay(onClose: () => void) {
   return ref;
 }
 
-export function Drawer({ title, sub, onClose, children, footer }: { title: ReactNode; sub?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+export function Drawer({ title, sub, onClose, children, footer, back }: { title: ReactNode; sub?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; back?: { to: string; label: string } | null }) {
   const ref = useOverlay(onClose);
   const tid = useId();
   return (
@@ -40,6 +40,7 @@ export function Drawer({ title, sub, onClose, children, footer }: { title: React
       <div className="scrim" onClick={onClose} />
       <div className="drawer" role="dialog" aria-modal="true" aria-labelledby={tid} ref={ref} tabIndex={-1}>
         <div className="drawer-head">
+          {back && <a className="btn ghost sm back-link" href={`#${back.to}`} data-testid="drawer-back">{'< Back to '}{back.label}</a>}
           <div className="grow"><h2 id={tid} style={{ fontSize: 17 }}>{title}</h2>{sub && <div className="muted small" style={{ marginTop: 2 }}>{sub}</div>}</div>
           <Tip text="Close (Esc)"><button className="btn ghost icon-btn" onClick={onClose} aria-label="Close panel"><Icon name="x" /></button></Tip>
         </div>

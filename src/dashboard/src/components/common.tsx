@@ -2,25 +2,26 @@ import { useState } from 'react';
 import { bridge, ApiError } from '../api';
 import type { ActionEvent, Recommendation } from '../types';
 import { ago, fmtDate, riskTone, sevTone } from '../format';
-import { Badge, RiskBadge, Sep, useToast, Icon } from './ui';
+import { Badge, Sep, useToast, Icon } from './ui';
+import { RiskLink } from './Linked';
 import { useStatus } from '../state/StatusProvider';
 import { kindLabel } from '../labels';
 
 export function RecCard({ rec, onOpen }: { rec: Recommendation; onOpen?: (r: Recommendation) => void }) {
   return (
-    <button className="card" onClick={() => onOpen?.(rec)} style={{ textAlign: 'left', cursor: onOpen ? 'pointer' : 'default', padding: '10px 12px', display: 'grid', gap: 6, borderLeft: `3px solid var(--${riskTone(rec.risk) || 'line-strong'})` }}>
+    <div role="button" tabIndex={0} className="card" onClick={() => onOpen?.(rec)} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen?.(rec); } }} style={{ textAlign: 'left', cursor: onOpen ? 'pointer' : 'default', padding: '10px 12px', display: 'grid', gap: 6, borderLeft: `3px solid var(--${riskTone(rec.risk) || 'line-strong'})` }}>
       <div className="row spread" style={{ flexWrap: 'nowrap' }}>
         <b style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{rec.title}</b>
-        <RiskBadge risk={rec.risk} />
+        <RiskLink risk={rec.risk} to={`/recommendations?risk=${rec.risk}`} />
       </div>
       <div className="small t2" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{rec.whatIsIt || rec.whyFlagged?.[0]}</div>
       <div className="row tight small muted">
-        <Badge tone="outline">{kindLabel(rec.kind)}</Badge>
+        <a className="chip-link" href={`#/recommendations?kind=${rec.kind}`} title="Show only this kind" onClick={(e) => e.stopPropagation()}><Badge tone="outline">{kindLabel(rec.kind)}</Badge></a>
         <span>{rec.suggestedAction}</span><Sep />
         <span>{(rec.consecutiveDays ?? 0) > 1 ? `${rec.consecutiveDays} days in a row` : `seen ${ago(rec.lastSeen)}`}</span>
         {onOpen && <span className="go-hint"><Icon name="chev" size={14} /></span>}
       </div>
-    </button>
+    </div>
   );
 }
 

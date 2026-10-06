@@ -3,24 +3,18 @@ import { useQuery } from '../api';
 import type { ActionEvent } from '../types';
 import { Badge, Card, Empty, ErrorState, Expander, PageHead, SearchBox, SkeletonCards } from '../components/ui';
 import { fmtFull, sevTone } from '../format';
-import { useHash } from '../router';
+import { usePageState } from '../state/pageState';
+import { CsvButton } from '../components/CsvButton';
 
 const CATS = ['scan', 'process', 'ai', 'file', 'cleanup', 'defender', 'windows', 'policy', 'shutdown', 'config', 'system', 'remediation', 'network'];
 
 export default function Logs() {
-  const { params } = useHash();
-  const [q, setQ] = useState(params.get('q') ?? ''); const [dq, setDq] = useState(params.get('q') ?? ''); // deep links such as #/logs?q=<event id> arrive pre-filtered
-  const [cat, setCat] = useState(CATS.includes(params.get('category') ?? '') ? (params.get('category') as string) : ''); const [sev, setSev] = useState(''); const [limit, setLimit] = useState(200);
+  // Filters live in the address bar (a link such as #/logs?q=<event id> or ?sev=error arrives pre-filtered, and a refresh keeps them) and in this browser's storage.
+  const [ps, setPs] = usePageState('logs', { q: '', category: '', sev: '' });
+  const q = ps.q; const cat = CATS.includes(ps.category) ? ps.category : ''; const sev = ['info', 'warning', 'error'].includes(ps.sev) ? ps.sev : ''; const [limit, setLimit] = useState(200);
+  const setQ = (v: string) => setPs({ q: v }); const setCat = (v: string) => setPs({ category: v }); const setSev = (v: string) => setPs({ sev: v });
+  const [dq, setDq] = useState(q);
   useEffect(() => { const t = setTimeout(() => setDq(q), 250); return () => clearTimeout(t); }, [q]);
-  // A link to #/logs?q=...&category=... applied while this page is already open re-filters it ...
-  const linkQ = params.get('q') ?? ''; const linkCat = params.get('category') ?? '';
-  useEffect(() => { setQ(linkQ); setDq(linkQ); setCat(CATS.includes(linkCat) ? linkCat : ''); }, [linkQ, linkCat]);
-  // ... and what you type or pick is written back to the address, so the filtered view can be bookmarked or shared.
-  useEffect(() => {
-    const next = new URLSearchParams({ ...(dq && { q: dq }), ...(cat && { category: cat }) }).toString();
-    const want = `#/logs${next ? `?${next}` : ''}`;
-    if (window.location.hash.startsWith('#/logs') && window.location.hash !== want) window.history.replaceState(null, '', want);
-  }, [dq, cat]);
   const qs = new URLSearchParams({ limit: String(limit), ...(cat && { category: cat }), ...(sev && { severity: sev }), ...(dq && { q: dq }) }).toString();
   const res = useQuery<ActionEvent[]>(`/api/actions?${qs}`);
   const rows = res.data || [];
@@ -33,6 +27,7 @@ export default function Logs() {
           <select aria-label="Category" value={cat} onChange={(e) => setCat(e.target.value)}><option value="">All categories</option>{CATS.map((c) => <option key={c}>{c}</option>)}</select>
           <select aria-label="Severity" value={sev} onChange={(e) => setSev(e.target.value)}><option value="">Any severity</option><option>info</option><option>warning</option><option>error</option></select>
           <button className="btn" onClick={res.reload}>Refresh</button>
+          <CsvButton name="laptop-guardian-log" rows={rows} cols={[{ label: 'Time', get: (a: ActionEvent) => a.ts }, { label: 'Severity', get: (a: ActionEvent) => a.severity }, { label: 'Category', get: (a: ActionEvent) => a.category }, { label: 'Action', get: (a: ActionEvent) => a.action }, { label: 'Target', get: (a: ActionEvent) => a.target }, { label: 'Result', get: (a: ActionEvent) => a.result }, { label: 'Actor', get: (a: ActionEvent) => a.actor }, { label: 'Reason', get: (a: ActionEvent) => a.reason }, { label: 'Error', get: (a: ActionEvent) => a.error }, { label: 'Id', get: (a: ActionEvent) => a.id }]} />
         </div>
         {res.error ? <div style={{ padding: 14 }}><ErrorState error={res.error} onRetry={res.reload} /></div> : !res.data ? <div style={{ padding: 14 }}><SkeletonCards n={1} /></div> : rows.length === 0 ? <Empty icon="logs" title="No log entries match" /> : (
           <div>

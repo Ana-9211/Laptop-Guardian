@@ -11,6 +11,7 @@ const S = require('./status');
 const { makeRunner } = require('./ps');
 const { SCHED_CACHE_MS, SCHED_WAITING_MS, SCHED_READ_RETRIES, ELEVATION_WAIT_MS, ELEVATION_TIMEOUT_MS, RE_DAILY, RE_WEEKLY } = require('./constants');
 const { HttpError, need } = require('./http');
+const C = require('./compact');
 
 function createContext(root, opts = {}) {
   // `root` holds config, data, reports and logs. `codeRoot` holds the program files (the same folder in a development checkout and in tests).
@@ -22,6 +23,8 @@ function createContext(root, opts = {}) {
     policy: path.join(root, 'config', 'process-policy.json'),
     actions: path.join(root, 'data', 'actions', 'actions.jsonl'),
     metrics: path.join(root, 'data', 'metrics', 'metrics.jsonl'),
+    metricsDaily: path.join(root, 'data', 'metrics', 'metrics-daily.jsonl'),
+    actionsDaily: path.join(root, 'data', 'actions', 'actions-daily.jsonl'),
     recs: path.join(root, 'data', 'recommendations', 'recommendations.json'),
     runState: path.join(root, 'data', 'state', 'run-state.json'),
     bridgePid: path.join(root, 'data', 'state', 'bridge.json'),
@@ -55,7 +58,7 @@ function createContext(root, opts = {}) {
       id: U.uid('a_'), ts: U.localIso(), category: 'system', severity: 'info', action: '', target: null,
       result: 'success', actor: 'user', reason: null, relatedRecommendation: null, error: null, runType: null, ...ev,
     };
-    try { U.appendJsonl(P.actions, e); } catch { /* logging must never break a request */ }
+    try { U.withFileLock(P.actions, () => U.appendJsonl(P.actions, e), 3000); } catch { /* logging must never break a request */ }
     return e;
   }
 
@@ -95,7 +98,8 @@ function createContext(root, opts = {}) {
   function readMetrics(maxBytes) {
     let st; try { st = fs.statSync(P.metrics); } catch { return []; }
     const key = `${st.size}:${st.mtimeMs}:${maxBytes}`;
-    if (metricsCache.key !== key) metricsCache = { key, rows: U.tailJsonl(P.metrics, Number.MAX_SAFE_INTEGER, maxBytes) };
+    // The live file (recent rows, byte-capped) plus the older daily summaries, so a range of 'all' stays small however long Guardian has run.
+    if (metricsCache.key !== key) metricsCache = { key, rows: C.tailWithSummaries(P.metrics, P.metricsDaily, { maxBytes }) };
     return metricsCache.rows;
   }
   function filterMetrics(range) {

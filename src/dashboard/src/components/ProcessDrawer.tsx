@@ -39,7 +39,7 @@ function Section({ title, children, actions }: { title: string; children: React.
   return <Card title={title} actions={actions}>{children}</Card>;
 }
 
-export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process; rec?: Recommendation | null; onClose: () => void; onChanged: () => void }) {
+export function ProcessDrawer({ proc, rec, onClose, onChanged, back }: { proc: Process; rec?: Recommendation | null; onClose: () => void; onChanged: () => void; back?: { to: string; label: string } | null }) {
   const toast = useToast();
   const ov = useOverview();
   const { confirm, node } = useConfirm();
@@ -64,7 +64,7 @@ export function ProcessDrawer({ proc, rec, onClose, onChanged }: { proc: Process
 
   return (
     <>
-      <Drawer onClose={onClose}
+      <Drawer onClose={onClose} back={back}
         title={<span className="row" style={{ gap: 10 }}>{proc.name}<span className="muted num" style={{ fontSize: 13, fontWeight: 400 }}>PID {proc.pid}</span></span>}
         sub={<span className="row tight">{proc.signed ? <Badge tone="ok" dot>Signed - {proc.publisher}</Badge> : <Badge tone="warn" dot>Unsigned</Badge>}<Badge>{processClassLabel(proc.classification)}</Badge>{proc.persistent && <Badge tone="info">Persistent</Badge>}{proc.policy && proc.policy !== 'none' && <Badge tone={proc.policy === 'blacklist' ? 'crit' : 'accent'}>{proc.policy}</Badge>}</span>}
         footer={<>

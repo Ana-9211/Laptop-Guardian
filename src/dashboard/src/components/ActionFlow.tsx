@@ -24,6 +24,7 @@ const ACK_TEXT: Record<string, string> = {
   connectivity: 'I understand this can stop the program, port or address from using the network, and that I can remove the rule from Network Guard.',
   'allow-exposure': 'I understand an allow rule lets this program through the firewall on private and domain networks, and that I should only allow programs I trust.',
   'suspicious-lookalike': 'I understand this program uses the name of a Windows system process but is not the real one. I want to stop it anyway.',
+  'dns-provider': 'I understand the chosen DNS company will see the names I look up, that lookups fail if it is unreachable, and that a program using its own DoH can bypass hosts-file blocking.',
   'dns-limits': 'I understand blocking is by exact host name only, and programs that use their own encrypted DNS can bypass it.',
 };
 const ADMIN_TEXT = { yes: 'Needs administrator permission', no: 'No administrator permission needed' } as const;
