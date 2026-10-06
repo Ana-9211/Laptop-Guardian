@@ -138,3 +138,36 @@ test('bridge: /api/metrics and /api/overview answer from the live tail plus summ
     assert.strictEqual(o.status, 200); assert.ok(Array.isArray(o.json.metrics));
   } finally { b.close(); }
 });
+
+test('retention settings: the windows come from the config, are clamped to 30-730 again in maintenance, and the audit log is archived, never deleted', () => {
+  const root = tmp(); const P = { metrics: path.join(root, 'metrics.jsonl'), metricsDaily: path.join(root, 'md.jsonl'), actions: path.join(root, 'a', 'actions.jsonl'), actionsDaily: path.join(root, 'a', 'ad.jsonl') };
+  try {
+    writeMetrics(P.metrics, 400, 2);
+    fs.mkdirSync(path.dirname(P.actions), { recursive: true });
+    const rows = Array.from({ length: 400 }, (_, k) => 399 - k).map((i) => JSON.stringify({ id: 'x' + i, ts: iso(NOW - i * DAY), category: 'scan', severity: 'info' }));
+    fs.writeFileSync(P.actions, rows.join('\n') + '\n');
+    runMaintenance({ P, log: () => {}, now: NOW, retention: { metricsRawDays: 365, auditRawDays: 365 } });
+    const liveDays = (f) => new Set(fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).ts.slice(0, 10))).size;
+    assert.ok(liveDays(P.metrics) >= 363 && liveDays(P.metrics) <= 366, 'metrics follow the 365 day setting');
+    assert.ok(liveDays(P.actions) >= 363 && liveDays(P.actions) <= 366, 'audit rows follow the 365 day setting');
+    // a hand-edited absurd value (1 day, or text) cannot shrink the window below 30 days or turn it into something else
+    runMaintenance({ P, log: () => {}, now: NOW, retention: { metricsRawDays: 1, auditRawDays: 'soon' } });
+    assert.ok(liveDays(P.metrics) >= 29 && liveDays(P.metrics) <= 31, 'clamped up to 30 days');
+    assert.ok(liveDays(P.actions) >= 89 && liveDays(P.actions) <= 91, 'unusable text falls back to the 90 day default');
+    const archived = fs.readdirSync(path.join(root, 'a', 'archive')).reduce((a, n) => a + count(path.join(root, 'a', 'archive', n)), 0);
+    assert.strictEqual(count(P.actions) + archived, 400, 'every audit row still exists, live or archived');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('retention settings through the bridge: saved within 30-730, refused outside, defaults unchanged', async () => {
+  const b = await startBridge({ ps: fakeRunner({}) });
+  try {
+    const c = await b.get('/api/config');
+    assert.strictEqual(c.json.retention.metricsRawDays, 180); assert.strictEqual(c.json.retention.auditRawDays, 90);
+    for (const bad of [{ metricsRawDays: 29 }, { metricsRawDays: 731 }, { auditRawDays: 5 }, { auditRawDays: 1e9 }, { auditRawDays: 'x' }]) {
+      const r = await b.put('/api/config', { retention: bad }); assert.strictEqual(r.status, 400, JSON.stringify(bad));
+    }
+    const ok = await b.put('/api/config', { retention: { metricsRawDays: 365, auditRawDays: 30 } });
+    assert.strictEqual(ok.status, 200, JSON.stringify(ok.json)); assert.strictEqual(b.readConfig().retention.auditRawDays, 30);
+  } finally { b.close(); }
+});
