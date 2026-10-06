@@ -39,7 +39,7 @@ function Get-FirewallPostureTable {
     foreach ($f in @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue)) { $app[[string]$f.InstanceID] = $f }
     foreach ($f in @(Get-NetFirewallPortFilter -ErrorAction SilentlyContinue)) { $port[[string]$f.InstanceID] = $f }
     foreach ($f in @(Get-NetFirewallAddressFilter -ErrorAction SilentlyContinue)) { $addr[[string]$f.InstanceID] = $f }
-    $profile = [Environment]::GetEnvironmentVariable('USERPROFILE')
+    $userProfile = [Environment]::GetEnvironmentVariable('USERPROFILE')
     foreach ($r in $rules) {
         $id = [string]$r.InstanceID
         $prog = if ($app.ContainsKey($id)) { [string]$app[$id].Program } else { '' }
@@ -50,7 +50,7 @@ function Get-FirewallPostureTable {
             protocol = $(if ($port.ContainsKey($id)) { [string]$port[$id].Protocol } else { '' }); localPort = $(if ($port.ContainsKey($id)) { [string]$port[$id].LocalPort } else { '' })
             remoteAddress = $(if ($addr.ContainsKey($id)) { (@($addr[$id].RemoteAddress) -join ',') } else { 'Any' })
             programMissing = [bool]($isPath -and -not (Test-Path -LiteralPath $exp))
-            programUserWritable = [bool]($isPath -and $profile -and $exp.StartsWith($profile + '\', [StringComparison]::OrdinalIgnoreCase))
+            programUserWritable = [bool]($isPath -and $userProfile -and $exp.StartsWith($userProfile + '\', [StringComparison]::OrdinalIgnoreCase))
         }
     }
 }
