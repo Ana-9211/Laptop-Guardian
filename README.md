@@ -19,17 +19,20 @@ A local-first Windows auditing, monitoring, recommendation and reporting platfor
 ## Quick start
 
 ```powershell
-cd C:\Users\You\Documents\LaptopGuardian
-# Recommended: elevated so the scheduled tasks can run SFC / DISM / filesystem scans
-.\Install-LaptopGuardian.ps1 -Elevate          # UAC prompt, then installs
-# or, without elevation (tasks run with limited rights; heavy Windows integrity checks are skipped)
-.\Install-LaptopGuardian.ps1
-
-# open the dashboard
-.\src\powershell\Start-Dashboard.ps1           # also available from the Start Menu: "Laptop Guardian"
+cd C:\Users\You\Downloads\LaptopGuardian
+.\Install-LaptopGuardian.ps1 -PlanOnly        # read what it will do; changes nothing
+.\Install-LaptopGuardian.ps1 -Elevate         # UAC prompt, then installs
 ```
 
-Dashboard: **http://127.0.0.1:7878/**
+Then open **Laptop Guardian** from the Start Menu or the Desktop icon.
+
+**Where things go.** Program files: `%ProgramFiles%\LaptopGuardian` (only administrators can change them, and administrator tasks run only from here). Your settings, history, reports and logs: `%LOCALAPPDATA%\LaptopGuardian`. Results and audit lines of administrator actions: `%ProgramData%\LaptopGuardian` (administrators-only, permissions verified by the installer). A checkout you run directly is a development copy: it uses port 7879, keeps its data beside the code, and never runs administrator work (the scheduled Daily and Weekly tasks refuse to start from it and the dashboard says so).
+
+**Moving from a checkout.** The installer backs up your old config, data, reports and logs to a zip, then copies them (never moves). Run it again and nothing is copied twice. `.\Install-LaptopGuardian.ps1 -Rollback` (normal PowerShell) points the tasks and shortcuts back at the old folder; `-CleanupLegacy` deletes the old data copy once you are happy.
+
+**Uninstall.** `.\Uninstall-LaptopGuardian.ps1` (administrator PowerShell) removes the tasks, shortcuts and the Program Files copy, and lists what it leaves behind (your data unless `-RemoveData`, the migration backup, the administrators-only folder, an old checkout). `-PlanOnly` shows this first.
+
+Dashboard: **http://127.0.0.1:7878/** (installed copy), **7879** (development checkout)
 
 ### One-click launch
 
