@@ -104,3 +104,33 @@ test('DNS findings: odd servers offer a restore, plain public resolvers offer Do
   const ps = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'powershell', 'Actions', 'NetworkActions', 'Doh.ps1'), 'utf8');
   for (const [k, p] of Object.entries(NP.DOH_PROVIDERS)) { for (const s of p.servers) assert.ok(ps.includes(`'${s}'`), `${k} ${s} in Doh.ps1`); }
 });
+
+test('per-program summary and timeline: counts, distinct hosts, first seen only from real events, bytes null, and the route', async () => {
+  const NPG = require('../src/bridge/lib/netprograms');
+  const snap = makeNetworkSnapshot();
+  const rows = NPG.summarizePrograms({ snapshot: snap, events: [{ ts: '2026-10-07T08:00:00+05:30', type: 'open', process: 'helper.exe' }, { ts: '2026-10-07T09:00:00+05:30', type: 'open', process: 'helper.exe' }] });
+  const helper = rows.find((r) => r.name === 'helper'); const mystery = rows.find((r) => r.name === 'mystery');
+  assert.strictEqual(helper.connections, 3); assert.strictEqual(helper.remoteHosts, 3); assert.strictEqual(helper.firstSeen, '2026-10-07T08:00:00+05:30'); assert.strictEqual(helper.bytes, null);
+  assert.strictEqual(mystery.connections, 12); assert.strictEqual(mystery.firstSeen, null, 'no event, no guess');
+  assert.strictEqual(rows[0].name, 'mystery', 'busiest first'); assert.ok(rows.find((r) => r.name === 'remsvc').listening === 1);
+  const now = Date.parse('2026-10-07T12:00:00+05:30');
+  const tl = NPG.buildTimeline({ events: [{ ts: '2026-10-07T11:10:00+05:30', type: 'open' }, { ts: '2026-10-07T11:20:00+05:30', type: 'open' }, { ts: '2026-10-07T11:30:00+05:30', type: 'close' }], now });
+  assert.strictEqual(tl.source, 'deep'); const hour = tl.buckets.find((x) => x.opens === 2); assert.strictEqual(hour.closes, 1);
+  const tl2 = NPG.buildTimeline({ events: [], history: [{ ts: '2026-10-07T10:00:00+05:30', established: 5 }, { ts: '2026-09-01T10:00:00+05:30', established: 9 }], now });
+  assert.deepStrictEqual(tl2, { source: 'snapshots', unit: 'snapshot', buckets: [{ ts: '2026-10-07T10:00:00+05:30', opens: 5, closes: 0 }] });
+});
+
+test('GET /api/network/programs answers read-only from the snapshot and runs nothing', async () => {
+  const snap = makeNetworkSnapshot();
+  const ps = fakeRunner({ 'Network/Get-NetworkSnapshot.ps1': () => ({ ok: true, data: snap }) });
+  const b = await startBridge({ ps });
+  try {
+    let r = await b.get('/api/network/programs'); assert.strictEqual(r.status, 200); assert.deepStrictEqual(r.json.programs, []);
+    await b.post('/api/network/snapshot', {});
+    const before = ps.calls.length;
+    r = await b.get('/api/network/programs');
+    assert.ok(r.json.programs.length >= 4); assert.ok(r.json.programs.every((p) => p.bytes === null)); assert.match(r.json.bytesNote, /never does/);
+    assert.ok(['deep', 'snapshots'].includes(r.json.timeline.source));
+    assert.strictEqual(ps.calls.length, before, 'no PowerShell call for a read');
+  } finally { b.close(); }
+});

@@ -9,6 +9,7 @@ import { AttemptList, FindingDetail } from '../components/FindingActions';
 import { ActionTimeline } from '../components/common';
 import { DohCard } from '../components/network/DohCard';
 import { PosturePanel } from '../components/network/PosturePanel';
+import { ProgramsPanel } from '../components/network/ProgramsPanel';
 import { ConnectionDrawer, DeepPanel, DnsPanel, RulesPanel, addr, signedBadge } from '../components/NetworkParts';
 import { useStatus } from '../state/StatusProvider';
 import { useHash, go, useBack } from '../router';
@@ -18,7 +19,7 @@ import { CsvButton } from '../components/CsvButton';
 import { ago } from '../format';
 import { confidenceLabel } from '../labels';
 
-type Tab = 'overview' | 'connections' | 'listening' | 'dns' | 'firewall' | 'findings' | 'deep';
+type Tab = 'overview' | 'connections' | 'programs' | 'listening' | 'dns' | 'firewall' | 'findings' | 'deep';
 const TONE_BY_RISK: Record<string, string> = { HIGH: 'crit', MEDIUM: 'warn', LOW: 'ok' };
 
 export default function NetworkGuard() {
@@ -30,7 +31,7 @@ export default function NetworkGuard() {
   const acts = useQuery<ActionEvent[]>('/api/actions?category=network&limit=12');
   const fixes = useRemediationHistory();
   const [ps, setPs] = usePageState('network', { tab: 'overview', range: '30', q: '', state: '', unsigned: '', risk: '' });
-  const tab = (['overview', 'connections', 'listening', 'dns', 'firewall', 'findings', 'deep'].includes(ps.tab) ? ps.tab : 'overview') as Tab;
+  const tab = (['overview', 'connections', 'programs', 'listening', 'dns', 'firewall', 'findings', 'deep'].includes(ps.tab) ? ps.tab : 'overview') as Tab;
   const range = ([7, 30, 90].includes(Number(ps.range)) ? Number(ps.range) : 30) as Range; const text = ps.q; const state = ps.state; const onlyUnsigned = ps.unsigned === '1';
   const setTab = (t: Tab) => setPs({ tab: t }); const setRange = (r: Range) => setPs({ range: String(r) }); const setText = (v: string) => setPs({ q: v }); const setState = (v: string) => setPs({ state: v }); const setOnlyUnsigned = (v: boolean) => setPs({ unsigned: v ? '1' : '' });
   const back = useBack();
@@ -96,7 +97,7 @@ export default function NetworkGuard() {
         <>
           {!snap && <div className="notice">No network snapshot exists yet. Standard visibility reads the Windows connection tables when you press <b>Take snapshot now</b> (and hourly while the dashboard service runs). It never captures traffic.</div>}
           {stale && <div className="notice warn">This snapshot is {ago(snap?.generatedAt)}. Take a new one for current data.</div>}
-          <Tabs<Tab> label="Network Guard" value={tab} onChange={setTab} items={[{ id: 'overview', label: 'Overview' }, { id: 'connections', label: 'Connections', count: active.length }, { id: 'listening', label: 'Listening ports', count: listeners.length + (snap?.udp.length ?? 0) }, { id: 'dns', label: 'DNS' }, { id: 'firewall', label: 'Firewall', count: cur.rules.length }, { id: 'findings', label: 'Findings', count: allFindings.length }, { id: 'deep', label: 'Deep mode' }]}>
+          <Tabs<Tab> label="Network Guard" value={tab} onChange={setTab} items={[{ id: 'overview', label: 'Overview' }, { id: 'connections', label: 'Connections', count: active.length }, { id: 'programs', label: 'Programs' }, { id: 'listening', label: 'Listening ports', count: listeners.length + (snap?.udp.length ?? 0) }, { id: 'dns', label: 'DNS' }, { id: 'firewall', label: 'Firewall', count: cur.rules.length }, { id: 'findings', label: 'Findings', count: allFindings.length }, { id: 'deep', label: 'Deep mode' }]}>
 
           {tab === 'overview' && snap && (
             <div className="stack-lg">
@@ -143,6 +144,8 @@ export default function NetworkGuard() {
               <DataTable<NetConnection> label="Connections" cols={connCols} rows={shown} rowKey={(c) => `${c.proto}|${c.localAddress}:${c.localPort}|${c.remoteAddress}:${c.remotePort}|${c.pid}`} onRow={setSel} initialSort={{ key: 'proc', dir: 1 }} empty={<Empty icon="network" title="No connections match" />} />
             </Card>
           )}
+
+          {tab === 'programs' && <ProgramsPanel flow={flow} />}
 
           {tab === 'listening' && (
             <div className="stack-lg">

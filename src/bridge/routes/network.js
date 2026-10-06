@@ -2,6 +2,7 @@
 /** Network Guard: snapshots, history, DNS log, Deep Network Guard, DNS filtering. */
 const U = require('../lib/util');
 const { HttpError } = require('../lib/http');
+const { summarizePrograms, buildTimeline } = require('../lib/netprograms');
 
 module.exports = function registerNetworkRoutes(ctx) {
   const { ps, config, log, need, route, state, netStore, deep, dnsBlocked, takeSnapshot, deepView, dnsView, currentView, setNetworkFlag } = ctx;
@@ -39,6 +40,12 @@ module.exports = function registerNetworkRoutes(ctx) {
     log({ category: 'network', action: 'network.fwlog.export', result: 'success', actor: 'user', reason: `exported ${items.length} firewall log row(s) as csv` });
     function* rows() { yield `${cols.join(',')}\r\n`; for (let i = 0; i < items.length; i += 200) yield `${items.slice(i, i + 200).map((e) => cols.map((c) => U.csvCell(e[c])).join(',')).join('\r\n')}\r\n`; }
     return { __stream: rows(), type: 'text/csv; charset=utf-8', filename: 'laptop-guardian-firewall-log.csv' };
+  });
+  // Per-program summary and activity timeline (read-only; from the latest snapshot, the stored history and Deep Network Guard events when it has run).
+  route('GET', '/api/network/programs', () => {
+    const snap = netStore.readLatest();
+    const events = deep.readEvents({ limit: 5000, sinceMs: Date.now() - 24 * 3600000 });
+    return { generatedAt: snap ? snap.generatedAt : null, programs: summarizePrograms({ snapshot: snap, events }), timeline: buildTimeline({ events, history: netStore.readHistory('1') }), bytesNote: 'Windows does not report bytes per connection without capturing traffic, which Guardian never does.' };
   });
   route('GET', '/api/network/deep', () => deepView());
   route('POST', '/api/network/deep/start', ({ body }) => {
