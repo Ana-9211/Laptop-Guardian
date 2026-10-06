@@ -108,7 +108,7 @@ export default function Overview() {
             <span className="eyebrow">Overall health</span>
             <h2 className="verdict" data-tone={scoreTone(d?.healthScore) || undefined}>{verdict(d?.healthScore)}</h2>
             <p className="t2">{d?.summary?.headline || 'Scan results will summarise your laptop here.'}</p>
-            <ScoreExplain report={d} />
+            <ScoreExplain report={d} metrics={o.metrics} />
             <div className="row hero-meta small muted">
               <span className="row tight"><Icon name="clock" size={13} />{scanText}</span><Sep />
               <a href="#/actions" title="Open the Action Center">{attention === 0 ? 'Nothing needs attention' : attention === 1 ? '1 item needs attention' : `${attention} items need attention`}</a><Sep />

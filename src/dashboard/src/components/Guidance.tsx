@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '../api';
-import type { ChangesData, DryRun, Report, SetupChecklist } from '../types';
+import type { ChangesData, DryRun, Metric, Report, SetupChecklist } from '../types';
+import { deductionTrend } from '../healthTrend';
 import { Badge, Card, Empty, ErrorState, Icon, SkeletonCards } from './ui';
 import { ActionButton, useActionFlow } from './ActionFlow';
 import { useStatus } from '../state/StatusProvider';
@@ -65,7 +66,8 @@ export function ChangesCard() {
 }
 
 /** Points per factor behind the health score (from the report), so the number is never a mystery. */
-export function ScoreExplain({ report }: { report: Report | null }) {
+export function ScoreExplain({ report, metrics = [] }: { report: Report | null; metrics?: Metric[] }) {
+  const trend = deductionTrend(metrics);
   const reasons = (report?.healthReasons || []).map((r) => { const m = /^-(\d+)\s+(.*)$/.exec(r); return m ? { points: Number(m[1]), text: m[2] } : { points: 0, text: r }; });
   if (!report || report.healthScore == null) return null;
   const total = reasons.reduce((a, r) => a + r.points, 0);
@@ -76,6 +78,10 @@ export function ScoreExplain({ report }: { report: Report | null }) {
       {reasons.length === 0 ? <p className="t2" style={{ margin: 0 }}>Nothing was deducted: no factor Guardian checks was found wanting.</p> : (
         <table className="t" aria-label="Health score deductions"><thead><tr><th>Factor</th><th className="r">Points</th></tr></thead>
           <tbody>{reasons.map((r) => <tr key={r.text}><td>{r.text}</td><td className="r num">-{r.points}</td></tr>)}<tr><td><b>Score</b></td><td className="r num"><b>{report.healthScore} (100 - {total})</b></td></tr></tbody></table>
+      )}
+      {trend.items.length > 0 && (
+        <div style={{ marginTop: 8 }}><b>Most frequent deductions over the last {trend.runs} runs</b>
+          <ul className="plain-list">{trend.items.map((i) => <li key={i.text}>{i.text}: in {i.runs} of {trend.runs} runs, about -{i.avgPoints} points each time{i.latest ? ' (still present)' : ''}</li>)}</ul></div>
       )}
     </details>
   );
