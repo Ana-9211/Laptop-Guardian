@@ -800,7 +800,8 @@
             "windows-security",
             "protection-history",
             "recovery",
-            "power"
+            "power",
+            "windows-firewall"
           ]
         }
       },

@@ -6,6 +6,7 @@ const NF = require('./netfindings');
 const NO = require('./netoffers');
 const ND = require('./netdeep');
 const NG = require('./netguard');
+const NP = require('./netposture');
 const { HttpError } = require('./http');
 
 function createNetworkContext(ctx) {
@@ -24,11 +25,15 @@ function createNetworkContext(ctx) {
     return { identity: id, bridgePort: state.boundPort, dnsFilteringEnabled: !!config().network.dnsFiltering.enabled };
   };
   const dnsBlocked = () => NG.readHostsBlock(hostsPath).domains;
+  let prevSnapshot = null;   // the snapshot before the latest one (memory only): lets Guardian say what changed
   function computeNetFindings(snapshot) {
-    const raw = NF.buildNetworkFindings({
+    const deepEv = deep.active() ? deep.readEvents({ limit: 2000, sinceMs: Date.now() - 120000 }) : [];
+    const extra = [...NP.postureFindings(snapshot), ...NP.changeFindings(snapshot, prevSnapshot), ...NP.beaconFindings(deep.active() ? deep.readEvents({ limit: 5000, sinceMs: Date.now() - 3600000 }) : [])];
+    const raw0 = NF.buildNetworkFindings({
       snapshot, persistentPaths: persistentPaths(), thresholds: config().network.thresholds, dnsBlocked: dnsBlocked(),
-      deepEvents: deep.active() ? deep.readEvents({ limit: 2000, sinceMs: Date.now() - 120000 }) : [],
+      deepEvents: deepEv,
     });
+    const raw = [...raw0, ...extra];
     return NO.toActionFindings(raw, { ...netCtx(), guardianRoot: guardianRoots }, ctx.remediation.history(300));
   }
   async function takeSnapshot(reason = 'manual') {
@@ -39,6 +44,7 @@ function createNetworkContext(ctx) {
       if (!r.ok || !r.data || !Array.isArray(r.data.connections)) throw new HttpError(502, r.error || 'the network snapshot failed');
       const snap = r.data; snap.generatedAt = snap.generatedAt || U.localIso();
       const count = computeNetFindings(snap).length;
+      prevSnapshot = netStore.readLatest() || prevSnapshot;
       netStore.saveSnapshot(snap, count);
       log({ category: 'network', action: 'network.snapshot', result: 'success', actor: reason === 'manual' ? 'user' : 'agent', reason: `${reason}: ${snap.connections.length} connections, ${count} findings` });
       return snap;
@@ -63,9 +69,10 @@ function createNetworkContext(ctx) {
   function currentView() {
     const s = netStore.readLatest();
     const c = config();
+    const findings = s ? computeNetFindings(s) : [];
     return {
       snapshot: s ? enrich(s) : null, ageSec: s ? Math.round((Date.now() - Date.parse(s.generatedAt)) / 1000) : null,
-      findings: s ? computeNetFindings(s) : [], rules: s ? rulesView(s) : [], deep: deepView(), dns: dnsView(s), settings: c.network, privacy: NET_PRIVACY,
+      findings: s ? findings : [], posture: s ? NP.postureScore(s, findings) : null, rules: s ? rulesView(s) : [], deep: deepView(), dns: dnsView(s), settings: c.network, privacy: NET_PRIVACY,
     };
   }
   const NET_PRIVACY = 'Network data stays on this laptop in data/network. It is never sent to Gemini or anywhere else, and Guardian never records packet contents.';
