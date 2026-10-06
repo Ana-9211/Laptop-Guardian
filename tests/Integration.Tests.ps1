@@ -10,9 +10,14 @@ $script:bridge = $null
 function Get-Status($url, $headers = @{}) { try { [int](Invoke-WebRequest $url -Headers $headers -UseBasicParsing -TimeoutSec 10).StatusCode } catch { if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 } } }
 
 Describe 'Install -> scan -> dashboard -> uninstall' {
-    It 'installer completes (sandbox task folder, safe test scan)' {
-        $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $copy 'Install-LaptopGuardian.ps1') -SkipBuild -SkipShortcuts -TaskFolder $folder 2>&1 | Out-String
-        $out | Should Match 'Installed\. Dashboard'
+    It 'development-copy setup completes (data folders, sandbox task folder, safe test scan)' {
+        # The real installer needs administrator rights and Program Files; it is covered against temp folders in Installer.Tests.ps1.
+        # Here a plain checkout gets what it always got: default data, non-elevated tasks, and a safe scan.
+        $init = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $copy 'src\powershell\Tools\Initialize-Data.ps1') 2>&1 | Out-String
+        $init | Should Match '"ok":true'
+        $reg = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $copy 'src\powershell\Scheduler.ps1') -Action Register -Json -TaskFolder $folder 2>&1 | Out-String
+        $reg | Should Match '"ok":\s*true'
+        $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $copy 'src\powershell\Daily.ps1') -Fast -NoAI -SkipDefenderScan 2>&1 | Out-String
         (Test-Path (Join-Path $copy 'config\config.json')) | Should Be $true
         (Test-Path (Join-Path $copy 'config\process-policy.json')) | Should Be $true
         @(Get-ChildItem (Join-Path $copy 'reports\daily') -Directory).Count | Should BeGreaterThan 0

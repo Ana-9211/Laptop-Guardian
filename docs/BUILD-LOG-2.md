@@ -20,6 +20,15 @@ Batch F (installer) moves to right after A. Reason: the previous commit makes th
 - Found while testing: tests/browser/find-overflow.mjs did not send the session token (it timed out); fixed, and added tests/browser/wide-elements.mjs.
 - Gate: npm run check PASS (115); lint:ps clean; Pester one file per process PASS (15 of 15); smoke fixture PASS; smoke --real PASS.
 
+### F. Installer, uninstaller, migration, rollback - committed (carried-over step 3c)
+- Install/Installer.psm1: layout, program file list (no tests, docs, dashboard source, node_modules, config, data, reports, logs), plan as data, staged copy with swap (a failed update keeps the working copy), install.json writer, data migration (backup zip first, COPY never move, size-verified, migration.json marker, idempotent), rollback plan, legacy cleanup (only the four data folders of the recorded old folder, only after verification), uninstall leftovers.
+- Install-LaptopGuardian.ps1 rewritten: -PlanOnly (prints, creates nothing), -ProgramDir/-DataDir/-ElevatedDir for temp-folder tests, -Rollback (refuses to run as administrator), -CleanupLegacy (asks first), elevated install into Program Files, ACL-verified %ProgramData% folder, data defaults via Tools/Initialize-Data.ps1 run from the installed copy, tasks registered from the installed copy, final trust check that warns if administrator tasks would refuse.
+- Uninstall-LaptopGuardian.ps1 rewritten: installed copy removes tasks, bridge, shortcuts and the program folder (through a helper that waits for the script to end), -RemoveData deletes the data folder after confirmation, -PlanOnly, and a closing "Left in place on purpose" list (data, migration backup, administrators folder, old checkout). A checkout still works as before.
+- Tests: tests/Installer.Tests.ps1 (17, all on temp folders). tests/Integration.Tests.ps1 setup step now uses Initialize-Data + Scheduler + Daily scan in a copy, because the real installer needs administrator rights.
+- README quick start/where things go/migration/uninstall updated.
+- NOT verified here (needs you): a real elevated install to Program Files, the real ACL on %ProgramData%, UAC relaunch with -Elevate, the real migration of your data, -Rollback against real tasks, and the uninstall helper deleting the program folder.
+- Gate: npm run check PASS (115); lint:ps clean; Pester one file per process PASS (16 files incl. Installer, Integration).
+
 ## Questions for morning
 
 ## Still open
