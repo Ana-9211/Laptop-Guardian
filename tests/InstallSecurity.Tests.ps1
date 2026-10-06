@@ -38,6 +38,35 @@ Describe 'Who may change files that administrator code runs from' {
     }
 }
 
+Describe 'Stock Windows permissions on the drive root do not make an install untrusted' {
+    # C:\ on a default Windows: Authenticated Users may create folders there (AD) and hold an inherit-only Modify rule for the children.
+    function New-DriveRootAcl {
+        $acl = New-Object Security.AccessControl.DirectorySecurity
+        $acl.SetOwner($global:systemSid); $acl.SetAccessRuleProtection($true, $false)
+        $auth = New-Object Security.Principal.SecurityIdentifier 'S-1-5-11'
+        $fs = [Security.AccessControl.FileSystemRights]; $inh = [Security.AccessControl.InheritanceFlags]; $pro = [Security.AccessControl.PropagationFlags]; $allow = [Security.AccessControl.AccessControlType]::Allow
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($global:adminSid, $fs::FullControl, ($inh::ContainerInherit -bor $inh::ObjectInherit), $pro::None, $allow)))
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($auth, $fs::Modify, ($inh::ContainerInherit -bor $inh::ObjectInherit), $pro::InheritOnly, $allow)))
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($auth, $fs::AppendData, $inh::None, $pro::None, $allow)))
+        $acl
+    }
+    It 'ignores an inherit-only rule, and a create-folder right, on a folder above the program folder' {
+        Mock -ModuleName $M Get-PathAcl { & $global:T_Acl }
+        $global:T_Acl = { New-DriveRootAcl }
+        @(Get-UntrustedWriters -Path 'C:\' -Ancestor).Count | Should Be 0
+    }
+    It 'still reports the same create-folder right on the program folder itself' {
+        Mock -ModuleName $M Get-PathAcl { & $global:T_Acl }
+        $global:T_Acl = { New-DriveRootAcl }
+        (@(Get-UntrustedWriters -Path 'C:\Program Files\LaptopGuardian') -join ' ') | Should Match 'S-1-5-11'
+    }
+    It 'still reports a parent folder where ordinary users can delete or replace what is inside' {
+        Mock -ModuleName $M Get-PathAcl { & $global:T_Acl }
+        $global:T_Acl = { New-FakeAcl $global:adminSid @((E $global:adminSid 'FullControl'), (E $global:usersSid 'Modify')) }
+        (@(Get-UntrustedWriters -Path 'C:\Program Files' -Ancestor) -join ' ') | Should Match 'S-1-5-32-545'
+    }
+}
+
 Describe 'Administrator code runs only from a trusted installed copy' {
     function New-FakeProgramDir {
         $d = Join-Path $env:TEMP ('lg-trust-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
