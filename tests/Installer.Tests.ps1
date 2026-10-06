@@ -213,3 +213,89 @@ Describe 'Installer script: plan-only mode' {
         $out | Should Match 'not an absolute path'
     }
 }
+
+Describe 'Installer: pre-install check (-Check)' {
+    function Set-HealthyMachine {
+        Mock -ModuleName Installer Get-NodeVersionText { '24.11.0' }
+        Mock -ModuleName Installer Get-FreeBytesOf { 50GB }
+        Mock -ModuleName Installer Test-PortListening { $false }
+        Mock -ModuleName Installer Test-CurrentUserCanWrite { $true }
+        Mock -ModuleName Installer Get-ExistingGuardianTasks { @() }
+    }
+    function Find-Check($list, $id) { @($list | Where-Object { $_.id -eq $id })[0] }
+    It 'a healthy machine has no fail and no warning, and reports the tasks it will create' {
+        $s = New-FakeSource; $t = New-TempDir 'chk'
+        try {
+            Set-HealthyMachine
+            $l = Get-InstallLayout -ProgramDir "$t\prog" -DataDir "$t\data" -ElevatedDir "$t\elev"
+            $r = @(Get-InstallCheck -Layout $l -SourceRoot $s)
+            @($r | Where-Object { $_.status -in 'fail', 'warn' }).Count | Should Be 0
+            (Find-Check $r 'node').status | Should Be 'ok'
+            (Find-Check $r 'tasks').status | Should Be 'info'
+            (Find-Check $r 'legacy').detail | Should Match 'backup zip'
+            @(Get-ChildItem $t).Count | Should Be 0
+        } finally { Remove-Item $s, $t -Recurse -Force }
+    }
+    It 'fails for a missing or old Node.js and for too little free space, and warns about a busy port' {
+        $s = New-FakeSource; $t = New-TempDir 'chk2'
+        try {
+            Set-HealthyMachine
+            $l = Get-InstallLayout -ProgramDir "$t\prog" -DataDir "$t\data" -ElevatedDir "$t\elev"
+            Mock -ModuleName Installer Get-NodeVersionText { $null }
+            (Find-Check @(Get-InstallCheck -Layout $l -SourceRoot $s) 'node').status | Should Be 'fail'
+            Mock -ModuleName Installer Get-NodeVersionText { '20.11.0' }
+            (Find-Check @(Get-InstallCheck -Layout $l -SourceRoot $s) 'node').detail | Should Match 'required'
+            Mock -ModuleName Installer Get-NodeVersionText { '22.1.0' }
+            Mock -ModuleName Installer Get-FreeBytesOf { 100MB }
+            (Find-Check @(Get-InstallCheck -Layout $l -SourceRoot $s) 'disk-program').status | Should Be 'fail'
+            Mock -ModuleName Installer Get-FreeBytesOf { 1GB }
+            (Find-Check @(Get-InstallCheck -Layout $l -SourceRoot $s) 'disk-data').status | Should Be 'warn'
+            Mock -ModuleName Installer Get-FreeBytesOf { 50GB }
+            Mock -ModuleName Installer Test-PortListening { param($Port) $Port -eq 7878 }
+            $r = @(Get-InstallCheck -Layout $l -SourceRoot $s)
+            (Find-Check $r 'port-7878').status | Should Be 'warn'; (Find-Check $r 'port-7879').status | Should Be 'ok'
+        } finally { Remove-Item $s, $t -Recurse -Force }
+    }
+    It 'warns when the program or administrators folder cannot be written, fails when the data folder cannot, and notes it is not elevated' {
+        $s = New-FakeSource; $t = New-TempDir 'chk3'
+        try {
+            Set-HealthyMachine
+            $l = Get-InstallLayout -ProgramDir "$t\prog" -DataDir "$t\data" -ElevatedDir "$t\elev"
+            Mock -ModuleName Installer Test-CurrentUserCanWrite { param($Path) $Path -like '*\data' }
+            $r = @(Get-InstallCheck -Layout $l -SourceRoot $s)
+            (Find-Check $r 'write-program').status | Should Be 'warn'; (Find-Check $r 'write-administrators').status | Should Be 'warn'; (Find-Check $r 'write-data').status | Should Be 'ok'
+            Mock -ModuleName Installer Test-CurrentUserCanWrite { $false }
+            (Find-Check @(Get-InstallCheck -Layout $l -SourceRoot $s) 'write-data').status | Should Be 'fail'
+        } finally { Remove-Item $s, $t -Recurse -Force }
+    }
+    It 'lists existing tasks with where they point, flags interrupted-update leftovers and an existing installed copy' {
+        $s = New-FakeSource; $t = New-TempDir 'chk4'
+        try {
+            Set-HealthyMachine
+            $l = Get-InstallLayout -ProgramDir "$t\prog" -DataDir "$t\data" -ElevatedDir "$t\elev"
+            $global:T_Dir = $t; New-Item -ItemType Directory -Path "$t\prog", "$t\prog.new" | Out-Null; Set-Content "$t\prog\install.json" '{}'
+            Mock -ModuleName Installer Get-ExistingGuardianTasks { @([pscustomobject]@{ name = 'Daily Audit'; state = 'Ready'; runLevel = 'Highest'; command = 'powershell.exe -File "C:\old\Daily.ps1"' }, [pscustomobject]@{ name = 'Weekly Deep Analysis'; state = 'Ready'; runLevel = 'Highest'; command = "powershell.exe -File `"$($global:T_Dir)\prog\src\powershell\Weekly.ps1`"" }) }
+            $r = @(Get-InstallCheck -Layout $l -SourceRoot $s)
+            (Find-Check $r 'task-Daily Audit').detail | Should Match 're-register'; (Find-Check $r 'task-Daily Audit').status | Should Be 'info'
+            (Find-Check $r 'task-Weekly Deep Analysis').status | Should Be 'ok'
+            (Find-Check $r 'staging').status | Should Be 'warn'; (Find-Check $r 'previous-install').status | Should Be 'info'
+        } finally { Remove-Item $s, $t -Recurse -Force }
+    }
+    It 'the real wrappers only read: free space, ports and permissions of an existing folder' {
+        $t = New-TempDir 'chk5'
+        try {
+            (Get-FreeBytesOf -Path "$t\not\yet") | Should BeGreaterThan 1MB
+            (Test-CurrentUserCanWrite -Path "$t\not\yet") | Should Be $true
+            (Test-CurrentUserCanWrite -Path (Join-Path $env:SystemRoot 'System32\drivers\etc\nothere')) | Should Be $false
+            @(Get-ChildItem $t).Count | Should Be 0
+        } finally { Remove-Item $t -Recurse -Force }
+    }
+    It 'Install-LaptopGuardian.ps1 -Check prints the report and creates nothing on temp folders' {
+        $t = New-TempDir 'chk6'
+        try {
+            $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'Install-LaptopGuardian.ps1') -Check -ProgramDir "$t\prog" -DataDir "$t\data" -ElevatedDir "$t\elev" 2>&1 | Out-String
+            $out | Should Match 'nothing is changed'; $out | Should Match 'Node.js'; $out | Should Match 'Port 7878'
+            @(Get-ChildItem $t).Count | Should Be 0
+        } finally { Remove-Item $t -Recurse -Force }
+    }
+}

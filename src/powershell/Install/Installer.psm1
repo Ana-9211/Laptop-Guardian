@@ -213,4 +213,78 @@ function Get-UninstallLeftovers {
     return @($left)
 }
 
-Export-ModuleMember -Function Get-InstallLayout, Get-ProgramFileList, Get-InstallPlan, Copy-ProgramFiles, Write-InstallInfo, Get-MigrationFiles, Invoke-DataMigration, Get-Migration, Get-RollbackPlan, Invoke-LegacyCleanup, Get-UninstallLeftovers
+# ---------- -Check: what the installer would meet on this machine (read only) ----------
+# Every look at Windows is a thin wrapper (mocked in the tests). Nothing here creates, writes or registers anything.
+function Get-NodeVersionText { $n = Get-Command node.exe -ErrorAction SilentlyContinue; if ($n) { [string]$n.Version } else { $null } }
+function Get-FreeBytesOf { param([string]$Path) $p = $Path; while ($p -and -not (Test-Path -LiteralPath $p)) { $p = Split-Path -Parent $p }; if (-not $p) { return $null }; $root = [IO.Path]::GetPathRoot((Resolve-Path -LiteralPath $p).Path); try { (New-Object IO.DriveInfo($root)).AvailableFreeSpace } catch { $null } }
+function Test-PortListening { param([int]$Port) @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0 }
+function Get-ExistingGuardianTasks { param([string]$TaskFolder) @(Get-ScheduledTask -TaskPath $TaskFolder -ErrorAction SilentlyContinue | ForEach-Object { $a = @($_.Actions)[0]; [pscustomobject]@{ name = [string]$_.TaskName; state = [string]$_.State; runLevel = [string]$_.Principal.RunLevel; command = $(if ($a) { ("$($a.Execute) $($a.Arguments)").Trim() } else { '' }) } }) }
+function Test-CurrentUserCanWrite {
+    <# Reads the folder's permissions (it does not try to write). The nearest existing parent is used for a folder that does not exist yet. #>
+    param([string]$Path)
+    $p = $Path; while ($p -and -not (Test-Path -LiteralPath $p)) { $p = Split-Path -Parent $p }
+    if (-not $p) { return $false }
+    try {
+        $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $sids = @($id.User.Value) + @($id.Groups | ForEach-Object { $_.Value })
+        $write = [Security.AccessControl.FileSystemRights]::CreateFiles -bor [Security.AccessControl.FileSystemRights]::WriteData
+        $allowed = $false; $denied = $false
+        foreach ($r in (Get-Acl -LiteralPath $p).Access) {
+            $sid = try { $r.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $null }
+            if (-not $sid -or $sids -notcontains $sid) { continue }
+            if (($r.FileSystemRights -band $write) -ne 0) { if ($r.AccessControlType -eq 'Allow') { $allowed = $true } else { $denied = $true } }
+        }
+        return ($allowed -and -not $denied)
+    } catch { return $false }
+}
+
+function Get-InstallCheck {
+    <# A list of { id; status (ok|warn|fail|info); title; detail } describing what the installer would meet. Changes nothing. #>
+    param([Parameter(Mandatory)]$Layout, [Parameter(Mandatory)][string]$SourceRoot, [string]$TaskFolder = '\LaptopGuardian\')
+    $out = New-Object System.Collections.ArrayList
+    $add = { param($Id, $Status, $Title, $Detail) [void]$out.Add([pscustomobject]@{ id = $Id; status = $Status; title = $Title; detail = $Detail }) }
+    # Node.js
+    $nv = Get-NodeVersionText
+    if (-not $nv) { & $add 'node' 'fail' 'Node.js' 'Node.js 22 or newer was not found. Install it from https://nodejs.org before installing.' }
+    elseif ([version]$nv -lt [version]'22.0') { & $add 'node' 'fail' 'Node.js' "Found $nv; Node.js 22 or newer is required." }
+    else { & $add 'node' 'ok' 'Node.js' "Found $nv." }
+    # free disk space (the program copy is small; data and logs grow)
+    foreach ($t in @(@('program', $Layout.programDir), @('data', $Layout.dataDir))) {
+        $free = Get-FreeBytesOf -Path $t[1]
+        if ($null -eq $free) { & $add "disk-$($t[0])" 'warn' "Free space for the $($t[0]) folder" "Could not read the free space for $($t[1])." }
+        elseif ($free -lt 500MB) { & $add "disk-$($t[0])" 'fail' "Free space for the $($t[0]) folder" "$([math]::Round($free / 1MB)) MB free on the drive of $($t[1]); at least 500 MB is needed." }
+        elseif ($free -lt 2GB) { & $add "disk-$($t[0])" 'warn' "Free space for the $($t[0]) folder" "$([math]::Round($free / 1GB, 1)) GB free on the drive of $($t[1]); it works, but data and logs grow." }
+        else { & $add "disk-$($t[0])" 'ok' "Free space for the $($t[0]) folder" "$([math]::Round($free / 1GB, 1)) GB free." }
+    }
+    # ports: 7878 is the installed copy, 7879 a development checkout
+    foreach ($port in 7878, 7879) {
+        if (Test-PortListening -Port $port) { & $add "port-$port" 'warn' "Port $port" "Something is already listening on $port$(if ($port -eq 7878) { ' (an installed Laptop Guardian dashboard, or another program)' } else { ' (a development copy of the dashboard, or another program)' }). A second dashboard on the same port will not start." }
+        else { & $add "port-$port" 'ok' "Port $port" 'Free.' }
+    }
+    # who may write where (read from the permissions, nothing is written)
+    $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    foreach ($t in @(@('program', $Layout.programDir, 'Installing here needs an administrator PowerShell (or -Elevate).'), @('administrators', $Layout.elevatedDir, 'Creating the administrators-only folder needs an administrator PowerShell (or -Elevate).'))) {
+        if (Test-CurrentUserCanWrite -Path $t[1]) { & $add "write-$($t[0])" 'ok' "Can write to the $($t[0]) folder location" "This account can create files under $($t[1])$(if ($admin) { ' (running as administrator)' } else { '' })." }
+        else { & $add "write-$($t[0])" 'warn' "Cannot write to the $($t[0]) folder location" "$($t[2]) ($($t[1]))" }
+    }
+    if (Test-CurrentUserCanWrite -Path $Layout.dataDir) { & $add 'write-data' 'ok' 'Can write to the data folder location' "This account can create files under $($Layout.dataDir)." } else { & $add 'write-data' 'fail' 'Cannot write to the data folder location' "$($Layout.dataDir) is not writable by this account." }
+    if (-not $admin) { & $add 'admin' 'info' 'Administrator rights' 'This window is not elevated. That is fine for -PlanOnly and -Check; the install itself needs -Elevate.' }
+    # scheduled tasks that already exist and where they point
+    $tasks = @(Get-ExistingGuardianTasks -TaskFolder $TaskFolder)
+    if (-not $tasks.Count) { & $add 'tasks' 'info' 'Scheduled tasks' "No Laptop Guardian tasks exist in $TaskFolder yet; the installer will register them." }
+    foreach ($tk in $tasks) {
+        $here = $tk.command.IndexOf($Layout.programDir, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        & $add "task-$($tk.name)" $(if ($here) { 'ok' } else { 'info' }) "Task: $($tk.name)" "State $($tk.state), rights $($tk.runLevel). Runs: $($tk.command)$(if (-not $here) { '  (not the planned program folder: the installer will re-register it)' })"
+    }
+    # leftovers of an earlier install
+    $prev = Join-Path $Layout.programDir 'install.json'
+    if (Test-Path -LiteralPath $prev) { & $add 'previous-install' 'info' 'Existing installed copy' "$($Layout.programDir) already holds an installed copy; the installer will update it and keep your data." }
+    foreach ($s in "$($Layout.programDir).new", "$($Layout.programDir).old") { if (Test-Path -LiteralPath $s) { & $add 'staging' 'warn' 'Leftover from an interrupted update' "$s exists. It is replaced on the next install; it can also be deleted by hand." } }
+    if (Test-Path -LiteralPath (Join-Path $Layout.dataDir 'migration.json')) { & $add 'migration' 'info' 'Earlier migration' "A migration was already done into $($Layout.dataDir); it will not be repeated." }
+    $legacy = @($script:MigrationDirs | Where-Object { Test-Path -LiteralPath (Join-Path $SourceRoot $_) })
+    if ($legacy.Count -and $SourceRoot.TrimEnd('\') -ine $Layout.programDir) { & $add 'legacy' 'info' 'Data in the folder you are installing from' "$SourceRoot has $($legacy -join ', '). The installer copies it (after a backup zip) and leaves the old folder alone." }
+    if (-not (Test-Path -LiteralPath (Join-Path $SourceRoot 'src\dashboard\dist\index.html'))) { & $add 'build' 'info' 'Dashboard build' 'The dashboard has not been built in this folder; the installer builds it (needs network access for npm ci).' }
+    return @($out)
+}
+
+Export-ModuleMember -Function Get-NodeVersionText, Get-FreeBytesOf, Test-PortListening, Get-ExistingGuardianTasks, Test-CurrentUserCanWrite, Get-InstallCheck, Get-InstallLayout, Get-ProgramFileList, Get-InstallPlan, Copy-ProgramFiles, Write-InstallInfo, Get-MigrationFiles, Invoke-DataMigration, Get-Migration, Get-RollbackPlan, Invoke-LegacyCleanup, Get-UninstallLeftovers
