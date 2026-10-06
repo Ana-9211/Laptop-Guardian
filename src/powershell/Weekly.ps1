@@ -15,6 +15,7 @@ Start-RunContext -RunType 'weekly'
 $started = Get-Date
 $runMode = if ($Scheduled) { 'scheduled' } else { 'manual' }
 $config = Get-GuardianConfig
+if (Use-QueuedFullRun -Kind weekly) { $Fast = [switch]$false; $SkipDefenderScan = [switch]$false }
 # Administrator runs only come from a trusted installed copy, and an elevated run never lets the user-editable config steer it.
 try { Assert-ElevatedCodeTrusted } catch { Write-Host $_.Exception.Message; exit 1 }
 if (Test-IsAdmin) { $config = Limit-ConfigForElevation -Config $config }

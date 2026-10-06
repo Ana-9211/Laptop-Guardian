@@ -22,7 +22,7 @@ const MAX_HISTORY = 500;
 const REQUIRED_ACKS = {
   'process.stop': ['unsaved-work'], 'app.revo-launch': ['unsaved-work'], 'service.disable': ['dependent-programs'],
   'firewall.block-program': ['connectivity'], 'firewall.block-port': ['connectivity'], 'firewall.block-remote': ['connectivity'], 'dns.block-domain': ['dns-limits'],
-  'firewall.allow-program': ['allow-exposure'],
+  'firewall.allow-program': ['allow-exposure'], 'service.stop': ['dependent-programs'],
 };
 
 const byId = new Map(CATALOG.actions.map((a) => [a.id, a]));
@@ -63,6 +63,7 @@ function describeAction(spec, params) {
 
 function createRemediation(deps) {
   const { root, ps, log, tailJsonl, readJson, config, applySchedule } = deps;
+  const cleanupRoots = () => (deps.cleanupRoots ? deps.cleanupRoots() : []);
   const now = deps.now || Date.now;
   // An installed copy keeps elevated results in an administrators-only folder; a checkout keeps them under the data folder.
   const resultsDir = deps.resultsDir || path.join(root, 'data', 'state', 'action-results');
@@ -79,13 +80,17 @@ function createRemediation(deps) {
       const c = protectedTargets.checkProcess({ name: params.name, pid: Number(params.pid), path: params.path, guardianRoot: guardianRoot() });
       if (c.protected) return `Protected: ${c.reason}. Guardian will never stop this process, even with confirmation.`;
     }
-    if (spec.id === 'service.disable' || spec.id === 'service.enable') {
+    if (spec.id === 'service.disable' || spec.id === 'service.enable' || spec.id === 'service.stop' || spec.id === 'service.start') {
       const c = protectedTargets.checkService(params.name);
       if (c.protected) return `Protected: ${c.reason}. Guardian will never change it.`;
     }
     if (spec.id === 'file.recycle') {
       const c = protectedTargets.checkPath(params.path, { protectedDirs: protectedDirs(), guardianRoot: guardianRoot() });
       if (c.protected) return `Protected path: ${c.reason}.`;
+    }
+    if (spec.id === 'file.delete-permanent') {
+      const c = protectedTargets.checkPermanentDeletePath(params.path, { protectedDirs: protectedDirs(), guardianRoot: guardianRoot(), cleanupRoots: cleanupRoots() });
+      if (c.protected) return `Not allowed: ${c.reason}.`;
     }
     if ((spec.id === 'task.disable' || spec.id === 'task.enable') && /^\\(Microsoft|LaptopGuardian)(\\|$)/i.test(params.taskPath)) return 'Protected: Windows and Laptop Guardian scheduled tasks are never changed by Guardian.';
     const net = netguard.staticRefusal(spec.id, params, { ...(deps.netCtx ? deps.netCtx() : {}), guardianRoot: guardianRoot() });
@@ -118,7 +123,18 @@ function createRemediation(deps) {
 
     let adminRequired = spec.admin === true; let identityKey = ''; let details = null; let liveWarnings = []; let extraAcks = [];
     if (spec.handler === 'bridge') {
-      if (spec.id === 'schedule.repair') {
+      if (spec.id === 'scan.run-now') {
+        const run = deps.currentRun ? deps.currentRun() : {};
+        if (run.running) throw refuse(spec, params, [`A ${run.running.type} run is already in progress.`], 409);
+      } else if (spec.id === 'setup.enable-safe-defaults') {
+        if (config().safety.safeMode) throw refuse(spec, params, ['Safe Mode is already on.'], 409);
+      } else if (spec.id === 'scan.queue-next-run') {
+        const q = deps.queuedRun ? deps.queuedRun() : null;
+        if (q) throw refuse(spec, params, [`A full ${q.kind} run is already queued (since ${q.queuedAt}).`], 409);
+      } else if (spec.id === 'setup.register-tasks') {
+        const tasks = deps.assessedTasks ? deps.assessedTasks() : [];
+        if (tasks.length && !tasks.some((t) => t.status === 'missing' || (t.repair && t.repair.needed))) throw refuse(spec, params, ['Every Guardian task is already registered and matches Settings.'], 409);
+      } else if (spec.id === 'schedule.repair') {
         const tasks = deps.assessedTasks ? deps.assessedTasks() : [];
         const need = tasks.filter((t) => t.repair && t.repair.needed);
         if (!need.length) throw refuse(spec, params, ['Every scheduled task already matches Settings; nothing to repair.'], 409);
@@ -134,13 +150,14 @@ function createRemediation(deps) {
       liveWarnings = Array.isArray(d.warnings) ? d.warnings.map(String) : [];
     }
     const token = crypto.randomBytes(16).toString('hex');
-    const record = { token, actionId, params, identityKey, adminRequired, details, extraAcks, expires: now() + PLAN_TTL_MS, used: false, createdAt: now() };
+    const typedConfirmation = spec.typedConfirm ? path.win32.basename(String(params.path || '')) : null;
+    const record = { token, actionId, params, identityKey, adminRequired, details, extraAcks, typedConfirmation, expires: now() + PLAN_TTL_MS, used: false, createdAt: now() };
     plans.set(token, record);
     const base = describeAction(spec, params);
     if (spec.id === 'schedule.repair') base.summary = `Re-registers Guardian's Daily, Weekly and Dashboard scheduled tasks from your Settings${adminRequired ? ' with administrator permission (Windows will ask)' : ''}. It never downgrades an elevated task.`;
     return {
       ...base, requiredAcks: [...(base.requiredAcks || []), ...extraAcks], token, ok: true, admin: adminRequired ? 'yes' : 'no', adminRequired, identityKey, details, warnings: liveWarnings,
-      expiresAt: new Date(record.expires).toISOString(), confirmLabel: adminRequired ? 'Continue to Windows prompt' : base.label,
+      typedConfirmation, expiresAt: new Date(record.expires).toISOString(), confirmLabel: adminRequired ? 'Continue to Windows prompt' : base.label,
     };
   }
 
@@ -154,7 +171,7 @@ function createRemediation(deps) {
   }
 
   /** Step 2: execute exactly the plan the user confirmed. Single use. */
-  async function execute(token, { confirm, acknowledged = [] } = {}) {
+  async function execute(token, { confirm, acknowledged = [], typed } = {}) {
     sweep();
     if (confirm !== true) throw new RemediationError(400, 'confirm:true is required');
     if (typeof token !== 'string' || !TICKET_RE.test(token)) throw new RemediationError(400, 'invalid plan token');
@@ -164,6 +181,7 @@ function createRemediation(deps) {
     const need = [...(REQUIRED_ACKS[p.actionId] || []), ...(p.extraAcks || [])];
     const missing = need.filter((a) => !Array.isArray(acknowledged) || !acknowledged.includes(a));
     if (missing.length) throw new RemediationError(400, `You must acknowledge: ${missing.join(', ')}`);
+    if (p.typedConfirmation && typed !== p.typedConfirmation) throw new RemediationError(400, 'Type the file name exactly as shown to confirm this permanent deletion.');
     p.used = true; plans.delete(token);
 
     if (spec.handler === 'bridge') return runBridgeAction(spec, p);
@@ -198,6 +216,32 @@ function createRemediation(deps) {
       log({ category: 'remediation', action: 'remediation:schedule.repair', target: 'LaptopGuardian tasks', result: ok ? 'success' : 'failure', severity: ok ? 'info' : 'warning', reason: r.message || null, actor: 'user', data: { verified: false, elevated: p.adminRequired, report: r.report } });
       if (r.elevationRequested) return { status: 'awaiting-schedule-permission', message: r.message, actionId: spec.id };
       return { status: r.registered && !r.needsElevation ? 'done' : 'failed', result: { ok, message: r.message, verified: false, details: { report: r.report } }, actionId: spec.id };
+    }
+    const finish = (ok, message, verified, extra = {}) => {
+      log({ category: 'remediation', action: `remediation:${spec.id}`, target: JSON.stringify(p.params).slice(0, 200), result: ok ? 'success' : 'failure', severity: ok ? 'info' : 'warning', reason: message || null, actor: 'user', data: { verified: !!verified, elevated: false, ...(extra.undo ? { undo: extra.undo } : {}) } });
+      return { status: ok ? (verified ? 'done' : 'done-unverified') : 'failed', result: { ok, message, verified: !!verified, details: extra.details || null, undo: extra.undo || null, errors: ok ? [] : [message] }, actionId: spec.id };
+    };
+    if (spec.id === 'scan.run-now') {
+      const kind = p.params.kind;
+      try { deps.launchScan(kind === 'weekly' ? 'Weekly' : 'Daily', kind === 'weekly' ? ['-NoShutdown'] : []); } catch (e) { return finish(false, e.message, false); }
+      let seen = false;
+      for (let i = 0; i < 20 && !seen; i++) { await (deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))))(500); const run = deps.currentRun ? deps.currentRun() : {}; seen = !!(run && run.running); }
+      return finish(true, seen ? `The ${kind} scan is running. The dashboard follows it and shows the new report when it finishes.` : `The ${kind} scan was started but has not reported as running yet. Watch the scan banner.`, seen);
+    }
+    if (spec.id === 'scan.queue-next-run') {
+      const q = deps.queueNextRun(p.params.kind);
+      const back = deps.queuedRun ? deps.queuedRun() : null;
+      return finish(!!q, q ? `The next scheduled ${q.kind} run will be a full run.` : 'Could not queue the run.', !!(back && q && back.kind === q.kind), { details: { queued: q } });
+    }
+    if (spec.id === 'setup.enable-safe-defaults') {
+      deps.setSafeMode(true);
+      const on = !!config().safety.safeMode;
+      return finish(on, on ? 'Safe Mode is on.' : 'Safe Mode could not be turned on.', on);
+    }
+    if (spec.id === 'setup.register-tasks') {
+      const r = await applySchedule({ elevate: false });
+      if (r.needsElevation) return finish(false, 'Some Guardian tasks run with administrator rights, so Windows has to ask. Use "Repair schedule" for those.', false);
+      return finish(!!r.registered, r.message || (r.registered ? 'Tasks registered.' : 'Task registration failed.'), !!r.registered, { details: { report: r.report } });
     }
     throw new RemediationError(500, 'No handler for this action.');
   }
