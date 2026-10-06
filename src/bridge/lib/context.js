@@ -10,7 +10,7 @@ const U = require('./util');
 const S = require('./status');
 const { makeRunner } = require('./ps');
 const { SCHED_CACHE_MS, SCHED_WAITING_MS, SCHED_READ_RETRIES, ELEVATION_WAIT_MS, ELEVATION_TIMEOUT_MS, RE_DAILY, RE_WEEKLY } = require('./constants');
-const { need } = require('./http');
+const { HttpError, need } = require('./http');
 
 function createContext(root, opts = {}) {
   // `root` holds config, data, reports and logs. `codeRoot` holds the program files (the same folder in a development checkout and in tests).
@@ -27,6 +27,7 @@ function createContext(root, opts = {}) {
     bridgePid: path.join(root, 'data', 'state', 'bridge.json'),
     aiUsage: path.join(root, 'data', 'state', 'ai-usage.jsonl'),
     ignoredFiles: path.join(root, 'data', 'state', 'ignored-files.json'),
+    queuedRun: path.join(root, 'data', 'state', 'queued-run.json'),
     latest: (n) => path.join(root, 'data', 'latest', n),
     key: path.join(root, 'data', 'secrets', 'gemini.dpapi'),
     reports: path.join(root, 'reports'),
@@ -223,6 +224,36 @@ function createContext(root, opts = {}) {
     } finally { schedApplying = false; }
   }
 
+  /** Starts a Daily or Weekly run in the background. Refuses while another run is in progress. A weekly run started here is passed -NoShutdown by the caller. */
+  const launchScan = (kind, args) => {
+    const st = currentRun();
+    need(!st.running, `a ${st.running?.type} run is already in progress`, 409);
+    const r = ps.launch(`${kind}.ps1`, args);
+    if (r.missing) throw new HttpError(501, r.error);
+    log({ category: 'scan', action: `${kind.toLowerCase()}.start`, result: 'started', reason: 'user requested from dashboard' });
+    return { started: true };
+  };
+
+  /** A "make the next scheduled run a full one" marker. Daily.ps1 and Weekly.ps1 read it when they start and remove it. */
+  const queuedRun = () => { const q = U.readJson(P.queuedRun, null); return q && (q.kind === 'daily' || q.kind === 'weekly') ? q : null; };
+  function queueNextRun(kind) {
+    let target = kind;
+    if (kind === 'nearest') {
+      const c = config();
+      const d = c.schedule.daily.enabled ? U.nextRun(c.schedule.daily.time) : null;
+      const w = c.schedule.weekly.enabled ? U.nextRun(c.schedule.weekly.time, c.schedule.weekly.day) : null;
+      target = d && w ? (Date.parse(d) <= Date.parse(w) ? 'daily' : 'weekly') : d ? 'daily' : w ? 'weekly' : null;
+      need(target, 'Neither the daily nor the weekly run is switched on in Settings, so there is no next run to queue.', 409);
+    }
+    const q = { kind: target, full: true, queuedAt: U.localIso() };
+    U.writeJsonAtomic(P.queuedRun, q);
+    return q;
+  }
+  function setSafeMode(on) {
+    U.withFileLock(P.config, () => { const c = config(); c.safety.safeMode = !!on; U.writeJsonAtomic(P.config, c); });
+    log({ category: 'config', action: 'config.update', target: 'safety.safeMode', reason: `Safe Mode turned ${on ? 'on' : 'off'} (setup action)` });
+  }
+
   /** Runs a synchronous handler while holding the shared lock for `file`, so a read-modify-write is not interleaved with the agents. */
   function locked(file, handler) { return (args) => U.withFileLock(file, () => handler(args)); }
 
@@ -230,7 +261,7 @@ function createContext(root, opts = {}) {
   function shutdownArmed(c) { return !!(c.schedule.weekly.enabled && c.schedule.weekly.shutdownEnabled && c.safety.weeklyShutdown && !c.safety.automationPaused); }
   const cachedTasks = () => (schedCache && schedCache.tasks) || [];
 
-  return { root, codeRoot, elevatedDir, guardianRoots, opts, P, ps, tailActions, config, policy, log, need, str, listReports, reportDir, loadRecs, filterMetrics, aiStatus, csvEscape, flatten, route, routes, locked, shutdownArmed, dirCount, startedAt, token, tokenOk, codeMtime, restartNeeded, currentRun, cachedJson, storeTasks, queryTasks, getTasks, cachedTasks, elevationPending, applySchedule, state };
+  return { launchScan, queuedRun, queueNextRun, setSafeMode, root, codeRoot, elevatedDir, guardianRoots, opts, P, ps, tailActions, config, policy, log, need, str, listReports, reportDir, loadRecs, filterMetrics, aiStatus, csvEscape, flatten, route, routes, locked, shutdownArmed, dirCount, startedAt, token, tokenOk, codeMtime, restartNeeded, currentRun, cachedJson, storeTasks, queryTasks, getTasks, cachedTasks, elevationPending, applySchedule, state };
 }
 
 module.exports = { createContext };

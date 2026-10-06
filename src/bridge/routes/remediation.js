@@ -1,5 +1,6 @@
 'use strict';
 /** Action Center: findings, plan, execute, undo, history. */
+const path = require('path');
 const U = require('../lib/util');
 const S = require('../lib/status');
 const R = require('../lib/remediation');
@@ -7,10 +8,12 @@ const F = require('../lib/findings');
 const { HttpError } = require('../lib/http');
 
 module.exports = function registerRemediationRoutes(ctx) {
-  const { root, guardianRoots, P, ps, tailActions, config, log, str, loadRecs, route, cachedTasks, applySchedule, netStore, netCtx, computeNetFindings } = ctx;
+  const { root, guardianRoots, P, ps, tailActions, config, log, str, loadRecs, route, cachedTasks, applySchedule, netStore, netCtx, computeNetFindings, currentRun, launchScan, queuedRun, queueNextRun, setSafeMode } = ctx;
   const remediation = R.createRemediation({
     root, ps, log, tailJsonl: () => tailActions(5000), resultsDir: P.elevatedResults || undefined, guardianRoot: guardianRoots, readJson: U.readJson, config, applySchedule, netCtx,
     assessedTasks: () => S.assessTasks(cachedTasks(), config()),
+    currentRun, launchScan, queuedRun, queueNextRun, setSafeMode,
+    cleanupRoots: () => (process.env.LOCALAPPDATA ? ['Temp', 'CrashDumps', 'Microsoft\\Windows\\WER\\ReportArchive', 'Microsoft\\Windows\\WER\\ReportQueue', 'Microsoft\\Windows\\INetCache', 'D3DSCache'].map((d) => path.join(process.env.LOCALAPPDATA, d)) : []),
   });
   ctx.remediation = remediation;
   const remed = async (fn) => { try { return await fn(); } catch (e) { if (e instanceof R.RemediationError) { const h = new HttpError(e.status, e.message); h.errors = e.errors; throw h; } throw e; } };
@@ -47,7 +50,7 @@ module.exports = function registerRemediationRoutes(ctx) {
   });
   route('POST', '/api/remediation/plan', ({ body }) => remed(() => remediation.plan(str(body.actionId, 'actionId', 80), body.params || {})));
   route('POST', '/api/remediation/cancel', ({ body }) => remediation.cancel(str(body.token, 'token', 64)));
-  route('POST', '/api/remediation/execute', ({ body }) => remed(() => remediation.execute(body.token, { confirm: body.confirm, acknowledged: body.acknowledged })));
+  route('POST', '/api/remediation/execute', ({ body }) => remed(() => remediation.execute(body.token, { confirm: body.confirm, acknowledged: body.acknowledged, typed: body.typed })));
   route('GET', '/api/remediation/result/:ticket', ({ params }) => remed(async () => remediation.result(params.ticket)));
   route('GET', '/api/remediation/history', ({ query }) => ({ items: remediation.history(Math.min(Math.max(parseInt(query.get('limit') || '100', 10) || 100, 1), 500)) }));
   route('POST', '/api/remediation/undo', ({ body }) => remed(() => remediation.undo(str(body.eventId, 'eventId', 80))));

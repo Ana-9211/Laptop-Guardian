@@ -30,6 +30,19 @@ function Get-RemediationHandler {
         'dns.rollback' { return @{ V = { param($p) Test-DnsRollback }; E = { param($p, $v) Invoke-DnsRollback } } }
         'deep.dnslog-enable' { return @{ V = { param($p) Test-DnsLogChange $true }; E = { param($p, $v) Invoke-DnsLogChange $true } } }
         'deep.dnslog-disable' { return @{ V = { param($p) Test-DnsLogChange $false }; E = { param($p, $v) Invoke-DnsLogChange $false } } }
+        'defender.enable-realtime' { return @{ V = { param($p) Test-DefenderRealtime }; E = { param($p, $v) Invoke-DefenderRealtime } } }
+        'system.run-windows-update-scan' { return @{ V = { param($p) Test-WindowsUpdateScan }; E = { param($p, $v) Invoke-WindowsUpdateScan } } }
+        'system.open-settings' { return @{ V = { param($p) Test-OpenSettings $p }; E = { param($p, $v) Invoke-OpenSettings $p } } }
+        'service.stop' { return @{ V = { param($p) Test-ServiceRun $p $false }; E = { param($p, $v) Invoke-ServiceRun $p $v $false } } }
+        'service.start' { return @{ V = { param($p) Test-ServiceRun $p $true }; E = { param($p, $v) Invoke-ServiceRun $p $v $true } } }
+        'storage.clean-temp' { return @{ V = { param($p) Test-CleanTemp $p }; E = { param($p, $v) Invoke-CleanTemp $p $v } } }
+        'cleanup.empty-recycle-bin' { return @{ V = { param($p) Test-EmptyRecycleBin }; E = { param($p, $v) Invoke-EmptyRecycleBin } } }
+        'file.delete-permanent' { return @{ V = { param($p) Test-FilePermanentDelete $p }; E = { param($p, $v) Invoke-FilePermanentDelete $p $v } } }
+        'scan.schedule-once' { return @{ V = { param($p) Test-ScanScheduleOnce $p }; E = { param($p, $v) Invoke-ScanScheduleOnce $p $v } } }
+        'scan.cancel-once' { return @{ V = { param($p) Test-ScanCancelOnce $p }; E = { param($p, $v) Invoke-ScanCancelOnce $p } } }
+        'setup.enable-dns-log' { return @{ V = { param($p) Test-DnsLogChange $true }; E = { param($p, $v) Invoke-DnsLogChange $true } } }
+        'setup.enable-firewall-audit' { return @{ V = { param($p) Test-FirewallAuditChange $true }; E = { param($p, $v) Invoke-FirewallAuditChange $true } } }
+        'setup.disable-firewall-audit' { return @{ V = { param($p) Test-FirewallAuditChange $false }; E = { param($p, $v) Invoke-FirewallAuditChange $false } } }
         'app.verify-removed' { return @{ V = { param($p) Test-AppVerify $p }; E = { param($p, $v) Invoke-AppVerify $p } } }
         default { return $null }
     }

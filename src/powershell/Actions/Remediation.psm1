@@ -23,6 +23,9 @@ $script:RevoShortcut = 'C:\Users\Public\Desktop\Revo Uninstaller.lnk'
 . (Join-Path $PSScriptRoot 'Remediation\Defender.ps1')
 . (Join-Path $PSScriptRoot 'Remediation\Firewall.ps1')
 . (Join-Path $PSScriptRoot 'Remediation\Dns.ps1')
+. (Join-Path $PSScriptRoot 'Remediation\System.ps1')
+. (Join-Path $PSScriptRoot 'Remediation\Cleanup.ps1')
+. (Join-Path $PSScriptRoot 'Remediation\Scans.ps1')
 . (Join-Path $PSScriptRoot 'Remediation\Dispatch.ps1')
 
 Export-ModuleMember -Function Get-ActionCatalog, Get-ActionSpec, Test-ActionParams, Invoke-GuardianRemediation, Get-InstalledPrograms, Get-RevoInfo

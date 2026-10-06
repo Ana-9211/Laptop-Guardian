@@ -1,19 +1,10 @@
 'use strict';
 /** Run a scan now and change the schedule. */
 const U = require('../lib/util');
-const { HttpError } = require('../lib/http');
 
 module.exports = function registerScheduleRoutes(ctx) {
-  const { P, ps, config, log, need, route, currentRun, applySchedule } = ctx;
+  const { P, config, log, need, route, applySchedule, launchScan } = ctx;
   // ---- scan / schedule ----
-  const launchScan = (kind, args) => {
-    const st = currentRun();
-    need(!st.running, `a ${st.running?.type} run is already in progress`, 409);
-    const r = ps.launch(`${kind}.ps1`, args);
-    if (r.missing) throw new HttpError(501, r.error);
-    log({ category: 'scan', action: `${kind.toLowerCase()}.start`, result: 'started', reason: 'user requested from dashboard' });
-    return { started: true };
-  };
   route('POST', '/api/scan/daily', () => launchScan('Daily', []));
   route('POST', '/api/scan/weekly', () => launchScan('Weekly', ['-NoShutdown']));
 

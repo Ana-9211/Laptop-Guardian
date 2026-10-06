@@ -67,4 +67,22 @@ function checkPath(p, { protectedDirs = [], guardianRoot } = {}) {
   return { protected: false, reason: null };
 }
 
-module.exports = { CORE_WINDOWS_NAMES, PROCESS_NAMES, SERVICE_NAMES, checkProcess, checkService, checkPath, pathPrefixes };
+/**
+ * Where a permanent delete may happen: a file already in the Recycle Bin of its drive, or a file inside a cleanup location
+ * (user temp, crash dumps, caches). Anything else, and anything protected, is refused. PowerShell checks the same rules again.
+ */
+function checkPermanentDeletePath(p, { protectedDirs = [], guardianRoot, cleanupRoots = [] } = {}) {
+  if (!p || typeof p !== 'string' || !/^[A-Za-z]:\\/.test(p) || /[*?]/.test(p)) return { protected: true, reason: 'only absolute local paths without wildcards are accepted', location: null };
+  const full = path.win32.resolve(p).replace(/\\+$/, '');
+  const bin = `${full.slice(0, 2)}\\$Recycle.Bin\\`;
+  if (lower(full).startsWith(lower(bin)) && full.length > bin.length) {
+    for (const g of rootsOf(guardianRoot)) { if (lower(full).startsWith(`${lower(g)}\\`)) return { protected: true, reason: 'Laptop Guardian\'s own files', location: null }; }
+    return { protected: false, reason: null, location: 'recycle-bin' };
+  }
+  const root = cleanupRoots.find((r) => r && lower(full).startsWith(`${lower(String(r).replace(/\\+$/, ''))}\\`));
+  if (!root) return { protected: true, reason: 'permanent deletion is limited to files in the Recycle Bin and in temp, crash-dump and cache locations', location: null };
+  const c = checkPath(p, { protectedDirs, guardianRoot });
+  return c.protected ? { ...c, location: null } : { protected: false, reason: null, location: 'cleanup' };
+}
+
+module.exports = { checkPermanentDeletePath, CORE_WINDOWS_NAMES, PROCESS_NAMES, SERVICE_NAMES, checkProcess, checkService, checkPath, pathPrefixes };

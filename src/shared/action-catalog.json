@@ -16,7 +16,9 @@
     "ruleName": "^LG-[0-9]{6,12}-[0-9a-f]{6}$",
     "port": "^[0-9]{1,5}$",
     "remote": "^[0-9A-Fa-f:.]{2,45}(/[0-9]{1,3})?$",
-    "domain": "^[A-Za-z0-9.-]{4,253}$"
+    "domain": "^[A-Za-z0-9.-]{4,253}$",
+    "onceTaskName": "^Guardian one-time (daily|weekly) scan [0-9]{8}-[0-9]{4}$",
+    "isoLocal": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$"
   },
   "actions": [
     {
@@ -45,7 +47,8 @@
       },
       "summary": "Asks Windows to end process {name} (PID {pid}). Guardian first re-checks that this PID is still the same program, started at the same time, from the same path.",
       "consequences": "Unsaved work in that program is lost. If a startup entry, scheduled task or service relaunches it, it comes back; use Disable restart to stop that.",
-      "undo": "Not reversible. Start the program again yourself if you need it."
+      "undo": "Not reversible. Start the program again yourself if you need it.",
+      "verify": "Reads the process list back: the same process id and start time must be gone."
     },
     {
       "id": "startup.disable",
@@ -71,7 +74,8 @@
       },
       "summary": "Turns off the startup entry '{name}' at {location} using Windows' own startup-approval flag (the same switch as Settings > Apps > Startup). Nothing is deleted.",
       "consequences": "The program stops starting automatically at sign-in. It stays installed and you can still start it by hand.",
-      "undo": "Use Re-enable restart on the Action Center history, or switch it back on in Settings > Apps > Startup."
+      "undo": "Use Re-enable restart on the Action Center history, or switch it back on in Settings > Apps > Startup.",
+      "verify": "Reads the startup entry back: it must be marked disabled."
     },
     {
       "id": "startup.enable",
@@ -97,7 +101,8 @@
       },
       "summary": "Turns the startup entry '{name}' at {location} back on (clears its disabled flag).",
       "consequences": "The program starts automatically at the next sign-in again.",
-      "undo": "Disable restart again."
+      "undo": "Disable restart again.",
+      "verify": "Reads the startup entry back: it must be marked enabled."
     },
     {
       "id": "task.disable",
@@ -117,7 +122,8 @@
       },
       "summary": "Disables the scheduled task {taskPath}{taskName} in Task Scheduler. The task definition is kept.",
       "consequences": "The task no longer runs on its schedule or triggers. Whatever it maintained (updates, sync) stops until you re-enable it.",
-      "undo": "Re-enable scheduled task from the Action Center history, or in Task Scheduler."
+      "undo": "Re-enable scheduled task from the Action Center history, or in Task Scheduler.",
+      "verify": "Reads the scheduled task back: its state must be Disabled."
     },
     {
       "id": "task.enable",
@@ -137,7 +143,8 @@
       },
       "summary": "Enables the scheduled task {taskPath}{taskName} again.",
       "consequences": "The task runs on its triggers again.",
-      "undo": "Disable scheduled task again."
+      "undo": "Disable scheduled task again.",
+      "verify": "Reads the scheduled task back: its state must be Ready."
     },
     {
       "id": "service.disable",
@@ -154,7 +161,8 @@
       },
       "summary": "Sets the Windows service {name} to Disabled (it will not start at boot). Guardian records its previous start type so it can be restored. The running instance is not stopped.",
       "consequences": "The service will not start again after it stops or after a restart. Programs that depend on it may stop working until it is re-enabled.",
-      "undo": "Re-enable service restores the previous start type."
+      "undo": "Re-enable service restores the previous start type.",
+      "verify": "Reads the service back: its start type must be Disabled."
     },
     {
       "id": "service.enable",
@@ -180,7 +188,8 @@
       },
       "summary": "Restores the start type of service {name}.",
       "consequences": "The service can start again.",
-      "undo": "Disable service again."
+      "undo": "Disable service again.",
+      "verify": "Reads the service back: its start type must no longer be Disabled."
     },
     {
       "id": "file.recycle",
@@ -197,7 +206,8 @@
       },
       "summary": "Moves the single file {path} to the Recycle Bin. It is not permanently deleted.",
       "consequences": "The file disappears from its folder and counts toward the Recycle Bin until you empty it. Programs that expect it there may stop working.",
-      "undo": "Open the Recycle Bin, right-click the file and choose Restore."
+      "undo": "Open the Recycle Bin, right-click the file and choose Restore.",
+      "verify": "Checks that the file is gone from its folder."
     },
     {
       "id": "defender.update-signatures",
@@ -210,7 +220,8 @@
       "params": {},
       "summary": "Runs Microsoft Defender's own signature update (Update-MpSignature).",
       "consequences": "Downloads the latest definitions from Microsoft. No files on your laptop are changed.",
-      "undo": "Nothing to undo."
+      "undo": "Nothing to undo.",
+      "verify": "Reads Defender back: the signature time must be within a day."
     },
     {
       "id": "defender.quick-scan",
@@ -223,7 +234,8 @@
       "params": {},
       "summary": "Starts a Microsoft Defender quick scan (Start-MpScan -ScanType QuickScan) and waits for it to finish.",
       "consequences": "Uses CPU and disk for a few minutes. Defender handles anything it finds using its normal rules.",
-      "undo": "Nothing to undo."
+      "undo": "Nothing to undo.",
+      "verify": "Reads Defender back: a new quick-scan end time must be recorded."
     },
     {
       "id": "system.integrity-check",
@@ -236,7 +248,8 @@
       "params": {},
       "summary": "Runs two read-only Windows checks: DISM /Online /Cleanup-Image /CheckHealth and sfc /verifyonly. Neither repairs anything.",
       "consequences": "Takes several minutes and uses disk and CPU. It only reports; fixing problems is a separate, manual step.",
-      "undo": "Nothing to undo."
+      "undo": "Nothing to undo.",
+      "verify": "Reads the DISM and SFC exit codes and reports each result."
     },
     {
       "id": "firewall.enable-profile",
@@ -257,7 +270,8 @@
       },
       "summary": "Turns Windows Defender Firewall ON for the {profile} profile (Set-NetFirewallProfile -Enabled True). Guardian never turns it off.",
       "consequences": "Windows blocks unsolicited inbound connections for that profile again, according to your existing rules.",
-      "undo": "Re-enabling is safe; turning the firewall off is only possible in Windows Security."
+      "undo": "Re-enabling is safe; turning the firewall off is only possible in Windows Security.",
+      "verify": "Reads the firewall profile back: it must be on."
     },
     {
       "id": "dns.flush",
@@ -270,7 +284,8 @@
       "params": {},
       "summary": "Clears the Windows DNS resolver cache (Clear-DnsClientCache).",
       "consequences": "The next lookup of each site asks your DNS server again, which can be a little slower once. Fixes stale or wrong cached addresses.",
-      "undo": "Nothing to undo; the cache refills by itself."
+      "undo": "Nothing to undo; the cache refills by itself.",
+      "verify": "Counts the DNS cache entries before and after."
     },
     {
       "id": "app.revo-launch",
@@ -287,7 +302,8 @@
       },
       "summary": "Opens Revo Uninstaller (its own window) for you to uninstall {appName}. Guardian does not uninstall anything itself and will only report success after it can verify the app is gone.",
       "consequences": "Revo shows its own prompts and removes the program and leftovers according to your choices there. Unsaved work in the app is lost.",
-      "undo": "Reinstall the application if you remove it by mistake. Revo can create a restore point first; enable that in Revo."
+      "undo": "Reinstall the application if you remove it by mistake. Revo can create a restore point first; enable that in Revo.",
+      "verify": "Checks that the Revo process started."
     },
     {
       "id": "schedule.repair",
@@ -301,7 +317,8 @@
       "params": {},
       "summary": "Re-registers Guardian's own Daily, Weekly and Dashboard scheduled tasks from your Settings.",
       "consequences": "Fixes tasks that drifted from Settings or lack the scheduled-run marker. Elevated tasks are never downgraded; changing them asks Windows for permission.",
-      "undo": "Change the schedule in Settings and save again."
+      "undo": "Change the schedule in Settings and save again.",
+      "verify": "Reads the scheduled tasks back and compares them with Settings."
     },
     {
       "long": false,
@@ -333,7 +350,8 @@
       },
       "summary": "Creates ONE Windows Firewall rule in the \"Laptop Guardian\" group that blocks {direction} network traffic for the program {path}. Other rules are not touched.",
       "consequences": "That program cannot use the network in that direction until you remove or disable the rule. Updates, sync or sign-in in that program may stop working.",
-      "undo": "Remove or disable the rule from Network Guard, Firewall (the rule is listed with its expiry)."
+      "undo": "Remove or disable the rule from Network Guard, Firewall (the rule is listed with its expiry).",
+      "verify": "Reads the firewall rule back by name."
     },
     {
       "long": false,
@@ -365,7 +383,8 @@
       },
       "summary": "Creates ONE Windows Firewall rule in the \"Laptop Guardian\" group that allows {direction} traffic for the reviewed program {path}.",
       "consequences": "Windows lets that program through the firewall in that direction. Only allow programs you trust.",
-      "undo": "Remove or disable the rule from Network Guard, Firewall."
+      "undo": "Remove or disable the rule from Network Guard, Firewall.",
+      "verify": "Reads the firewall rule back by name."
     },
     {
       "long": false,
@@ -397,7 +416,8 @@
       },
       "summary": "Creates ONE Windows Firewall rule in the \"Laptop Guardian\" group that blocks INBOUND {protocol} connections to local port {port} from all profiles.",
       "consequences": "Other computers can no longer reach whatever listens on that port. Local use on this laptop is not affected.",
-      "undo": "Remove or disable the rule from Network Guard, Firewall."
+      "undo": "Remove or disable the rule from Network Guard, Firewall.",
+      "verify": "Reads the firewall rule back by name."
     },
     {
       "long": false,
@@ -423,7 +443,8 @@
       },
       "summary": "Creates ONE Windows Firewall rule in the \"Laptop Guardian\" group that blocks OUTBOUND traffic to {remote} for every program.",
       "consequences": "Nothing on this laptop can reach that address. Guardian refuses ranges that would cut off your gateway, DNS or DHCP server.",
-      "undo": "Remove or disable the rule from Network Guard, Firewall."
+      "undo": "Remove or disable the rule from Network Guard, Firewall.",
+      "verify": "Reads the firewall rule back by name."
     },
     {
       "long": false,
@@ -440,7 +461,8 @@
       },
       "summary": "Deletes the Laptop Guardian firewall rule {name}. Guardian refuses any rule that is not in its own group with its own name prefix.",
       "consequences": "Traffic that the rule blocked or allowed is handled by the remaining firewall rules again.",
-      "undo": "Create the rule again from Network Guard if you want it back."
+      "undo": "Create the rule again from Network Guard if you want it back.",
+      "verify": "Checks that the rule no longer exists."
     },
     {
       "long": false,
@@ -457,7 +479,8 @@
       },
       "summary": "Turns the Laptop Guardian firewall rule {name} off without deleting it.",
       "consequences": "The rule stops having any effect until you enable it again.",
-      "undo": "Enable the rule again from Network Guard, Firewall."
+      "undo": "Enable the rule again from Network Guard, Firewall.",
+      "verify": "Reads the rule back: it must be disabled."
     },
     {
       "long": false,
@@ -474,7 +497,8 @@
       },
       "summary": "Turns the Laptop Guardian firewall rule {name} back on.",
       "consequences": "The rule takes effect again.",
-      "undo": "Disable the rule again."
+      "undo": "Disable the rule again.",
+      "verify": "Reads the rule back: it must be enabled."
     },
     {
       "long": false,
@@ -491,7 +515,8 @@
       },
       "summary": "Adds \"0.0.0.0 {domain}\" inside the Laptop Guardian section of the Windows hosts file, so this exact host name stops resolving.",
       "consequences": "Programs on this laptop cannot reach that name. Wildcards are not supported, and programs that use their own encrypted DNS (DoH) can bypass the hosts file. Needs DNS filtering to be switched on. Windows Defender may report any edit to the hosts file as a change to review.",
-      "undo": "Unblock the domain, or roll back all DNS blocks, from Network Guard, DNS."
+      "undo": "Unblock the domain, or roll back all DNS blocks, from Network Guard, DNS.",
+      "verify": "Reads the hosts file back for the entry."
     },
     {
       "long": false,
@@ -508,7 +533,8 @@
       },
       "summary": "Removes {domain} from the Laptop Guardian section of the hosts file.",
       "consequences": "The name resolves normally again once the DNS cache is flushed.",
-      "undo": "Block the domain again."
+      "undo": "Block the domain again.",
+      "verify": "Reads the hosts file back: the entry must be gone."
     },
     {
       "long": false,
@@ -521,7 +547,8 @@
       "params": {},
       "summary": "Removes the whole Laptop Guardian section from the hosts file, restoring it to its text before Guardian added anything. Lines outside the section are never changed.",
       "consequences": "Every domain Guardian blocked resolves normally again.",
-      "undo": "Block the domains again one by one if you want them back."
+      "undo": "Block the domains again one by one if you want them back.",
+      "verify": "Reads the hosts file back: Guardian's section must be empty."
     },
     {
       "long": false,
@@ -534,7 +561,8 @@
       "params": {},
       "summary": "Enables the Windows \"DNS Client / Operational\" event log so Deep Network Guard can show which program asked for which name. It records names only, never packets.",
       "consequences": "Windows keeps a rolling record of DNS lookups on this laptop, which is private information. Turn it off when you are done.",
-      "undo": "Turn the DNS history log off from Network Guard, Deep mode."
+      "undo": "Turn the DNS history log off from Network Guard, Deep mode.",
+      "verify": "Reads the event log state back: it must be enabled."
     },
     {
       "long": false,
@@ -547,7 +575,8 @@
       "params": {},
       "summary": "Disables the Windows \"DNS Client / Operational\" event log again.",
       "consequences": "Windows stops recording DNS lookups in that log. Existing entries are not deleted.",
-      "undo": "Turn the DNS history log on again."
+      "undo": "Turn the DNS history log on again.",
+      "verify": "Reads the event log state back: it must be disabled."
     },
     {
       "id": "app.verify-removed",
@@ -564,7 +593,320 @@
       },
       "summary": "Re-reads the installed-programs list and running processes to confirm {appName} is gone.",
       "consequences": "Read-only.",
-      "undo": "Nothing to undo."
+      "undo": "Nothing to undo.",
+      "verify": "Reads the installed-programs list and the leftover locations."
+    },
+    {
+      "long": true,
+      "reversible": false,
+      "params": {
+        "kind": {
+          "enum": [
+            "daily",
+            "weekly"
+          ]
+        }
+      },
+      "id": "scan.run-now",
+      "category": "scan",
+      "label": "Run a scan now",
+      "risk": "LOW",
+      "admin": false,
+      "handler": "bridge",
+      "summary": "Starts the {kind} scan now, in the background, with standard rights. A weekly scan started here never shuts the laptop down.",
+      "consequences": "Uses CPU and disk while it runs (a daily scan takes a few minutes, a weekly one longer). Guardian only observes unless Safe Mode is off.",
+      "undo": "A running scan can be left to finish; nothing is changed by it.",
+      "verify": "Checks that the run shows as started, and the dashboard follows it until a new report appears."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {
+        "kind": {
+          "enum": [
+            "nearest",
+            "daily",
+            "weekly"
+          ]
+        }
+      },
+      "id": "scan.queue-next-run",
+      "category": "scan",
+      "label": "Make the next scheduled run a full one",
+      "risk": "LOW",
+      "admin": false,
+      "handler": "bridge",
+      "summary": "The next scheduled {kind} run (the nearest one if you chose nearest) will be a full run: no fast mode, with the Defender scan included.",
+      "consequences": "That run takes longer. Nothing runs now; the marker is removed after the run.",
+      "undo": "Cancel the queued run from Settings, or let it happen once.",
+      "verify": "Reads the queued marker back from disk."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {
+        "kind": {
+          "enum": [
+            "daily",
+            "weekly"
+          ]
+        },
+        "at": {
+          "pattern": "isoLocal"
+        }
+      },
+      "id": "scan.schedule-once",
+      "category": "scan",
+      "label": "Schedule a one-time scan",
+      "risk": "LOW",
+      "admin": false,
+      "undoId": "scan.cancel-once",
+      "summary": "Creates a one-time Windows scheduled task that runs the {kind} scan at {at} (your local time) with standard rights. A weekly one-time scan never shuts the laptop down. The task removes itself afterwards.",
+      "consequences": "The laptop must be on (or wake) at that time. Nothing else about your schedule changes.",
+      "undo": "Cancel the one-time scan restores the previous state.",
+      "verify": "Reads Task Scheduler back for the new task."
+    },
+    {
+      "long": false,
+      "reversible": false,
+      "params": {
+        "taskName": {
+          "pattern": "onceTaskName"
+        }
+      },
+      "id": "scan.cancel-once",
+      "category": "scan",
+      "label": "Cancel a one-time scan",
+      "risk": "LOW",
+      "admin": false,
+      "summary": "Removes the one-time scan task {taskName} from Task Scheduler. Only Guardian's own one-time tasks can be removed this way.",
+      "consequences": "The scan will not run at the planned time.",
+      "undo": "Schedule a new one-time scan.",
+      "verify": "Checks that the task is gone from Task Scheduler."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {},
+      "id": "setup.register-tasks",
+      "category": "setup",
+      "label": "Register the scheduled tasks",
+      "risk": "LOW",
+      "admin": false,
+      "handler": "bridge",
+      "summary": "Registers Guardian's Daily, Weekly and Dashboard scheduled tasks from your Settings, with standard rights. It never replaces an administrator task.",
+      "consequences": "Guardian then runs the daily audit and the weekly analysis by itself at the times in Settings.",
+      "undo": "Uninstall removes the tasks, or turn the schedules off in Settings.",
+      "verify": "Reads Task Scheduler back for the three tasks."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {},
+      "id": "setup.enable-safe-defaults",
+      "category": "setup",
+      "label": "Turn Safe Mode on",
+      "risk": "LOW",
+      "admin": false,
+      "handler": "bridge",
+      "summary": "Turns Safe Mode on: Guardian observes and recommends only; no process is ended and nothing is cleaned automatically.",
+      "consequences": "Automatic cleanup and blacklist termination stop until you turn Safe Mode off again.",
+      "undo": "Turn Safe Mode off in Settings (it asks you to confirm).",
+      "verify": "Reads the saved settings back."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {},
+      "id": "setup.enable-dns-log",
+      "category": "setup",
+      "label": "Turn on the DNS history log",
+      "risk": "LOW",
+      "admin": true,
+      "undoId": "deep.dnslog-disable",
+      "summary": "Enables the Windows \"DNS Client / Operational\" event log (capped at 8 MB) so Guardian can show which program asked for which name. It records names only, never packets.",
+      "consequences": "Windows keeps a rolling record of DNS lookups on this laptop, which is private information.",
+      "undo": "Turn the DNS history log off from Network Guard.",
+      "verify": "Reads the event log state back: it must be enabled."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {},
+      "id": "setup.enable-firewall-audit",
+      "category": "setup",
+      "label": "Turn on firewall connection logging",
+      "risk": "LOW",
+      "admin": true,
+      "undoId": "setup.disable-firewall-audit",
+      "summary": "Turns on Windows Filtering Platform auditing (Filtering Platform Connection and Packet Drop, success and failure) so the Security log records which program connected where and what the firewall blocked.",
+      "consequences": "The Windows Security event log fills faster (older entries are overwritten at its size limit). It records addresses, ports and programs, never packet contents.",
+      "undo": "Turn firewall connection logging off restores the previous audit settings.",
+      "verify": "Reads the audit policy back through an auditpol backup."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {},
+      "id": "setup.disable-firewall-audit",
+      "category": "setup",
+      "label": "Turn off firewall connection logging",
+      "risk": "LOW",
+      "admin": true,
+      "undoId": "setup.enable-firewall-audit",
+      "summary": "Restores the Windows Filtering Platform audit settings that were in place before Guardian turned logging on.",
+      "consequences": "Firewall connection and drop events are no longer written to the Security log.",
+      "undo": "Turn firewall connection logging on again.",
+      "verify": "Reads the audit policy back through an auditpol backup."
+    },
+    {
+      "long": false,
+      "reversible": false,
+      "params": {},
+      "id": "defender.enable-realtime",
+      "category": "defender",
+      "label": "Turn on Defender real-time protection",
+      "risk": "LOW",
+      "admin": true,
+      "summary": "Turns Microsoft Defender real-time protection ON (Set-MpPreference -DisableRealtimeMonitoring $false). Guardian never turns it off.",
+      "consequences": "Files are scanned as they are opened, which uses a little CPU. If another antivirus or Tamper Protection controls Defender, Windows may refuse.",
+      "undo": "Turning protection off is only possible in Windows Security.",
+      "verify": "Reads Defender back: real-time protection must report on."
+    },
+    {
+      "long": true,
+      "reversible": false,
+      "params": {},
+      "id": "system.run-windows-update-scan",
+      "category": "system",
+      "label": "Check for Windows updates",
+      "risk": "LOW",
+      "admin": false,
+      "summary": "Asks Windows Update which updates are waiting (a search only). Nothing is downloaded or installed.",
+      "consequences": "Takes up to a minute and needs a connection. You install updates yourself from Windows Update.",
+      "undo": "Nothing to undo.",
+      "verify": "The search must return; the number of waiting updates is reported."
+    },
+    {
+      "long": false,
+      "reversible": false,
+      "params": {
+        "page": {
+          "enum": [
+            "windows-update",
+            "startup-apps",
+            "storage",
+            "apps-features",
+            "windows-security",
+            "protection-history",
+            "recovery",
+            "power"
+          ]
+        }
+      },
+      "id": "system.open-settings",
+      "category": "system",
+      "label": "Open a Windows settings page",
+      "risk": "LOW",
+      "admin": false,
+      "summary": "Opens the Windows {page} page so you can take the step yourself. Guardian changes nothing there.",
+      "consequences": "A Windows window opens.",
+      "undo": "Close the window.",
+      "verify": "Not verifiable: Guardian cannot see what you do in Windows settings. Refresh afterwards."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {
+        "name": {
+          "pattern": "serviceName"
+        }
+      },
+      "id": "service.stop",
+      "category": "persistence",
+      "label": "Stop service",
+      "risk": "MEDIUM",
+      "admin": true,
+      "undoId": "service.start",
+      "summary": "Stops the running Windows service {name}. Its start type is not changed, so it may start again with Windows.",
+      "consequences": "Programs that depend on the service may stop working until it is started again. Windows and security services are never stopped.",
+      "undo": "Start service restores it.",
+      "verify": "Reads the service back: it must be stopped."
+    },
+    {
+      "long": false,
+      "reversible": true,
+      "params": {
+        "name": {
+          "pattern": "serviceName"
+        }
+      },
+      "id": "service.start",
+      "category": "persistence",
+      "label": "Start service",
+      "risk": "LOW",
+      "admin": true,
+      "undoId": "service.stop",
+      "summary": "Starts the Windows service {name} (its start type is not changed).",
+      "consequences": "The service runs again and uses its normal resources.",
+      "undo": "Stop service reverses it.",
+      "verify": "Reads the service back: it must be running."
+    },
+    {
+      "long": false,
+      "reversible": false,
+      "params": {
+        "scope": {
+          "enum": [
+            "temp",
+            "crashDumps",
+            "caches",
+            "all"
+          ]
+        }
+      },
+      "id": "storage.clean-temp",
+      "category": "storage",
+      "label": "Clean temporary files",
+      "risk": "LOW",
+      "admin": false,
+      "summary": "Deletes files older than your age setting in your own {scope} cleanup locations (user temp, crash dumps, thumbnail and error-report caches). Folders and links are never followed or removed.",
+      "consequences": "Files that programs still use are skipped. Cleaned files do not go to the Recycle Bin. Windows\\Temp is not touched (it needs a separate, administrator-only review).",
+      "undo": "Deleted temporary data cannot be restored; programs recreate what they need.",
+      "verify": "Counts the files and bytes removed and reports what was skipped."
+    },
+    {
+      "long": false,
+      "reversible": false,
+      "params": {},
+      "id": "cleanup.empty-recycle-bin",
+      "category": "storage",
+      "label": "Empty the Recycle Bin",
+      "risk": "MEDIUM",
+      "admin": false,
+      "summary": "Permanently removes everything in your Recycle Bin (Clear-RecycleBin).",
+      "consequences": "Files you deleted earlier can no longer be restored. Review the Recycle Bin first if you are unsure.",
+      "undo": "Not possible: emptied items are gone.",
+      "verify": "Counts the items in the Recycle Bin afterwards: it must be empty."
+    },
+    {
+      "long": false,
+      "reversible": false,
+      "params": {
+        "path": {
+          "pattern": "absPath"
+        }
+      },
+      "id": "file.delete-permanent",
+      "category": "file",
+      "label": "Delete file permanently",
+      "risk": "HIGH",
+      "admin": false,
+      "typedConfirm": true,
+      "summary": "Permanently deletes the single file {path}. Allowed only for files already in your Recycle Bin or in a temp, crash-dump or cache location; never for protected paths. You must type the file name to confirm.",
+      "consequences": "The file does not go to the Recycle Bin and cannot be restored.",
+      "undo": "Not possible.",
+      "verify": "Checks that the file no longer exists."
     }
   ]
 }

@@ -66,6 +66,7 @@ function Get-GuardianPath {
         'Metrics'         { Join-Path $r 'data\metrics\metrics.jsonl' }
         'Recommendations' { Join-Path $r 'data\recommendations\recommendations.json' }
         'RunState'        { Join-Path $r 'data\state\run-state.json' }
+        'QueuedRun'       { Join-Path $r 'data\state\queued-run.json' }
         'AiUsage'         { Join-Path $r 'data\state\ai-usage.jsonl' }
         'AiCache'         { Join-Path $r 'data\state\ai-cache.json' }
         'FileCache'       { Join-Path $r 'data\state\file-hash-cache.json' }
@@ -384,6 +385,19 @@ function Enter-GuardianLock {
 function Exit-GuardianLock {
     param([string]$Name)
     if ($script:Locks.ContainsKey($Name)) { try { $script:Locks[$Name].ReleaseMutex(); $script:Locks[$Name].Dispose() } catch { }; $script:Locks.Remove($Name) }
+}
+
+function Use-QueuedFullRun {
+    <# True when the dashboard queued a full run for this kind ("scan.queue-next-run"). The marker is removed, so it applies to exactly one run.
+       It can only turn the fast mode off and the Defender scan on; it never adds work from outside Guardian's fixed steps. #>
+    param([Parameter(Mandatory)][ValidateSet('daily', 'weekly')][string]$Kind)
+    $f = Get-GuardianPath 'QueuedRun'
+    if (-not (Test-Path -LiteralPath $f)) { return $false }
+    $q = Read-JsonFile -Path $f -Default $null
+    if (-not $q -or [string]$q.kind -ne $Kind) { return $false }
+    Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+    [void](Write-GuardianEvent -Category scan -Action "$Kind:queued-full-run" -Result success -Reason "A full run was queued from the dashboard ($($q.queuedAt)); fast mode is off and the Defender scan is included.")
+    return $true
 }
 
 function Test-IsAdmin {
