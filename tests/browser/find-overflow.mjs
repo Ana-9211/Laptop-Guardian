@@ -19,15 +19,18 @@ async function startTarget() {
   if (REAL) {
     const app = createApp(repo, { pidFile: false });
     const port = await new Promise((r) => app.listen_(0, r));
-    return { port, close: () => app.close() };
+    return { port, token: app.token, close: () => app.close() };
   }
   const ps = fakeRunner({ 'Scheduler.ps1': () => ({ ok: true, data: { tasks: [task({})] } }) });
-  return startBridge({ ps, withDist: false, opts: { dist: path.join(repo, 'src', 'dashboard', 'dist') } });
+  const b = await startBridge({ ps, withDist: false, opts: { dist: path.join(repo, 'src', 'dashboard', 'dist') } });
+  return { port: b.port, token: b.app.token, close: () => b.close() };
 }
 
 const target = await startTarget();
 const browser = await chromium.launch({ executablePath: findBrowser() });
-const page = await (await browser.newContext({ viewport: { width: Number(width), height: 800 } })).newPage();
+const ctx = await browser.newContext({ viewport: { width: Number(width), height: 800 } });
+await ctx.addInitScript((t) => { try { window.sessionStorage.setItem('guardian-session', t); } catch { /* none */ } }, target.token);   // every API call needs the session token
+const page = await ctx.newPage();
 await page.goto(`http://127.0.0.1:${target.port}/#/${id}`);
 await page.waitForSelector('main .page');
 await page.waitForLoadState('networkidle');

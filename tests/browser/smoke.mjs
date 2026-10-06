@@ -292,6 +292,17 @@ try {
       check(/unsaved changes/i.test(asked) && /settings/.test(page.url()), 'leaving Settings with unsaved edits asks first and stays when declined');
       await page.getByRole('button', { name: 'Discard' }).click();
 
+      note('\n== refresh label and status rail show only sane text');
+      await page.goto(base() + '#/overview');
+      await page.waitForSelector('.refresh-time');
+      await page.waitForSelector('.rail-items');
+      const refreshText = (await page.locator('.refresh-wrap').innerText()).trim();
+      const railText = (await page.locator('.rail').innerText()).trim();
+      const mojibake = /[\uFFFD]|\u00C3.|\u00E2\u20AC|\u00C2./;   // replacement characters and the usual UTF-8-read-as-Latin-1 patterns
+      check(/^(Updated .+|Last update .+|Offline)\s+Refresh status$/i.test(refreshText.replace(/\n+/g, ' ')), 'the refresh area reads "Updated ..." followed by the button label: ' + JSON.stringify(refreshText));
+      check(!mojibake.test(refreshText) && !mojibake.test(railText), 'no replacement characters or mojibake in the refresh area or the status rail');
+      check(/^[\x20-\x7E\s]*$/.test(refreshText), 'the refresh area is plain ASCII');
+
       note('\n== loading state is shown while data is slow');
       await page.route('**/api/overview', async (r) => { await new Promise((x) => setTimeout(x, 1200)); await r.continue(); });
       await page.goto(`${base()}#/overview`);

@@ -39,3 +39,22 @@ test('runner: never more than MAX_CONCURRENT PowerShell children at once', async
     const all = await Promise.all(runs); assert.ok(all.every((x) => x.ok));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('runner: non-ASCII text from a script that loads the encoding setup arrives intact (no replacement characters)', async () => {
+  const root = rootWith({});
+  const common = path.join(root, 'src', 'powershell', 'Common');
+  fs.mkdirSync(common, { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'src', 'powershell', 'Common', 'Encoding.ps1'), path.join(common, 'Encoding.ps1'));
+  const name = 'Caf\u00e9 \u65e5\u672c\u8a9e \u2014 \u00fcber';
+  const p = 'C:\\Users\\Ren\u00e9\\Docs\\r\u00e9sum\u00e9.exe';
+  // The script file itself is saved with a byte-order mark, as Windows PowerShell 5.1 needs for non-ASCII literals.
+  const script = '\uFEFF. "$PSScriptRoot\\Common\\Encoding.ps1"\n$o = [pscustomobject]@{ name = "' + name + '"; path = "' + p + '"; n = 1 }\n$o | ConvertTo-Json -Compress\n';
+  fs.writeFileSync(path.join(root, 'src', 'powershell', 'enc.ps1'), script);
+  try {
+    const r = await makeRunner(root).run('enc.ps1');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.data.name, name);
+    assert.strictEqual(r.data.path, p);
+    assert.ok(!JSON.stringify(r.data).includes('\uFFFD'));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
