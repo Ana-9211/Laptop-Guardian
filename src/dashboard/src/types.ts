@@ -42,6 +42,7 @@ export interface FilesData {
   downloads?: { count?: number; sizeGB?: number; oldCount?: number };
 }
 export interface ActionEvent {
+  archived?: boolean;
   id: string; ts: string; category: string; severity: 'info' | 'warning' | 'error' | string; action: string; target?: string | null; result?: string;
   actor?: string; reason?: string | null; relatedRecommendation?: string | null; error?: string | null; runType?: string | null;
 }

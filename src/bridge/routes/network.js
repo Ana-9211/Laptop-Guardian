@@ -28,6 +28,18 @@ module.exports = function registerNetworkRoutes(ctx) {
     if (r.ok) fwLogCache = { at: Date.now(), value };
     return value;
   });
+  // CSV export of the firewall connection log: POST (it records an audit event), streamed row by row, with the same formula guard as every export.
+  route('POST', '/api/network/fw-events/export', async ({ body }) => {
+    const hours = Math.min(Math.max(parseInt(body.hours || '24', 10) || 24, 1), 168);
+    const r = await ps.run('Network/Get-FirewallEvents.ps1', ['-Max', '2000', '-Hours', String(hours)], { timeoutMs: 60000 });
+    if (r.missing) throw new HttpError(501, r.error);
+    if (!r.ok || !r.data || r.data.available === false) throw new HttpError(409, (r.data && r.data.reason) || r.error || 'The firewall log is unavailable, so there is nothing to export.');
+    const items = Array.isArray(r.data.items) ? r.data.items : [];
+    const cols = ['ts', 'eventId', 'result', 'direction', 'protocol', 'pid', 'application', 'localAddress', 'localPort', 'remoteAddress', 'remotePort'];
+    log({ category: 'network', action: 'network.fwlog.export', result: 'success', actor: 'user', reason: `exported ${items.length} firewall log row(s) as csv` });
+    function* rows() { yield `${cols.join(',')}\r\n`; for (let i = 0; i < items.length; i += 200) yield `${items.slice(i, i + 200).map((e) => cols.map((c) => U.csvCell(e[c])).join(',')).join('\r\n')}\r\n`; }
+    return { __stream: rows(), type: 'text/csv; charset=utf-8', filename: 'laptop-guardian-firewall-log.csv' };
+  });
   route('GET', '/api/network/deep', () => deepView());
   route('POST', '/api/network/deep/start', ({ body }) => {
     need(body.confirm === true && body.acknowledged === true, 'Deep Network Guard needs your explicit confirmation and acknowledgement of what it records.');

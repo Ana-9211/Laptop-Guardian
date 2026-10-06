@@ -171,3 +171,41 @@ test('retention settings through the bridge: saved within 30-730, refused outsid
     assert.strictEqual(ok.status, 200, JSON.stringify(ok.json)); assert.strictEqual(b.readConfig().retention.auditRawDays, 30);
   } finally { b.close(); }
 });
+
+test('Logs: archived audit rows are searched only on request, newest month first, within a byte cap, and marked archived', async () => {
+  const b = await startBridge({ ps: fakeRunner({}) });
+  try {
+    const dir = path.join(b.root, 'data', 'actions', 'archive'); fs.mkdirSync(dir, { recursive: true });
+    const row = (i, m) => JSON.stringify({ id: `old${m}${i}`, ts: `2025-${m}-10T10:00:${String(i % 60).padStart(2, '0')}+05:30`, category: 'policy', severity: 'info', action: 'policy.blacklist.add', target: i === 7 ? 'needle.exe' : `p${i}` });
+    fs.writeFileSync(path.join(dir, 'actions-2025-03.jsonl'), Array.from({ length: 50 }, (_, i) => row(i, '03')).join('\n') + '\n');
+    fs.writeFileSync(path.join(dir, 'actions-2025-04.jsonl'), Array.from({ length: 50 }, (_, i) => row(i, '04')).join('\n') + '\n');
+    const live = await b.get('/api/actions?limit=2000&q=needle'); assert.strictEqual(live.json.filter((r) => r.archived).length, 0, 'not searched by default');
+    const r = await b.get('/api/actions?limit=2000&q=needle&archived=1');
+    assert.deepStrictEqual(r.json.filter((x) => x.archived).map((x) => x.id), ['old047', 'old037']);
+    assert.ok(r.json.filter((x) => x.archived).every((x) => x.target === 'needle.exe'));
+    // the cap: a huge archive month is read only up to 8 MB
+    const big = path.join(dir, 'actions-2025-05.jsonl');
+    const line = JSON.stringify({ id: 'b', ts: '2025-05-10T10:00:00+05:30', category: 'scan', severity: 'info', action: 'x', target: 'y'.repeat(900) }) + '\n';
+    const fd = fs.openSync(big, 'w'); for (let i = 0; i < 12000; i++) fs.writeSync(fd, line); fs.closeSync(fd);
+    assert.ok(fs.statSync(big).size > 10 * 1024 * 1024);
+    const t0 = Date.now(); const cap = await b.get('/api/actions?limit=2000&archived=1'); assert.ok(Date.now() - t0 < 5000);
+    assert.ok(cap.json.length <= 2000); assert.ok(cap.json.some((x) => x.archived));
+  } finally { b.close(); }
+});
+
+test('firewall connection log CSV export: POST, formula-guarded, audited, and an honest error when the log cannot be read', async () => {
+  const items = [{ ts: '2026-10-07T10:00:00+05:30', eventId: 5157, result: 'blocked', direction: 'outbound', protocol: 'TCP', pid: 9, application: '=HYPERLINK("http://x")', localAddress: '10.0.0.2', localPort: 50000, remoteAddress: '203.0.113.9', remotePort: 443 }, { ts: 't', eventId: 5156, result: 'allowed', direction: 'inbound', protocol: 'UDP', pid: 4, application: 'a,b', localAddress: '', localPort: 0, remoteAddress: '', remotePort: 0 }];
+  let avail = true;
+  const ps = fakeRunner({ 'Network/Get-FirewallEvents.ps1': () => ({ ok: true, data: avail ? { available: true, reason: null, items } : { available: false, reason: 'Reading the Security log needs administrator rights.', items: [] } }) });
+  const b = await startBridge({ ps });
+  try {
+    const get = await b.get('/api/network/fw-events/export'); assert.strictEqual(get.status, 405, 'export is POST only');
+    const r = await b.post('/api/network/fw-events/export', { hours: 6 });
+    assert.strictEqual(r.status, 200); assert.match(r.text, /^ts,eventId,result,direction,protocol,pid,application,/);
+    assert.ok(r.text.includes("'=HYPERLINK"), 'formula guard'); assert.ok(r.text.includes('"a,b"'), 'quoting');
+    assert.deepStrictEqual(ps.calls.find((c) => c.rel === 'Network/Get-FirewallEvents.ps1').args, ['-Max', '2000', '-Hours', '6']);
+    const log = await b.get('/api/actions?q=fwlog.export'); assert.strictEqual(log.json.length, 1);
+    avail = false;
+    const bad = await b.post('/api/network/fw-events/export', {}); assert.strictEqual(bad.status, 409); assert.match(bad.json.error, /administrator/);
+  } finally { b.close(); }
+});
