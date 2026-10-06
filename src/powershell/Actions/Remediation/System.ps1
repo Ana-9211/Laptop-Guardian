@@ -35,7 +35,7 @@ function Invoke-WindowsUpdateScan {
 # ---------- system.open-settings (a fixed table of Windows pages; the page name selects a row, nothing else is ever opened) ----------
 $script:SettingsPages = [ordered]@{
     'windows-update' = 'ms-settings:windowsupdate'; 'startup-apps' = 'ms-settings:startupapps'; 'storage' = 'ms-settings:storagesense'; 'apps-features' = 'ms-settings:appsfeatures'
-    'windows-security' = 'windowsdefender:'; 'protection-history' = 'windowsdefender://threat'; 'recovery' = 'ms-settings:recovery'; 'power' = 'ms-settings:powersleep'
+    'windows-security' = 'windowsdefender:'; 'protection-history' = 'windowsdefender://threat'; 'recovery' = 'ms-settings:recovery'; 'power' = 'ms-settings:powersleep'; 'windows-firewall' = 'windowsdefender://network'
 }
 function Start-SettingsPage { param([string]$Uri) Start-Process -FilePath $Uri }
 function Get-SettingsPageNames { @($script:SettingsPages.Keys) }

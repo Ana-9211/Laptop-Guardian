@@ -63,6 +63,16 @@ New catalog actions (17 + 2): scan.run-now, scan.queue-next-run, scan.schedule-o
 - Not done in C: deep links and filtered views for every badge, chart point and table row (only the attention queue and action buttons were done); buttons on Processes rows and Network Guard ports already existed from earlier batches. Listed under Still open.
 - Gate: npm run check 127 PASS; tsc/eslint clean; lint:ps clean; Pester RemediationMore 34 and Remediation PASS; smoke fixture PASS.
 
+### D. Network firewall layer - partly done, committed
+Done:
+- Posture audit (lib/netposture.js, snapshot now carries every enabled inbound-allow rule with missing-program and user-writable flags): default inbound policy Allow, many any-address inbound rules, rules for missing programs, rules for programs in user-writable folders, duplicate rules. Rules that are not Guardian's own get a manual step with the reason and a button that opens Windows Firewall settings (Guardian only changes rules it created). Profile-off already had enable-profile.
+- Detection (local, rule-based, explained): new listening ports and first-seen programs since the previous snapshot, beaconing (regular interval from Deep Network Guard events), plus the earlier rules. Alerts carry block program, block remote, block port, stop process buttons through the existing offers.
+- Posture score with every deduction listed, shown on Network Guard > Firewall.
+- Windows Filtering Platform: setup.enable-firewall-audit / disable (auditpol by subcategory GUID, previous state backed up and restored exactly), Network/WfpEvents.psm1 parses Security events 5156, 5157, 5152, 5158 by field name (locale independent), /api/network/fw-events, a connection log table with export and on/off buttons. Degrades with a clear reason when the log cannot be read without administrator rights.
+- Tests: tests/netposture.test.js (6), tests/WfpEvents.Tests.ps1 (5, fixture XML), RemediationMore (audit policy toggling with restore).
+NOT done (listed in Still open): replacing netstat in Deep Network Guard sampling with Get-NetTCPConnection (a PowerShell start per sample is too slow for a 5 s sample; the snapshot already uses Get-NetTCPConnection and the netstat parser is locale-dependent), optional DoH server settings per interface, flagging apps that use DoH, per-program summary and timeline views, CSV export of the connection log.
+- Gate: npm run check 133 PASS; tsc/eslint clean; smoke fixture and --real PASS; lint and Pester below.
+
 ## Questions for morning
 
 ## Still open
