@@ -54,7 +54,7 @@ Root = the data folder (`%LOCALAPPDATA%\LaptopGuardian` for an installed copy, t
 Match key = lower-case process name (without .exe) AND, if `path` set, case-insensitive path equality.
 
 ## Metric (one per line)
-`{ts, runType:"daily"|"weekly"|"summary", cpuPct, ramPct, ramUsedGB, ramTotalGB, diskUsedPct, diskFreeGB, diskTotalGB, diskFreePct, processCount, flaggedCount, recommendationCount, actionCount, errorCount, startupCount, serviceFailures, batteryPct|null, downloadsGB, defenderSigAgeDays|null, defenderThreats, healthScore(0-100)}`
+`{ts, runType:"daily"|"weekly"|"summary", healthReasons:["-10 RAM above 90%",...] (the deductions behind healthScore; absent on older rows), cpuPct, ramPct, ramUsedGB, ramTotalGB, diskUsedPct, diskFreeGB, diskTotalGB, diskFreePct, processCount, flaggedCount, recommendationCount, actionCount, errorCount, startupCount, serviceFailures, batteryPct|null, downloadsGB, defenderSigAgeDays|null, defenderThreats, healthScore(0-100)}`
 
 ## ActionEvent
 `{id, ts, category:"scan|process|ai|file|cleanup|defender|windows|policy|shutdown|config|system|remediation|network", severity:"info|warning|error", action, target|null, result:"success|failure|skipped|timeout|started", actor:"agent|user|policy|ai-validator", reason|null, relatedRecommendation|null, error|null, runType|null, data?}`
