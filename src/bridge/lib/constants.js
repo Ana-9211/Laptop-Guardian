@@ -3,8 +3,8 @@
 const VERSION = '1.1.0';
 
 const MAX_BODY = 64 * 1024;
-const METRICS_RAW_DAYS = 180;   // raw metric rows kept; older ones become one summary row per day
-const AUDIT_RAW_DAYS = 90;      // raw audit rows kept in the live log; older ones move to a monthly archive file
+const METRICS_RAW_DAYS = 180;   // defaults for retention.metricsRawDays and retention.auditRawDays (Settings can change them, 30 to 730)
+const AUDIT_RAW_DAYS = 90;
 const SCHED_CACHE_MS = 30000; // how long Task Scheduler rows are served before a background refresh
 const SCHED_WAITING_MS = 5000; // faster refresh while a UAC prompt is outstanding
 const SCHED_READ_RETRIES = 2;

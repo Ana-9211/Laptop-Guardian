@@ -60,5 +60,24 @@ Manual steps for you, in this order:
 7. Try the real DoH change on one interface (Network Guard, DNS), then Restore previous, and confirm the DNS servers are back as before.
 8. Optionally turn on firewall connection logging and look at the Connection log.
 
-## Interrupted gate (work on branch wip/steps-1-3, NOT merged)
-Steps 1, 1b, 2 and 3 are implemented. The Pester step of their gate was killed by the system for low memory after Core, Correctness and Doh had passed; per the memory note it was not restarted. Verified before the kill: npm run check 147 pass (before the guidance and csv tests were added), lint:ps clean, fixture smoke pass for the link checks. NOT run: the rest of the Pester suite, npm run check with the new guidance.test.js and csv.test.js, the final fixture smoke (guidance section) and the --real smoke. Step 3 PowerShell part (healthReasons stored in metrics rows) is not done. Step 4: Pester 5 is not installed (only 3.4.0), nothing was installed; CI stays on 3.x.
+## Gate history
+The branch wip/steps-1-3 was gated (check, lint, Pester, fixture and --real smoke) and merged into master; its two earlier gate runs killed for low memory are history.
+
+## Clean-up round 1 (branch chore/cleanup-1, merged)
+- Removed the stale interrupted-gate note; deleted the merged local branches wip/batch-d, wip/steps-1-3 and feat/health-reasons after confirming each was merged into master (docs/public-readme-license and all remotes untouched).
+- Retention windows are now Settings (retention.metricsRawDays 30-730, default 180; retention.auditRawDays 30-730, default 90). Validated by the bridge, clamped again in maintenance and in the elevated untrusted-config clamp. Audit rows are archived, never deleted.
+- CSV export of the firewall connection log (POST /api/network/fw-events/export, streamed, formula guard, audited). Logs has an "Include archived" toggle that also searches the monthly archive files, newest month first, at most 8 MB per search.
+- Network Guard: Programs tab (connections, remote hosts, listening, first seen from Deep Network Guard events only, bytes shown as n/a because Windows gives none without packet capture), an activity timeline, links to the filtered connection view, and the confirmed Block 24 h and Stop buttons.
+- Settings > Diagnostics: version, code age, install mode, data and program folder, last Daily and Weekly, sampler state, and Copy diagnostics (user name, computer name and home paths masked).
+- Install-LaptopGuardian.ps1 -Check: read-only self-check of Node, free space, ports 7878 and 7879, write permissions (read from the folder ACLs, nothing is written), existing tasks and where they point, and leftovers of an earlier install. Exit code 1 only when something would stop the install.
+- Gate on the merged result: npm run check 163; lint:ps clean; Pester 18 files (Integration skipped); fixture smoke including the new section; --real smoke. Free memory was low (about 10%) but nothing was killed.
+
+### Manual steps still yours
+1. Review the merges (git log --merges).
+2. Restart the bridge from a fresh window (close the old dashboard window, open Laptop Guardian from its shortcut).
+3. Run  .\Install-LaptopGuardian.ps1 -Check  and read it, then -PlanOnly, then the real elevated install (-Elevate).
+4. Sampler check: run Stream-Connections.ps1 -IntervalSec 2 in a normal window for a few seconds; expect one JSON line every 2 seconds.
+5. Approve the UAC repair of the scheduled tasks when the dashboard offers it.
+6. DoH: Network Guard > DNS, use a provider on one interface, then Restore previous, and confirm the DNS servers are as before.
+7. One real Revo uninstall (Action Center, then Check that it is gone, then Look for leftovers).
+8. After the real install, open Settings > Diagnostics, press Copy diagnostics and keep the text for any bug report.

@@ -128,7 +128,9 @@ const DEFAULT_CONFIG = {
   cleanup: { tempFiles: true, crashDumps: true, caches: true, recycleBin: 'never', tempMinAgeDays: 2 },
   storage: { drives: ['C:'], excludedDirs: [], protectedDirs: [], minLargeFileMB: 500, oldFileDays: 365, duplicateScan: true, duplicateMinMB: 50 },
   thresholds: { cpuPct: 50, memoryMB: 1500, diskFreeWarnPct: 15, diskFreeCritPct: 8 },
-  retention: { reportsDays: 0 },
+  // reportsDays 0 keeps every report. metricsRawDays and auditRawDays only decide when OLD ROWS ARE ROLLED UP: metrics become daily summaries,
+  // audit rows are moved to monthly archive files. Neither setting ever deletes an audit row.
+  retention: { reportsDays: 0, metricsRawDays: 180, auditRawDays: 90 },
   // Network Guard. Deep capture and DNS filtering are OFF by default and can only be switched on through their own
   // confirmed endpoints, never through the generic settings save.
   network: {
@@ -154,7 +156,7 @@ const RANGES = {
 Object.assign(RANGES, {
   'cleanup.tempMinAgeDays': [0, 365], 'storage.minLargeFileMB': [1, 1_000_000], 'storage.oldFileDays': [1, 3650], 'storage.duplicateMinMB': [1, 100_000],
   'thresholds.cpuPct': [1, 100], 'thresholds.memoryMB': [50, 1_000_000], 'thresholds.diskFreeWarnPct': [1, 90], 'thresholds.diskFreeCritPct': [1, 89],
-  'retention.reportsDays': [0, 3650],
+  'retention.reportsDays': [0, 3650], 'retention.metricsRawDays': [30, 730], 'retention.auditRawDays': [30, 730],
 });
 const READONLY = new Set(['schemaVersion', 'bridge.host']);
 

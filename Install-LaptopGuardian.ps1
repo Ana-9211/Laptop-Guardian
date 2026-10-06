@@ -6,6 +6,7 @@
   Your data       %LOCALAPPDATA%\LaptopGuardian        (settings, history, reports, logs)
   Admin results   %ProgramData%\LaptopGuardian         (administrators-only: elevated results, audit lines, hosts backups)
   Run it from a checkout or an unpacked download. Existing data in that folder is COPIED (never moved) after a backup zip is written.
+.PARAMETER Check         Print a read-only self-check (Node version, free space, ports 7878/7879, write permissions, existing tasks and their paths, leftovers of an old install) and change nothing. Exit code 1 when something would stop the install.
 .PARAMETER PlanOnly      Print what would be done and change nothing.
 .PARAMETER Elevate       Relaunch elevated (UAC). Writing to Program Files needs it.
 .PARAMETER ProgramDir / DataDir / ElevatedDir   Other locations (used by the tests; a program folder that ordinary programs can edit is refused for administrator work).
@@ -15,7 +16,7 @@
 .NOTES     Safe by default: config ships with safeMode=true (observe + recommend only; no process kills, no cleanup deletions).
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-param([switch]$PlanOnly, [switch]$Elevate, [switch]$Rollback, [switch]$CleanupLegacy, [switch]$SkipTasks, [switch]$SkipBuild, [switch]$SkipSmokeTest, [switch]$SkipMigration, [switch]$RunTests,
+param([switch]$Check, [switch]$PlanOnly, [switch]$Elevate, [switch]$Rollback, [switch]$CleanupLegacy, [switch]$SkipTasks, [switch]$SkipBuild, [switch]$SkipSmokeTest, [switch]$SkipMigration, [switch]$RunTests,
       [switch]$NoDesktopShortcut, [switch]$SkipShortcuts, [string]$ProgramDir, [string]$DataDir, [string]$ElevatedDir, [string]$TaskFolder = '\LaptopGuardian\')
 
 $ErrorActionPreference = 'Stop'
@@ -29,6 +30,21 @@ function Json($r) { try { ($r | Out-String) | ConvertFrom-Json } catch { $null }
 Import-Module (Join-Path $source 'src\powershell\Install\Installer.psm1') -Force
 $layout = Get-InstallLayout -ProgramDir $ProgramDir -DataDir $DataDir -ElevatedDir $ElevatedDir
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+# ---------- check: a read-only look at this machine ----------
+if ($Check) {
+    Write-Host "`nLaptop Guardian pre-install check (nothing is changed)`n" -ForegroundColor White
+    $worst = 0
+    foreach ($c in (Get-InstallCheck -Layout $layout -SourceRoot $source -TaskFolder $TaskFolder)) {
+        $tag = switch ($c.status) { 'ok' { 'OK  ' } 'warn' { 'WARN' } 'fail' { 'FAIL' } default { 'INFO' } }
+        $color = switch ($c.status) { 'ok' { 'Green' } 'warn' { 'Yellow' } 'fail' { 'Red' } default { 'Gray' } }
+        if ($c.status -eq 'fail') { $worst = 1 }
+        Write-Host ("[{0}] {1}" -f $tag, $c.title) -ForegroundColor $color
+        Write-Host "       $($c.detail)" -ForegroundColor Gray
+    }
+    Write-Host "`n$(if ($worst) { 'Something above would stop the install. Fix the FAIL items first.' } else { 'Nothing found that would stop the install. WARN items are worth reading.' })" -ForegroundColor $(if ($worst) { 'Red' } else { 'Green' })
+    exit $worst
+}
 
 # ---------- plan only: nothing is created, copied, registered or elevated ----------
 if ($PlanOnly) {

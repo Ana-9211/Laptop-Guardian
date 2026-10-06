@@ -136,7 +136,7 @@ Describe 'Elevated runs do not trust config, policy or ignore lists' {
             cleanup = [pscustomobject]@{ tempFiles = 'yes'; crashDumps = $true; caches = $null; recycleBin = 'older-than-30-days'; tempMinAgeDays = -5 }
             storage = [pscustomobject]@{ drives = @('C:', 'D:\', '\\evil\share', 'notadrive', 5, 'e:'); excludedDirs = @('D:\keep', '..\..\x', 'C:\a*b', 7); protectedDirs = @('E:\prot'); minLargeFileMB = 0; oldFileDays = 99999; duplicateScan = 'true'; duplicateMinMB = 'abc' }
             thresholds = [pscustomobject]@{ cpuPct = 0; memoryMB = 1e12; diskFreeWarnPct = 10; diskFreeCritPct = 40 }
-            retention = [pscustomobject]@{ reportsDays = 1e9 }
+            retention = [pscustomobject]@{ reportsDays = 1e9; metricsRawDays = 1; auditRawDays = 1e9 }
             ai = [pscustomobject]@{ maxRequestsPerRun = -1; maxProcessesPerRun = 1000000; dailyTokenBudget = 'NaN' }
         }
     }
@@ -147,6 +147,7 @@ Describe 'Elevated runs do not trust config, policy or ignore lists' {
         $c.thresholds.cpuPct | Should Be 1; $c.thresholds.memoryMB | Should Be 1000000
         ($c.thresholds.diskFreeCritPct -lt $c.thresholds.diskFreeWarnPct) | Should Be $true
         $c.retention.reportsDays | Should Be 3650
+        $c.retention.metricsRawDays | Should Be 30; $c.retention.auditRawDays | Should Be 730
         $c.ai.maxRequestsPerRun | Should Be 0; $c.ai.maxProcessesPerRun | Should Be 100; $c.ai.dailyTokenBudget | Should Be 0
     }
     It 'coerces switches, falls back to the safe Recycle Bin policy and keeps only real drive letters and absolute folders' {

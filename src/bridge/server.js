@@ -23,7 +23,7 @@ function createApp(root, opts = {}) {
   for (const name of ROUTES) require('./routes/' + name)(ctx);   // order matters: the first matching route wins
   const { P, config, log, token, tokenOk, startedAt, state, deep, netTimers, takeSnapshot, queryTasks, currentRun } = ctx;
   /** Housekeeping for the JSONL files (see lib/maintenance.js). Tests call it directly through server.maintenance(). */
-  const maintenance = (now) => runMaintenance({ P, log, now, deep, running: !!(currentRun() && currentRun().running) });
+  const maintenance = (now) => runMaintenance({ P, log, now, deep, retention: config().retention, running: !!(currentRun() && currentRun().running) });
 
   const allowedHosts = new Set();
   const handle = createHandler({ routes: ctx.routes, allowedHosts, tokenOk, distDir: P.dist });
