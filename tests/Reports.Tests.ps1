@@ -60,6 +60,22 @@ Describe 'Report generation' {
         $m = Read-JsonLines -Path (Get-GuardianPath 'Metrics') | Select-Object -Last 1
         @(Test-JsonSchema -Value $m -Schema (Get-Schema 'metric')).Count | Should Be 0
     }
+    It 'stores the health score reasons with each metric row, and an empty list when nothing was deducted' {
+        Start-RunContext -RunType 'daily'
+        $ctx = New-FakeCtx
+        $rep = New-RunReport -Config $cfg -Ctx $ctx -Type 'daily' -Id '2026-10-07' -Started (Get-Date) -Events @() -Errors @()
+        $rep.healthReasons = @('-10 RAM above 90%', '-5 Defender signatures older than 7 days')
+        Write-RunMetric -Report $rep -Ctx $ctx -Events @() -Errors @()
+        $m = Read-JsonLines -Path (Get-GuardianPath 'Metrics') | Select-Object -Last 1
+        @($m.healthReasons).Count | Should Be 2
+        $m.healthReasons[0] | Should Be '-10 RAM above 90%'
+        @(Test-JsonSchema -Value $m -Schema (Get-Schema 'metric')).Count | Should Be 0
+        $rep.healthReasons = @()
+        Write-RunMetric -Report $rep -Ctx $ctx -Events @() -Errors @()
+        $m2 = Read-JsonLines -Path (Get-GuardianPath 'Metrics') | Select-Object -Last 1
+        @($m2.healthReasons).Count | Should Be 0
+        @(Test-JsonSchema -Value $m2 -Schema (Get-Schema 'metric')).Count | Should Be 0
+    }
     It 'retention=0 never deletes reports; retention>0 deletes only old ones' {
         Invoke-Retention -Config $cfg
         (Test-Path (Join-Path (Get-GuardianPath 'Reports') 'daily\2026-10-04')) | Should Be $true
