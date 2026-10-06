@@ -49,6 +49,48 @@ function postureFindings(snapshot) {
   return out;
 }
 
+/** The DNS-over-HTTPS providers Guardian can configure (mirrors NetworkActions/Doh.ps1; a test checks they agree). */
+const DOH_PROVIDERS = { cloudflare: { label: 'Cloudflare', servers: ['1.1.1.1', '1.0.0.1'] }, google: { label: 'Google Public DNS', servers: ['8.8.8.8', '8.8.4.4'] }, quad9: { label: 'Quad9', servers: ['9.9.9.9', '149.112.112.112'] } };
+const DOH_IPS = new Set(Object.values(DOH_PROVIDERS).flatMap((p) => p.servers));
+const isPrivate = (a) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|127\.)/.test(a) || /^(fe80|fc|fd|::1)/i.test(a);
+
+/** DNS servers that are odd, public resolvers still used without encryption, and programs that talk DoH on their own. */
+function dnsFindings(snapshot) {
+  const out = [];
+  const cfg = snapshot && snapshot.dnsConfig;
+  const gateways = new Set(((snapshot && snapshot.identity && snapshot.identity.gateway) || []));
+  const dohRegistered = new Set(((cfg && cfg.doh) || []).map((d) => d.server));
+  for (const itf of (cfg && cfg.interfaces) || []) {
+    const servers = itf.dnsServers || [];
+    const odd = servers.filter((s) => !isPrivate(s) && !gateways.has(s) && !DOH_IPS.has(s));
+    if (odd.length) {
+      out.push({ id: `net:dns-odd:${itf.index}`, rule: 'unusual-dns-server', kind: 'network', risk: 'MEDIUM', dnsInterface: { index: itf.index }, title: `${itf.alias} uses an unfamiliar DNS server (${odd.join(', ')})`,
+        what: 'Whoever runs your DNS server can see every name you look up and can send you to the wrong address. Your router, your provider and the large public resolvers are the usual choices; anything else deserves a look.',
+        why: ['Not a private address, not your gateway, not one of the public resolvers Guardian knows.'], evidence: [{ label: 'Interface', value: itf.alias }, { label: 'DNS servers', value: servers.join(', ') }], confidence: 0.5 });
+    }
+    for (const [key, p] of Object.entries(DOH_PROVIDERS)) {
+      if (servers.length && servers.every((s) => p.servers.includes(s)) && !p.servers.every((s) => dohRegistered.has(s))) {
+        out.push({ id: `net:dns-plain-public:${itf.index}`, rule: 'plain-public-dns', kind: 'network', risk: 'LOW', dnsInterface: { index: itf.index, provider: key }, title: `${itf.alias} sends DNS lookups to ${p.label} without encryption`,
+          what: 'The lookups travel in clear text, so your network can read them. Windows can encrypt them (DNS over HTTPS) to the same provider.', why: ['A known public resolver without a DoH registration.'], evidence: [{ label: 'Interface', value: itf.alias }, { label: 'DNS servers', value: servers.join(', ') }], confidence: 0.7 });
+      }
+    }
+  }
+  const byPid = new Map();
+  for (const c of (snapshot && snapshot.connections) || []) {
+    if (!/established/i.test(c.state) || c.remotePort !== 443 || !DOH_IPS.has(c.remoteAddress)) continue;
+    const p = (snapshot.processes && snapshot.processes[c.pid]) || {};
+    if (/^(system|svchost|dns)$/i.test(p.name || '')) continue;
+    byPid.set(c.pid, { p, c });
+  }
+  for (const [pid, { p, c }] of byPid) {
+    out.push({ id: `net:app-doh:${pid}`, rule: 'app-level-doh', kind: 'network', risk: 'LOW', title: `${p.name || `pid ${pid}`} appears to use encrypted DNS of its own (${c.remoteAddress})`,
+      what: 'A program that sends its DNS lookups straight to a DoH provider bypasses Windows DNS. Guardian\'s hosts-file blocking and the DNS history cannot see or stop those lookups.', why: ['An established HTTPS connection to a public DNS-over-HTTPS address.'],
+      evidence: [{ label: 'Program', value: p.path || p.name || String(pid) }, { label: 'Server', value: c.remoteAddress }], confidence: 0.4,
+      manual: manual('Many browsers do this on purpose. Turn it off in that program\'s own settings if you want Guardian\'s DNS blocking to apply to it. It may also just be a normal HTTPS connection to the same address.') });
+  }
+  return out;
+}
+
 /** A 0 to 100 posture score with every deduction listed. */
 function postureScore(snapshot, findings) {
   const reasons = []; let score = 100;
@@ -108,4 +150,4 @@ function beaconFindings(deepEvents, { minHits = 6, maxJitter = 0.15 } = {}) {
   return out;
 }
 
-module.exports = { postureFindings, postureScore, changeFindings, beaconFindings };
+module.exports = { DOH_PROVIDERS, dnsFindings, postureFindings, postureScore, changeFindings, beaconFindings };

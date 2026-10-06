@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { usePageState } from '../state/pageState';
 import { useOverview } from '../state/overview';
 import { Badge, Card, Empty, ErrorState, KV, PageHead, SkeletonCards, Stat, Tabs } from '../components/ui';
 import { HealthActions } from '../components/HealthActions';
@@ -12,8 +12,9 @@ const yn = (v: unknown, good = 'Yes', bad = 'No') => <Badge tone={v ? 'ok' : 'cr
 
 export default function Health() {
   const ov = useOverview();
-  const [tab, setTab] = useState<Tab>('cpu');
-  const [range, setRange] = useState<Range>(30);
+  const [ps, setPs] = usePageState('health', { tab: 'cpu', range: '30' });
+  const tab = (['cpu', 'ram', 'disk', 'battery', 'windows', 'defender', 'firewall', 'network'].includes(ps.tab) ? ps.tab : 'cpu') as Tab; const range = ([7, 30, 90].includes(Number(ps.range)) ? Number(ps.range) : 30) as Range;
+  const setTab = (t: Tab) => setPs({ tab: t }); const setRange = (r: Range) => setPs({ range: String(r) });
   const o = ov.data; const d = o?.daily; const s: Any = d?.sections || {};
   if (ov.error) return <div className="page"><ErrorState error={ov.error} onRetry={ov.reload} /></div>;
   if (!o) return <div className="page"><PageHead title="Health" /><SkeletonCards /></div>;
@@ -29,12 +30,12 @@ export default function Health() {
       <Tabs<Tab> value={tab} onChange={setTab} label="Health areas" items={[{ id: 'cpu', label: 'CPU' }, { id: 'ram', label: 'RAM' }, { id: 'disk', label: 'Disk' }, { id: 'battery', label: 'Battery' }, { id: 'windows', label: 'Windows' }, { id: 'defender', label: 'Defender' }, { id: 'firewall', label: 'Firewall' }, { id: 'network', label: 'Network' }]}>
 
       {tab === 'cpu' && <>
-        <div className="grid g4"><Stat label="Usage now" value={sys.cpu?.usagePct?.toFixed(0) ?? NA} unit="%" bar={sys.cpu?.usagePct} /><Stat label="Cores / threads" value={`${sys.cpu?.cores ?? NA} / ${sys.cpu?.logical ?? NA}`} sub={sys.cpu?.name} /><Stat label="Load" value={typeof sys.load === 'object' ? (sys.load?.processorQueue ?? NA) : (sys.load ?? NA)} sub="Processor queue length" /><Stat label="Temperature" value={sys.temperature?.available ? `${sys.temperature.celsius}` : 'n/a'} unit={sys.temperature?.available ? '\u00b0C' : undefined} sub={sys.temperature?.available ? '' : 'No reliable sensor exposed by Windows'} /></div>
+        <div className="grid g4"><Stat label="Usage now" value={sys.cpu?.usagePct?.toFixed(0) ?? NA} unit="%" bar={sys.cpu?.usagePct} href="/processes?tab=high" /><Stat label="Cores / threads" value={`${sys.cpu?.cores ?? NA} / ${sys.cpu?.logical ?? NA}`} sub={sys.cpu?.name} /><Stat label="Load" value={typeof sys.load === 'object' ? (sys.load?.processorQueue ?? NA) : (sys.load ?? NA)} sub="Processor queue length" /><Stat label="Temperature" value={sys.temperature?.available ? `${sys.temperature.celsius}` : 'n/a'} unit={sys.temperature?.available ? '\u00b0C' : undefined} sub={sys.temperature?.available ? '' : 'No reliable sensor exposed by Windows'} /></div>
         <Card title="CPU usage per scan"><LineChart title="CPU usage" x={x} unit="%" min={0} max={100} digits={0} area series={[{ id: 'c', label: 'CPU', color: SERIES_COLORS.cpu, values: m.map((r) => r.cpuPct) }]} hideLegend /></Card>
         <Card title="Top CPU processes" flush><table className="t"><thead><tr><th>Process</th><th className="r">CPU</th><th className="r">RAM</th></tr></thead><tbody>{!(s.processes?.topCpu || []).length && <tr><td colSpan={9} className="small muted">Nothing was reported for this section in the last scan.</td></tr>}{(s.processes?.topCpu || []).map((p: Any) => <tr key={p.name}><td>{p.name}</td><td className="r num">{pct(p.cpuPct, 1)}</td><td className="r num">{fmtMB(p.memoryMB)}</td></tr>)}</tbody></table></Card>
       </>}
       {tab === 'ram' && <>
-        <div className="grid g4"><Stat label="Used" value={sys.ram?.usedPct?.toFixed(0) ?? NA} unit="%" bar={sys.ram?.usedPct} sub={`${sys.ram?.usedGB} of ${sys.ram?.totalGB} GB`} /><Stat label="Available" value={sys.ram?.freeGB ?? NA} unit=" GB" /><Stat label="Pagefile" value={sys.pagefile ? Math.round(sys.pagefile.usedMB) : NA} unit=" MB used" sub={`of ${sys.pagefile?.sizeMB ?? NA} MB`} /></div>
+        <div className="grid g4"><Stat label="Used" value={sys.ram?.usedPct?.toFixed(0) ?? NA} unit="%" bar={sys.ram?.usedPct} sub={`${sys.ram?.usedGB} of ${sys.ram?.totalGB} GB`} href="/processes?tab=high" /><Stat label="Available" value={sys.ram?.freeGB ?? NA} unit=" GB" href="/processes?tab=high" /><Stat label="Pagefile" value={sys.pagefile ? Math.round(sys.pagefile.usedMB) : NA} unit=" MB used" sub={`of ${sys.pagefile?.sizeMB ?? NA} MB`} /></div>
         <Card title="RAM usage per scan"><LineChart title="RAM usage" x={x} unit="%" min={0} max={100} digits={0} area series={[{ id: 'r', label: 'RAM', color: SERIES_COLORS.ram, values: m.map((r) => r.ramPct) }]} hideLegend /></Card>
         <Card title="Top memory processes" flush><table className="t"><thead><tr><th>Process</th><th className="r">RAM</th><th className="r">CPU</th></tr></thead><tbody>{!(s.processes?.topMemory || []).length && <tr><td colSpan={9} className="small muted">Nothing was reported for this section in the last scan.</td></tr>}{(s.processes?.topMemory || []).map((p: Any) => <tr key={p.name}><td>{p.name}</td><td className="r num">{fmtMB(p.memoryMB)}</td><td className="r num">{pct(p.cpuPct, 1)}</td></tr>)}</tbody></table></Card>
       </>}

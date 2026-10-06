@@ -12,6 +12,7 @@ import { CleanupCard } from '../components/settings/CleanupCard';
 import { PolicyCard } from '../components/settings/PolicyCard';
 import { StorageCard } from '../components/settings/StorageCard';
 import { RetentionCard } from '../components/settings/RetentionCard';
+import { SafeModePreview } from '../components/Guidance';
 
 export default function Settings() {
   const cfgQ = useQuery<Config>('/api/config');
@@ -109,6 +110,7 @@ export default function Settings() {
             <Switch checked={d.safety.safeMode} onChange={(v) => (v ? safety('safeMode', true) : confirm({ title: 'Turn off safe mode?', confirmLabel: 'Turn off safe mode', danger: true, body: 'Agents will be allowed to perform the cleanup and blacklisted-process termination you configured. Unknown processes and personal files are still never touched automatically.', onConfirm: () => safety('safeMode', false, true) }))}
               label={<b>Safe mode</b>} hint="Observe and recommend only. No process is terminated and nothing is cleaned automatically." />
           </div>
+          <SafeModePreview />
           <div className="grid g2">
             <Switch checked={d.safety.autoKillBlacklisted} onChange={(v) => safety('autoKillBlacklisted', v)} label="Automatically terminate blacklisted processes" hint="Daily agent only, and only entries on your blacklist. Needs Safe mode off. Turning it on asks you to confirm." />
             <Switch checked={d.safety.automationPaused} onChange={(v) => safety('automationPaused', v)} label="Pause automation" hint="Scheduled runs still observe and report; no automatic actions." />

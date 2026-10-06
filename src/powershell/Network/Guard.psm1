@@ -54,6 +54,17 @@ function Get-FirewallPostureTable {
         }
     }
 }
+function Get-DnsConfigTable {
+    <# Connected IPv4 interfaces with their DNS servers, and the DoH servers Windows knows. Read-only. #>
+    $ifs = New-Object System.Collections.ArrayList
+    foreach ($i in @(Get-NetIPInterface -AddressFamily IPv4 -ConnectionState Connected -ErrorAction SilentlyContinue)) {
+        if ([string]$i.InterfaceAlias -match 'Loopback') { continue }
+        $dns = @((Get-DnsClientServerAddress -InterfaceIndex $i.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses)
+        [void]$ifs.Add([ordered]@{ index = [int]$i.InterfaceIndex; alias = [string]$i.InterfaceAlias; dhcp = ([string]$i.Dhcp -eq 'Enabled'); dnsServers = $dns })
+    }
+    $doh = @(Get-DnsClientDohServerAddress -ErrorAction SilentlyContinue | ForEach-Object { [ordered]@{ server = [string]$_.ServerAddress; template = [string]$_.DohTemplate } })
+    [ordered]@{ interfaces = @($ifs); doh = $doh }
+}
 function Get-NetworkIdentityTable {
     $gw = @(); $dns = @(); $dhcp = @()
     try { foreach ($c in @(Get-NetIPConfiguration -ErrorAction SilentlyContinue)) { if ($c.IPv4DefaultGateway) { $gw += [string]$c.IPv4DefaultGateway.NextHop }; $dns += @($c.DNSServer.ServerAddresses) } } catch { }
@@ -94,6 +105,7 @@ function Get-NetworkSnapshot {
     $profiles = @(); try { $profiles = @(Get-FirewallProfileTable | ForEach-Object { [ordered]@{ name = [string]$_.Name; enabled = ([string]$_.Enabled -eq 'True'); defaultInboundAction = [string]$_.DefaultInboundAction; defaultOutboundAction = [string]$_.DefaultOutboundAction } }) } catch { [void]$errors.Add("firewall: $($_.Exception.Message)") }
     $rules = @(); try { $rules = @(Get-GuardianRuleTable | ForEach-Object { $f = Get-RuleFilters $_; [ordered]@{ name = [string]$_.Name; displayName = [string]$_.DisplayName; enabled = ([string]$_.Enabled -eq 'True'); direction = [string]$_.Direction; action = [string]$_.Action; program = $f.program; protocol = $f.protocol; localPort = $f.localPort; remoteAddress = $f.remoteAddress; description = [string]$_.Description } }) } catch { [void]$errors.Add("rules: $($_.Exception.Message)") }
     $posture = @(); try { $posture = @(Get-FirewallPostureTable) } catch { [void]$errors.Add("firewall posture: $($_.Exception.Message)") }
+    $dnsConfig = $null; try { $dnsConfig = Get-DnsConfigTable } catch { [void]$errors.Add("dns config: $($_.Exception.Message)") }
     $ident = $null; try { $ident = Get-NetworkIdentityTable } catch { }
 
     return [ordered]@{
@@ -101,6 +113,7 @@ function Get-NetworkSnapshot {
         connections = @($conns); udp = $udpRows; processes = $procs; dns = $dns
         firewall = [ordered]@{ profiles = $profiles; rules = $rules; posture = $posture }
         identity = $(if ($ident) { [ordered]@{ gateway = @($ident.gateway); dns = @($ident.dns); dhcp = @($ident.dhcp) } } else { [ordered]@{ gateway = @(); dns = @(); dhcp = @() } })
+        dnsConfig = $dnsConfig
         errors = @($errors)
     }
 }

@@ -7,13 +7,16 @@ const NO = require('./netoffers');
 const ND = require('./netdeep');
 const NG = require('./netguard');
 const NP = require('./netposture');
+const NSM = require('./netsampler');
 const { HttpError } = require('./http');
 
 function createNetworkContext(ctx) {
   const { root, guardianRoots, opts, P, ps, config, log, state } = ctx;
   const netStore = NS.createNetStore(root, config);
   const hostsPath = opts.hostsPath || NG.defaultHostsPath();
-  const deep = ND.createDeep({ root, getConfig: config, log, runNetstat: opts.runNetstat, runTasklist: opts.runTasklist });
+  // The Get-NetTCPConnection sampler is used when the runner can stream (the real one); tests that inject netstat output keep the fallback.
+  const sampler = ps.stream && !opts.runNetstat ? NSM.createSampler({ ps, intervalSec: Math.max(2, ((config().network.deep || {}).sampleSec) || 5), log }) : null;
+  const deep = ND.createDeep({ root, getConfig: config, log, sampler, runNetstat: opts.runNetstat, runTasklist: opts.runTasklist });
   let snapInFlight = null;
   const netTimers = [];
   const persistentPaths = () => {
@@ -28,7 +31,7 @@ function createNetworkContext(ctx) {
   let prevSnapshot = null;   // the snapshot before the latest one (memory only): lets Guardian say what changed
   function computeNetFindings(snapshot) {
     const deepEv = deep.active() ? deep.readEvents({ limit: 2000, sinceMs: Date.now() - 120000 }) : [];
-    const extra = [...NP.postureFindings(snapshot), ...NP.changeFindings(snapshot, prevSnapshot), ...NP.beaconFindings(deep.active() ? deep.readEvents({ limit: 5000, sinceMs: Date.now() - 3600000 }) : [])];
+    const extra = [...NP.postureFindings(snapshot), ...NP.dnsFindings(snapshot), ...NP.changeFindings(snapshot, prevSnapshot), ...NP.beaconFindings(deep.active() ? deep.readEvents({ limit: 5000, sinceMs: Date.now() - 3600000 }) : [])];
     const raw0 = NF.buildNetworkFindings({
       snapshot, persistentPaths: persistentPaths(), thresholds: config().network.thresholds, dnsBlocked: dnsBlocked(),
       deepEvents: deepEv,

@@ -22,12 +22,23 @@ export function PolicyPage({ list }: { list: 'blacklist' | 'whitelist' }) {
   const s = ov.data?.safety;
 
   const patch = async (e: PolicyEntry, body: object, msg: string) => {
-    try { await api.patch(`/api/policy/${list}/${e.id}`, body); toast('ok', msg); pol.reload(); } catch (x) { toast('error', (x as ApiError).message); }
+    const before: Record<string, unknown> = {}; for (const k of Object.keys(body)) before[k] = (e as unknown as Record<string, unknown>)[k] ?? null;
+    try {
+      await api.patch(`/api/policy/${list}/${e.id}`, body);
+      toast('ok', msg, { undo: async () => { try { await api.patch(`/api/policy/${list}/${e.id}`, before); toast('ok', 'Change undone.'); pol.reload(); } catch (x) { toast('error', (x as ApiError).message); } } });
+      pol.reload();
+    } catch (x) { toast('error', (x as ApiError).message); }
   };
   const remove = (e: PolicyEntry) => confirm({
     title: `Remove ${e.name} from the ${list}?`, confirmLabel: 'Remove', 
     body: isBl ? <>Guardian will stop terminating <code>{e.name}</code>. If it is a nuisance it will be flagged again by the normal checks.</> : <>Guardian may flag and recommend <code>{e.name}</code> again.</>,
-    onConfirm: async () => { try { await api.del(`/api/policy/${list}/${e.id}`); toast('ok', `${e.name} removed.`); pol.reload(); } catch (x) { toast('error', (x as ApiError).message); } },
+    onConfirm: async () => {
+      try {
+        await api.del(`/api/policy/${list}/${e.id}`);
+        toast('ok', `${e.name} removed.`, { undo: async () => { try { await api.post('/api/policy', { list, name: e.name, path: e.path || undefined, reason: e.reason || undefined }); toast('ok', `${e.name} is back on the ${list}.`); pol.reload(); } catch (x) { toast('error', (x as ApiError).message); } } });
+        pol.reload();
+      } catch (x) { toast('error', (x as ApiError).message); }
+    },
   });
   const pause = (e: PolicyEntry) => {
     const until = new Date(Date.now() + 7 * 86400000).toISOString();
@@ -75,7 +86,7 @@ export function PolicyPage({ list }: { list: 'blacklist' | 'whitelist' }) {
               {pol.data.ignored.map((e) => (
                 <li key={e.id} className="row spread" style={{ padding: '8px 0' }}>
                   <span className="stack tight"><b>{e.name}</b><span className="small muted">Ignored {fmtDate(e.addedAt)}{e.path ? ` - ${e.path}` : ' - any path'}</span></span>
-                  <button className="btn sm" onClick={() => { void api.del(`/api/policy/ignored/${e.id}`).then(() => { toast('ok', `${e.name} will be flagged again if it misbehaves.`); pol.reload(); }).catch((x: ApiError) => toast('error', x.message)); }}>Stop ignoring</button>
+                  <button className="btn sm" onClick={() => { void api.del(`/api/policy/ignored/${e.id}`).then(() => { toast('ok', `${e.name} will be flagged again if it misbehaves.`, { undo: async () => { try { await api.post('/api/policy', { list: 'ignored', name: e.name, path: e.path || undefined, reason: e.reason || undefined }); toast('ok', `${e.name} is ignored again.`); pol.reload(); } catch (x2) { toast('error', (x2 as ApiError).message); } } }); pol.reload(); }).catch((x: ApiError) => toast('error', x.message)); }}>Stop ignoring</button>
                 </li>
               ))}
             </ul>

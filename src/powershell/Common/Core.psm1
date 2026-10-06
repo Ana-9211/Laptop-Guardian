@@ -170,14 +170,17 @@ function Add-JsonLine {
     Assert-NoLinkWhenElevated -Dir $dir
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $line = (ConvertTo-Json -InputObject $Object -Depth 8 -Compress) + "`n"
-    # If a previous write was torn (no trailing newline), start on a fresh line so only the torn record is lost
-    try {
-        if (Test-Path -LiteralPath $Path) {
-            $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
-            try { if ($fs.Length -gt 0) { $fs.Seek(-1, 'End') | Out-Null; if ($fs.ReadByte() -ne 10) { $line = "`n" + $line } } } finally { $fs.Dispose() }
-        }
-    } catch { }
-    [System.IO.File]::AppendAllText($Path, $line, $script:Utf8NoBom)
+    # The append holds the same <file>.lock the bridge's compaction uses, so a compaction can never swap the file between our check and our write.
+    Invoke-WithFileLock -Path $Path -TimeoutMs 3000 -ScriptBlock {
+        # If a previous write was torn (no trailing newline), start on a fresh line so only the torn record is lost
+        try {
+            if (Test-Path -LiteralPath $Path) {
+                $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+                try { if ($fs.Length -gt 0) { $fs.Seek(-1, 'End') | Out-Null; if ($fs.ReadByte() -ne 10) { $line = "`n" + $line } } } finally { $fs.Dispose() }
+            }
+        } catch { }
+        [System.IO.File]::AppendAllText($Path, $line, $script:Utf8NoBom)
+    }
 }
 
 function Read-JsonLines {

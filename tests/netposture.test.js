@@ -88,3 +88,19 @@ test('Network Guard through the bridge: findings include the posture audit, the 
     assert.deepStrictEqual(ps.calls.find((c) => c.rel === 'Network/Get-FirewallEvents.ps1').args, ['-Max', '500', '-Hours', '6']);
   } finally { b.close(); }
 });
+
+test('DNS findings: odd servers offer a restore, plain public resolvers offer DoH, app-level DoH explains the bypass; provider table matches PowerShell', () => {
+  const snap = makeNetworkSnapshot({ identity: { gateway: ['192.168.1.1'], dns: [], dhcp: [] }, dnsConfig: { interfaces: [{ index: 7, alias: 'Wi-Fi', dhcp: true, dnsServers: ['203.0.113.53'] }, { index: 9, alias: 'Ethernet', dhcp: false, dnsServers: ['1.1.1.1', '1.0.0.1'] }, { index: 3, alias: 'Home', dhcp: true, dnsServers: ['192.168.1.1'] }], doh: [] } });
+  snap.connections = [...snap.connections, { proto: 'TCP', state: 'Established', localAddress: '192.168.1.20', localPort: 55000, remoteAddress: '8.8.8.8', remotePort: 443, pid: 100 }];
+  const f = NP.dnsFindings(snap);
+  assert.deepStrictEqual(f.map((x) => x.rule).sort(), ['app-level-doh', 'plain-public-dns', 'unusual-dns-server']);
+  const acts = NO.toActionFindings(f, { identity: [], guardianRoot: 'C:\\g' }, []);
+  const odd = acts.find((x) => x.rule === 'unusual-dns-server'); assert.deepStrictEqual(odd.actions.map((a) => a.actionId), ['dns.doh-restore']); assert.strictEqual(odd.actions[0].eligible, true);
+  const plain = acts.find((x) => x.rule === 'plain-public-dns'); assert.deepStrictEqual(plain.actions.map((a) => [a.actionId, a.params.provider, a.params.interfaceIndex]), [['dns.doh-enable', 'cloudflare', '9']]);
+  assert.deepStrictEqual(plain.actions[0].requiredAcks, ['dns-provider']);
+  const app = acts.find((x) => x.rule === 'app-level-doh'); assert.match(app.what, /bypasses/); assert.ok(app.manual.reason);
+  const registered = NP.dnsFindings({ ...snap, dnsConfig: { ...snap.dnsConfig, doh: [{ server: '1.1.1.1', template: 't' }, { server: '1.0.0.1', template: 't' }] } });
+  assert.ok(!registered.some((x) => x.rule === 'plain-public-dns'), 'no finding once DoH is registered');
+  const ps = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'powershell', 'Actions', 'NetworkActions', 'Doh.ps1'), 'utf8');
+  for (const [k, p] of Object.entries(NP.DOH_PROVIDERS)) { for (const s of p.servers) assert.ok(ps.includes(`'${s}'`), `${k} ${s} in Doh.ps1`); }
+});

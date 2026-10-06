@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { api, ApiError, useQuery } from '../api';
 import type { FileCandidate, FilesData, Metric } from '../types';
 import { Badge, Card, Col, DataTable, Empty, ErrorState, KV, PageHead, RiskBadge, SkeletonCards, Stat, Tabs, useToast, Icon } from '../components/ui';
@@ -7,6 +6,8 @@ import { fmtDate, fmtMB, NA } from '../format';
 import { useActionFlow } from '../components/ActionFlow';
 import { QuickActions } from '../components/QuickActions';
 import { classLabel } from '../labels';
+import { usePageState } from '../state/pageState';
+import { BadgeLink } from '../components/Linked';
 
 type Tab = 'overview' | 'large' | 'duplicates' | 'recommended' | 'ignored' | 'trends';
 const CLS_TONE: Record<string, string> = { KEEP: 'ok', REVIEW: 'info', LIKELY_UNNECESSARY: 'warn', HIGH_RISK: 'crit', UNKNOWN: '' };
@@ -34,16 +35,20 @@ export default function Files() {
   const q = useQuery<FilesData>('/api/files');
   const m = useQuery<Metric[]>('/api/metrics?range=all');
   const toast = useToast();
-  const [tab, setTab] = useState<Tab>('overview');
-  const [range, setRange] = useState<Range>(30);
-  const [cls, setCls] = useState('');
+  const [ps, setPs] = usePageState('files', { tab: 'overview', range: '30', cls: '' });
+  const tab = (['overview', 'large', 'duplicates', 'recommended', 'ignored', 'trends'].includes(ps.tab) ? ps.tab : 'overview') as Tab; const range = ([7, 30, 90].includes(Number(ps.range)) ? Number(ps.range) : 30) as Range; const cls = ps.cls;
+  const setTab = (t: Tab) => setPs({ tab: t }); const setRange = (r: Range) => setPs({ range: String(r) }); const setCls = (c: string) => setPs({ cls: c });
   const d = q.data;
   const cands = d?.candidates || [];
   const active = cands.filter((c) => !c.ignored);
   const ignored = cands.filter((c) => c.ignored);
 
   const ignore = async (f: FileCandidate) => {
-    try { await api.post('/api/files/ignore', { id: f.id, ignored: !f.ignored }); toast('ok', f.ignored ? 'No longer ignored.' : 'Ignored. It will not be recommended again.'); q.reload(); } catch (e) { toast('error', (e as ApiError).message); }
+    try {
+      await api.post('/api/files/ignore', { id: f.id, ignored: !f.ignored });
+      toast('ok', f.ignored ? 'No longer ignored.' : 'Ignored. It will not be recommended again.', { undo: async () => { try { await api.post('/api/files/ignore', { id: f.id, ignored: !!f.ignored }); toast('ok', 'Change undone.'); q.reload(); } catch (e) { toast('error', (e as ApiError).message); } } });
+      q.reload();
+    } catch (e) { toast('error', (e as ApiError).message); }
   };
   // Recycling goes through the confirmed Action flow: the exact path, size and age are shown, and Guardian re-checks the file first.
   const flow = useActionFlow(() => q.reload());
@@ -68,16 +73,16 @@ export default function Files() {
           {tab === 'overview' && (
             <>
               <div className="grid g4">
-                {(d.drives || []).map((dr) => <Stat key={dr.drive} label={`${dr.drive} ${dr.type || ''}`} value={dr.freeGB.toFixed(0)} unit=" GB free" sub={`of ${dr.totalGB.toFixed(0)} GB`} bar={100 - (dr.freeGB / dr.totalGB) * 100} tone={dr.freeGB / dr.totalGB < 0.08 ? 'crit' : dr.freeGB / dr.totalGB < 0.15 ? 'warn' : 'ok'} />)}
-                <Stat label="Downloads" value={d.downloads?.sizeGB?.toFixed(1) ?? NA} unit=" GB" sub={`${d.downloads?.count ?? 0} files - ${d.downloads?.oldCount ?? 0} older than a year`} />
-                <Stat label="Worth reviewing" value={active.length} sub={`${fmtMB(reclaim)} potentially reclaimable`} />
-                <Stat label="Duplicate groups" value={d.duplicates?.length ?? 0} sub="Identical content by hash" />
+                {(d.drives || []).map((dr) => <Stat key={dr.drive} label={`${dr.drive} ${dr.type || ''}`} value={dr.freeGB.toFixed(0)} unit=" GB free" sub={`of ${dr.totalGB.toFixed(0)} GB`} bar={100 - (dr.freeGB / dr.totalGB) * 100} tone={dr.freeGB / dr.totalGB < 0.08 ? 'crit' : dr.freeGB / dr.totalGB < 0.15 ? 'warn' : 'ok'} href="/files?tab=large" />)}
+                <Stat label="Downloads" value={d.downloads?.sizeGB?.toFixed(1) ?? NA} unit=" GB" sub={`${d.downloads?.count ?? 0} files - ${d.downloads?.oldCount ?? 0} older than a year`} href="/files?tab=large" />
+                <Stat label="Worth reviewing" value={active.length} sub={`${fmtMB(reclaim)} potentially reclaimable`} href="/files?tab=recommended&cls=" />
+                <Stat label="Duplicate groups" value={d.duplicates?.length ?? 0} sub="Identical content by hash" href="/files?tab=duplicates" />
               </div>
-              <Card title="Classifications"><div className="row">{['KEEP', 'REVIEW', 'LIKELY_UNNECESSARY', 'HIGH_RISK', 'UNKNOWN'].map((c) => <Badge key={c} tone={CLS_TONE[c]}>{classLabel(c)} - {active.filter((x) => x.classification === c).length}</Badge>)}</div>
+              <Card title="Classifications"><div className="row">{['KEEP', 'REVIEW', 'LIKELY_UNNECESSARY', 'HIGH_RISK', 'UNKNOWN'].map((c) => <BadgeLink key={c} tone={CLS_TONE[c]} to={`/files?tab=recommended&cls=${c}`} title="Show these files">{classLabel(c)} - {active.filter((x) => x.classification === c).length}</BadgeLink>)}</div>
                 <p className="small muted" style={{ marginTop: 8 }}>When Guardian is unsure it chooses REVIEW. Personal documents are classified KEEP and are never suggested for removal.</p></Card>
             </>
           )}
-          {tab === 'large' && <Card flush><DataTable label="Largest files" cols={fileCols} rows={d.largest || []} rowKey={(r) => r.path} initialSort={{ key: 'size', dir: -1 }} empty={<Empty title="No large files recorded" />} /></Card>}
+          {tab === 'large' && <Card flush><DataTable label="Largest files" cols={fileCols} rows={d.largest || []} rowKey={(r) => r.path} initialSort={{ key: 'size', dir: -1 }} persistKey="files-large" empty={<Empty title="No large files recorded" />} /></Card>}
           {tab === 'duplicates' && (d.duplicates?.length ? <div className="grid g2">{d.duplicates.map((g, i) => <Card key={g.hash || i} title={`Group ${g.hash?.slice(0, 8) || i + 1}`} actions={<Badge>{fmtMB(g.sizeMB)} each</Badge>}><div className="stack">{g.files.map((p) => <div key={p} className="path">{p}</div>)}<div className="small muted">Keep one copy. Review before removing the others; Guardian does not pick for you.</div></div></Card>)}</div> : <Card><Empty icon="check" title="No duplicates found" /></Card>)}
           {tab === 'recommended' && (
             <>

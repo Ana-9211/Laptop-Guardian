@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const { localIso, csvCell } = require('./util');
+const { eachLine } = require('./compact');
 
 const MB = 1024 * 1024;
 const DAY_MS = 86400000;
@@ -53,26 +54,42 @@ function parseTasklist(text) {
 const realNetstat = () => new Promise((resolve, reject) => execFile(path.join(SYSTEM32, 'netstat.exe'), ['-ano'], { timeout: 10000, windowsHide: true, maxBuffer: 8 * MB }, (e, out) => (e ? reject(e) : resolve(out))));
 const realTasklist = () => new Promise((resolve, reject) => execFile(path.join(SYSTEM32, 'tasklist.exe'), ['/FO', 'CSV', '/NH'], { timeout: 10000, windowsHide: true, maxBuffer: 8 * MB }, (e, out) => (e ? reject(e) : resolve(out))));
 
-function createDeep({ root, getConfig, log, runNetstat = realNetstat, runTasklist = realTasklist, now = Date.now, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
+function createDeep({ root, getConfig, log, sampler = null, runNetstat = realNetstat, runTasklist = realTasklist, now = Date.now, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
   const dir = path.join(root, 'data', 'network', 'deep');
   const open = new Map(); let names = new Map(); let namesAt = 0;
-  let timer = null; let ticking = false; let lastTick = null; let eventCount = 0; let dropped = 0; let saturatedLogged = false;
-  const cfg = () => { const d = ((getConfig() || {}).network || {}).deep || {}; return { retentionDays: d.retentionDays || 7, maxBytes: (d.maxMB || 100) * MB, sampleSec: d.sampleSec || 5 }; };
+  let source = null; let timer = null; let ticking = false; let lastTick = null; let eventCount = 0; let dropped = 0; let saturatedLogged = false;
+  const cfg = () => { const d = ((getConfig() || {}).network || {}).deep || {}; return { retentionDays: d.retentionDays || 7, maxBytes: Math.floor((d.maxMB || 100) * MB), sampleSec: d.sampleSec || 5 }; };
   const dayFile = (t) => path.join(dir, `events-${localIso(new Date(t)).slice(0, 10)}.jsonl`);
   const files = () => { try { return fs.readdirSync(dir).filter((f) => /^events-\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).sort().map((f) => path.join(dir, f)); } catch { return []; } };
   const storageBytes = () => files().reduce((a, f) => { try { return a + fs.statSync(f).size; } catch { return a; } }, 0);
 
   /** Retention by age, then the size cap by deleting the oldest day files and finally the oldest lines of the newest. */
-  function prune() {
-    const c = cfg(); const cutoff = now() - c.retentionDays * DAY_MS;
-    for (const f of files()) { const d = Date.parse(/events-(\d{4}-\d{2}-\d{2})/.exec(f)[1]); if (d + DAY_MS < cutoff) fs.rmSync(f, { force: true }); }
+  /** One summary row per expired day (opens, closes, busiest programs and destinations), kept in deep-daily.jsonl, so history survives the raw events. */
+  const summaryFile = path.join(root, 'data', 'network', 'deep-daily.jsonl');
+  function summarizeDayFile(f) {
+    const day = /events-(\d{4}-\d{2}-\d{2})/.exec(f)[1];
+    try {
+      const have = fs.existsSync(summaryFile) && fs.readFileSync(summaryFile, 'utf8').split('\n').some((l) => l.includes(`"day":"${day}"`));
+      if (have) return;
+      let opens = 0; let closes = 0; const procs = new Map(); const remotes = new Map();
+      eachLine(f, (l) => { try { const e = JSON.parse(l); if (e.type === 'open') { opens++; const p = e.process || `pid ${e.pid}`; procs.set(p, (procs.get(p) || 0) + 1); if (e.remoteAddress) remotes.set(e.remoteAddress, (remotes.get(e.remoteAddress) || 0) + 1); } else if (e.type === 'close') closes++; } catch { /* skip */ } });
+      const top = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, n]) => ({ name, n }));
+      fs.mkdirSync(path.dirname(summaryFile), { recursive: true });
+      fs.appendFileSync(summaryFile, JSON.stringify({ day, opens, closes, topProcesses: top(procs), topRemotes: top(remotes) }) + '\n');
+    } catch { /* the raw file is still removed on schedule; a missing summary is not worth blocking retention */ }
+  }
+  const dropDayFile = (f) => { summarizeDayFile(f); fs.rmSync(f, { force: true }); };
+
+  /** Retention by age, then the size cap by deleting the oldest day files and finally the oldest part of the newest. */
+  function prune(nowArg) {
+    const c = cfg(); const cutoff = (nowArg ?? now()) - c.retentionDays * DAY_MS;
+    for (const f of files()) { const d = Date.parse(/events-(\d{4}-\d{2}-\d{2})/.exec(f)[1]); if (d + DAY_MS < cutoff) dropDayFile(f); }
     let list = files(); let total = storageBytes();
-    while (total > c.maxBytes && list.length > 1) { total -= fs.statSync(list[0]).size; fs.rmSync(list[0], { force: true }); list = list.slice(1); }
+    while (total > c.maxBytes && list.length > 1) { total -= fs.statSync(list[0]).size; dropDayFile(list[0]); list = list.slice(1); }
     if (total > c.maxBytes && list.length === 1) {
-      const lines = fs.readFileSync(list[0], 'utf8').split('\n').filter(Boolean);
-      let size = lines.reduce((a, l) => a + Buffer.byteLength(l) + 1, 0);
-      while (lines.length && size > c.maxBytes) { size -= Buffer.byteLength(lines.shift()) + 1; }
-      fs.writeFileSync(list[0], lines.length ? `${lines.join('\n')}\n` : '');
+      // keep the newest maxBytes only: read just that tail, start at a line boundary
+      const size = fs.statSync(list[0]).size; const fd = fs.openSync(list[0], 'r');
+      try { const buf = Buffer.alloc(c.maxBytes); fs.readSync(fd, buf, 0, c.maxBytes, size - c.maxBytes); const nl = buf.indexOf(10); fs.writeFileSync(list[0], nl >= 0 ? buf.subarray(nl + 1) : Buffer.alloc(0)); } finally { fs.closeSync(fd); }
     }
   }
 
@@ -81,9 +98,16 @@ function createDeep({ root, getConfig, log, runNetstat = realNetstat, runTasklis
     ticking = true;
     try {
       const t = now(); const ts = localIso(new Date(t));
-      if (t - namesAt > NAME_REFRESH_MS) { try { names = parseTasklist(await runTasklist()); namesAt = t; } catch { /* names are optional */ } }
-      // State names are localised on non-English Windows, so a TCP row owned by PID 0 (what TIME_WAIT always shows) is skipped as well.
-      const rows = parseNetstat(await runNetstat()).filter((r) => !IGNORED_STATES.has(String(r.state).toUpperCase().replace(/ /g, '_')) && !(r.proto === 'TCP' && r.pid === 0));
+      // Preferred source: the long-lived Get-NetTCPConnection sampler (locale independent). Fallback: netstat, whose state words are localised.
+      const fresh = sampler ? sampler.latest() : null;
+      let table;
+      if (fresh) { table = fresh.rows; names = fresh.names; namesAt = 0; source = 'sampler'; }
+      else {
+        if (source !== 'netstat' || t - namesAt > NAME_REFRESH_MS) { try { names = parseTasklist(await runTasklist()); namesAt = t; } catch { /* names are optional */ } }
+        table = parseNetstat(await runNetstat()); source = 'netstat';
+      }
+      // A TCP row owned by PID 0 (what TIME_WAIT always shows) is skipped as well, because netstat state words are localised.
+      const rows = table.filter((r) => !IGNORED_STATES.has(String(r.state).toUpperCase().replace(/ /g, '_')) && !(r.proto === 'TCP' && r.pid === 0));
       const seen = new Set(); const events = [];
       // A connection is only tracked once its open event is actually recorded, so a busy tick never loses an open and then reports a close without it.
       for (const r of rows) {
@@ -107,15 +131,16 @@ function createDeep({ root, getConfig, log, runNetstat = realNetstat, runTasklis
 
   function start() {
     if (timer) return status();
+    if (sampler) sampler.start();
     timer = setIntervalFn(() => { tick().catch((e) => log({ category: 'network', action: 'network.deep.error', result: 'failure', severity: 'warning', error: String(e.message || e).slice(0, 200) })); }, cfg().sampleSec * 1000);
     if (timer && timer.unref) timer.unref();
     return status();
   }
-  function stop() { if (timer) { clearIntervalFn(timer); timer = null; } open.clear(); return status(); }
+  function stop() { if (sampler) sampler.stop(); if (timer) { clearIntervalFn(timer); timer = null; } open.clear(); return status(); }
   const active = () => !!timer;
   function status() {
     const c = cfg();
-    return { active: active(), lastSampleAt: lastTick, eventsThisSession: eventCount, droppedConnections: dropped, tracking: open.size, storageBytes: storageBytes(), storageMB: Math.round((storageBytes() / MB) * 10) / 10, files: files().length, retentionDays: c.retentionDays, maxMB: c.maxBytes / MB, sampleSec: c.sampleSec };
+    return { active: active(), source, lastSampleAt: lastTick, eventsThisSession: eventCount, droppedConnections: dropped, tracking: open.size, storageBytes: storageBytes(), storageMB: Math.round((storageBytes() / MB) * 10) / 10, files: files().length, retentionDays: c.retentionDays, maxMB: c.maxBytes / MB, sampleSec: c.sampleSec };
   }
 
   /** Last TAIL_BYTES of a file as complete lines (a partial first line is dropped). */
