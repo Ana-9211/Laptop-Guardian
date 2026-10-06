@@ -388,6 +388,26 @@ try {
       const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('button:has-text("Export CSV")').first().click()]);
       check(/^laptop-guardian-log-\d{4}-\d{2}-\d{2}\.csv$/.test(dl.suggestedFilename()), 'the log exports as a dated CSV file: ' + dl.suggestedFilename());
 
+      note('\n== cleanup batch: programs tab, diagnostics, archived toggle, retention fields');
+      await page.goto(base() + '#/network?tab=programs');
+      await page.waitForSelector('table[aria-label="Programs on the network"] tbody tr');
+      const progLink = page.locator('table[aria-label="Programs on the network"] tbody tr a').first();
+      check(await page.locator('table[aria-label="Programs on the network"] tbody tr').count() > 0, 'Network Guard has a Programs tab with one row per program');
+      check(await page.getByText('Activity timeline').count() >= 1, 'and an activity timeline');
+      check(await page.getByRole('button', { name: 'Block 24 h' }).count() > 0 && await page.getByRole('button', { name: 'Stop', exact: true }).count() > 0, 'each row offers the confirmed block and stop buttons');
+      await progLink.click();
+      check((await page.evaluate(() => window.location.hash)).includes('tab=connections'), 'a program name opens the filtered connection view');
+      await page.goto(base() + '#/settings');
+      await page.getByRole('heading', { name: 'Diagnostics' }).waitFor();
+      await page.locator('section.card', { hasText: 'Diagnostics' }).getByRole('button', { name: 'Show' }).click();
+      await page.getByRole('button', { name: 'Copy diagnostics' }).waitFor();
+      const diagText = await page.locator('pre[aria-label="Masked diagnostics text"]').innerText();
+      check(/Laptop Guardian/.test(diagText) && !/TestUser/i.test(diagText), 'Diagnostics shows version and install mode, with the copy text masked');
+      check(await page.getByText('Keep raw metric rows for (days)').count() === 1 && await page.getByText('Keep audit rows in the live log for (days)').count() === 1, 'Settings has the two retention windows');
+      await page.goto(base() + '#/logs');
+      await page.getByLabel('Include archived').check();
+      check((await page.evaluate(() => window.location.hash)).includes('arch=1'), 'Include archived is kept in the address');
+
       note('\n== loading state is shown while data is slow');
       await page.route('**/api/overview', async (r) => { await new Promise((x) => setTimeout(x, 1200)); await r.continue(); });
       await page.goto(`${base()}#/overview`);
