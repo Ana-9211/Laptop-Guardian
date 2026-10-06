@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { api, ApiError, useQuery } from '../api';
 import type { Recommendation } from '../types';
-import { Badge, Card, CommandBlock, Drawer, Empty, ErrorState, KV, PageHead, RiskBadge, SearchBox, SkeletonCards, Tabs, useToast } from '../components/ui';
+import { Badge, Card, CommandBlock, Drawer, Empty, ErrorState, KV, PageHead, SearchBox, SkeletonCards, Tabs, useToast } from '../components/ui';
 import { RecCard } from '../components/common';
-import { go, useHash } from '../router';
+import { go, useHash, useBack } from '../router';
+import { usePageState } from '../state/pageState';
+import { RiskLink } from '../components/Linked';
 import { fmtFull } from '../format';
 import { useActionFlow } from '../components/ActionFlow';
 import { RecFixes } from '../components/RecFixes';
@@ -15,10 +17,10 @@ export default function Recommendations() {
   const q = useQuery<{ items: Recommendation[] }>('/api/recommendations');
   const toast = useToast();
   const flow = useActionFlow(() => q.reload());
-  const [tab, setTab] = useState<Tab>('open');
-  const [kind, setKind] = useState('');
-  const [risk, setRisk] = useState('');
-  const [text, setText] = useState('');
+  const [ps, setPs] = usePageState('recommendations', { tab: 'open', kind: '', risk: '', q: '' });
+  const tab = (['open', 'dismissed', 'ignored', 'actioned', 'resolved', 'all'].includes(ps.tab) ? ps.tab : 'open') as Tab; const kind = ps.kind; const risk = ps.risk; const text = ps.q;
+  const setTab = (t: Tab) => setPs({ tab: t }); const setKind = (k: string) => setPs({ kind: k }); const setRisk = (r: string) => setPs({ risk: r }); const setText = (q: string) => setPs({ q });
+  const back = useBack();
   const { params } = useHash();
   const [picked, setPicked] = useState<Recommendation | null>(null);
   const items = useMemo(() => q.data?.items ?? [], [q.data]);
@@ -32,7 +34,12 @@ export default function Recommendations() {
     .sort((a, b) => ['HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'].indexOf(a.risk) - ['HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'].indexOf(b.risk));
 
   const setStatus = async (r: Recommendation, status: string) => {
-    try { await api.post(`/api/recommendations/${r.id}/status`, { status }); toast('ok', `Marked ${status}.`); q.reload(); setSel(null); } catch (e) { toast('error', (e as ApiError).message); }
+    const prev = r.status;
+    try {
+      await api.post(`/api/recommendations/${r.id}/status`, { status });
+      toast('ok', `Marked ${status}.`, { undo: async () => { try { await api.post(`/api/recommendations/${r.id}/status`, { status: prev }); toast('ok', `Back to ${prev}.`); q.reload(); } catch (e) { toast('error', (e as ApiError).message); } } });
+      q.reload(); setSel(null);
+    } catch (e) { toast('error', (e as ApiError).message); }
   };
 
   return (
@@ -53,7 +60,7 @@ export default function Recommendations() {
         </>
       )}
       {sel && (
-        <Drawer title={sel.title} onClose={() => setSel(null)} sub={<span className="row tight"><RiskBadge risk={sel.risk} /><Badge tone="outline">{confidenceLabel(sel.confidence)}</Badge><Badge>{kindLabel(sel.kind)}</Badge></span>}
+        <Drawer title={sel.title} onClose={() => setSel(null)} back={linked ? back : null} sub={<span className="row tight"><RiskLink risk={sel.risk} to={`/recommendations?risk=${sel.risk}&tab=all`} /><Badge tone="outline">{confidenceLabel(sel.confidence)}</Badge><Badge>{kindLabel(sel.kind)}</Badge></span>}
           footer={<>{sel.kind === 'process' && <button className="btn" onClick={() => go(`/processes?rec=${sel.id}`)}>Open process panel</button>}{sel.status === 'open' ? <><button className="btn" onClick={() => setStatus(sel, 'dismissed')}>Dismiss</button><button className="btn" onClick={() => setStatus(sel, 'ignored')}>Ignore</button><button className="btn primary" onClick={() => setStatus(sel, 'resolved')}>Mark resolved</button></> : <button className="btn" onClick={() => setStatus(sel, 'open')}>Reopen</button>}</>}>
           <Card title="Details"><div className="stack"><p>{sel.whatIsIt}</p><ul style={{ margin: 0, paddingLeft: 18 }}>{(sel.whyFlagged || []).map((w) => <li key={w}>{w}</li>)}</ul>
             <KV items={[['Suggested action', sel.suggestedAction], ['Consequences', sel.consequences], ['First seen', fmtFull(sel.firstSeen)], ['Last seen', fmtFull(sel.lastSeen)], ['Occurrences', sel.occurrences]]} /></div></Card>

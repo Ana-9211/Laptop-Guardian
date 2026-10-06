@@ -37,20 +37,24 @@ export function Tip({ text, children, block }: { text: string; children: ReactNo
 }
 
 /* ---------- toasts ---------- */
-interface ToastItem { id: number; tone: 'ok' | 'error' | 'info' | 'warn'; text: string }
-const ToastCtx = createContext<(tone: ToastItem['tone'], text: string) => void>(() => {});
+/** `undo` turns a toast into an Undo button: it reverses the change the toast reports, and the toast stays a little longer so there is time to use it. */
+export interface ToastOpts { undo?: () => void | Promise<void> }
+interface ToastItem { id: number; tone: 'ok' | 'error' | 'info' | 'warn'; text: string; undo?: () => void | Promise<void> }
+const ToastCtx = createContext<(tone: ToastItem['tone'], text: string, opts?: ToastOpts) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);
 function ToastView({ t, onDismiss }: { t: ToastItem; onDismiss: (id: number) => void }) {
   const [paused, setPaused] = useState(false);
+  const hasUndo = !!t.undo;
   // Errors are sticky: they need to be read. Everything else fades out, but not while the pointer or keyboard focus is on it.
   useEffect(() => {
     if (t.tone === 'error' || paused) return;
-    const timer = setTimeout(() => onDismiss(t.id), TOAST_MS.default);
+    const timer = setTimeout(() => onDismiss(t.id), hasUndo ? TOAST_MS.undo : TOAST_MS.default);
     return () => clearTimeout(timer);
-  }, [t.id, t.tone, paused, onDismiss]);
+  }, [t.id, t.tone, paused, onDismiss, hasUndo]);
   return (
     <div className={`toast ${t.tone}`} role={t.tone === 'error' ? 'alert' : 'status'} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}>
       <p>{t.text}</p>
+      {t.undo && <button className="btn sm" onClick={() => { const u = t.undo; onDismiss(t.id); void u?.(); }}>Undo</button>}
       <button aria-label="Dismiss" title="Dismiss" onClick={() => onDismiss(t.id)}><Icon name="x" size={14} /></button>
     </div>
   );
@@ -59,9 +63,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const n = useRef(0);
   const dismiss = useCallback((id: number) => setItems((x) => x.filter((t) => t.id !== id)), []);
-  const push = useCallback((tone: ToastItem['tone'], text: string) => {
+  const push = useCallback((tone: ToastItem['tone'], text: string, opts?: ToastOpts) => {
     const id = ++n.current;
-    setItems((x) => [...x.slice(-(MAX_TOASTS - 1)), { id, tone, text }]);
+    setItems((x) => [...x.slice(-(MAX_TOASTS - 1)), { id, tone, text, undo: opts?.undo }]);
   }, []);
   return (
     <ToastCtx.Provider value={push}>

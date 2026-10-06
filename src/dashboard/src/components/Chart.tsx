@@ -38,10 +38,12 @@ interface LineProps {
   area?: boolean; title: string; threshold?: { value: number; label: string }; hideLegend?: boolean;
   /** Shown when there is nothing to plot. The defaults describe the scan metrics; other charts say what they are waiting for. */
   emptyTitle?: string; emptyHint?: string;
+  /** Where a click (or Enter on the focused point) on a data point goes, e.g. the report of that day. */
+  pointHref?: (index: number) => string | null;
 }
 
 /** Multi-series line/area chart: crosshair tooltip, keyboard navigation, data-table fallback. */
-export function LineChart({ x, series, height = 200, unit = '', min, max, digits = 1, area, title, threshold, hideLegend, emptyTitle = 'No data for this range', emptyHint = 'Metrics appear after the first daily scan.' }: LineProps) {
+export function LineChart({ x, series, height = 200, unit = '', min, max, digits = 1, area, title, threshold, hideLegend, emptyTitle = 'No data for this range', emptyHint = 'Metrics appear after the first daily scan.', pointHref }: LineProps) {
   const [ref, W] = useWidth();
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
@@ -76,7 +78,8 @@ export function LineChart({ x, series, height = 200, unit = '', min, max, digits
     <div className="chart" ref={ref}>
       <svg width={W} height={height} role="img" tabIndex={0} aria-label={`${title}. ${series.map((s) => s.label).join(', ')}. Use left and right arrow keys to inspect values.`}
         onMouseMove={(e) => setHover(idxAt(e.clientX, e.currentTarget))} onMouseLeave={() => setHover(null)}
-        onKeyDown={(e) => { if (e.key === 'ArrowRight') setHover((h) => Math.min(n - 1, (h ?? -1) + 1)); else if (e.key === 'ArrowLeft') setHover((h) => Math.max(0, (h ?? n) - 1)); else if (e.key === 'Escape') setHover(null); }}
+        onClick={(e) => { const h = pointHref?.(idxAt(e.clientX, e.currentTarget)); if (h) window.location.hash = h; }} style={pointHref ? { cursor: 'pointer' } : undefined}
+        onKeyDown={(e) => { if (e.key === 'ArrowRight') setHover((h) => Math.min(n - 1, (h ?? -1) + 1)); else if (e.key === 'ArrowLeft') setHover((h) => Math.max(0, (h ?? n) - 1)); else if (e.key === 'Escape') setHover(null); else if (e.key === 'Enter' && hover != null) { const h = pointHref?.(hover); if (h) window.location.hash = h; } }}
         onBlur={() => setHover(null)}>
         <g className="grid">{ticks.filter((t) => t >= lo && t <= hi).map((t) => <g key={t}><line x1={m.l} x2={W - m.r} y1={py(t)} y2={py(t)} /><text x={m.l - 6} y={py(t) + 4} textAnchor="end">{t.toLocaleString(undefined, { maximumFractionDigits: 1 })}</text></g>)}</g>
         {xt.map((i, k) => <text key={k} x={px(i)} y={height - 5} textAnchor={k === 0 && n > 1 ? 'start' : k === xt.length - 1 && n > 1 ? 'end' : 'middle'}>{fmtDay(x[i])}</text>)}
@@ -91,7 +94,7 @@ export function LineChart({ x, series, height = 200, unit = '', min, max, digits
       </svg>
       {hover != null && (
         <div className="tip" style={{ left: tipLeft, top: 4 }} role="status">
-          <b>{fmtFull(x[hover])}</b>
+          <b>{fmtFull(x[hover])}</b>{pointHref?.(hover) && <div className="small muted">Click to open that day</div>}
           {series.map((s) => <div key={s.id}><span><i style={{ background: s.color }} />{s.label}</span><span className="num">{f(s.values[hover])}</span></div>)}
         </div>
       )}

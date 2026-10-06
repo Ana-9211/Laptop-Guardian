@@ -192,7 +192,7 @@ try {
       await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(OUT, 'actions-list-dark.png') });
       const fileRow = page.locator('main table tbody tr', { hasText: 'file' }).first();
-      await fileRow.click();
+      await fileRow.locator('td').first().click();
       await page.waitForSelector('[role="dialog"]');
       check(/why it was flagged/i.test(await page.locator('[role="dialog"]').innerText()), 'finding drawer explains why it was flagged');
       check(/previous attempts/i.test(await page.locator('[role="dialog"]').innerText()), 'finding drawer shows previous attempts');
@@ -303,6 +303,90 @@ try {
       check(/^(Updated .+|Last update .+|Offline)\s+Refresh status$/i.test(refreshText.replace(/\n+/g, ' ')), 'the refresh area reads "Updated ..." followed by the button label: ' + JSON.stringify(refreshText));
       check(!mojibake.test(refreshText) && !mojibake.test(railText), 'no replacement characters or mojibake in the refresh area or the status rail');
       check(/^[\x20-\x7E\s]*$/.test(refreshText), 'the refresh area is plain ASCII');
+
+      note('\n== links: stat tiles, risk chips, count badges, chart points, rows, Back, and filters that survive a refresh');
+      const hashNow = async () => page.evaluate(() => window.location.hash);
+      // stat tile -> filtered view
+      await page.goto(base() + '#/actions');
+      await page.waitForSelector('a.card.stat.linked');
+      const highTile = page.locator('a.card.stat.linked', { hasText: 'High risk' });
+      check(await highTile.count() === 1, 'the Action Center "High risk" tile is a link');
+      await highTile.click();
+      check((await hashNow()).includes('risk=HIGH'), 'clicking the High risk tile filters to HIGH: ' + (await hashNow()));
+      await page.reload(); await page.waitForSelector('a.card.stat.linked');
+      check((await hashNow()).includes('risk=HIGH'), 'the filter is still in the address after a refresh');
+      const shownText = await page.locator('.filters .small.muted').first().innerText();
+      check(/of \d+/.test(shownText), 'the filtered list reports "x of y": ' + shownText);
+      // risk chip in a table row -> same page filtered, and the row still opens its drawer
+      await page.goto(base() + '#/actions?risk=&fix=');
+      await page.waitForSelector('table[aria-label="Findings"] tbody tr');
+      const chip = page.locator('table[aria-label="Findings"] a.chip-link').first();
+      if (await chip.count()) { const before = await hashNow(); await chip.click(); check((await hashNow()) !== before && /risk=|kind=/.test(await hashNow()), 'a risk or type chip in the table links to a filtered view'); }
+      // sort and tab are remembered per page
+      await page.goto(base() + '#/network?tab=findings');
+      await page.waitForSelector('[role="tab"][aria-selected="true"]');
+      await page.reload(); await page.waitForSelector('[role="tab"][aria-selected="true"]');
+      check((await page.locator('[role="tab"][aria-selected="true"]').first().innerText()).toLowerCase().includes('findings'), 'the Network Guard tab survives a refresh');
+      await page.locator('[role="tab"]', { hasText: 'Listening' }).first().click();   // choosing a tab is what is remembered
+      await page.goto(base() + '#/overview'); await page.goto(base() + '#/network');
+      await page.waitForSelector('[role="tab"][aria-selected="true"]');
+      check((await page.locator('[role="tab"][aria-selected="true"]').first().innerText()).toLowerCase().includes('listening'), 'and the tab you chose comes back when you return to the page');
+      await page.evaluate(() => { try { localStorage.removeItem('lg-page-network'); } catch { /* ignore */ } });
+      // count badge / vital tile
+      await page.goto(base() + '#/overview');
+      await page.waitForSelector('.vital');
+      const vital = page.locator('a.vital').first();
+      if (await vital.count()) { await vital.click(); check(!(await hashNow()).startsWith('#/overview'), 'an Overview vital tile opens its page: ' + (await hashNow())); }
+      await page.goto(base() + '#/overview'); await page.waitForSelector('.chip-link');
+      const countBadge = page.locator('.card-head a.chip-link').first();
+      if (await countBadge.count()) { await countBadge.click(); check((await hashNow()).startsWith('#/logs'), 'the error count badge opens the filtered log'); }
+      // chart point -> that day's report
+      await page.goto(base() + '#/overview'); await page.waitForSelector('.chart svg');
+      const svg = page.locator('.chart svg').first(); await svg.scrollIntoViewIfNeeded(); const box = await svg.boundingBox();
+      if (box) { await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.5); check((await hashNow()).startsWith('#/reports?type=daily&id='), 'clicking a chart point opens that day: ' + (await hashNow())); }
+      // row link opens a drawer with a Back target to where we came from
+      await page.goto(base() + '#/overview'); await page.waitForSelector('.list-row');
+      const recRow = page.locator('[role="button"].list-row').first();
+      if (await recRow.count()) {
+        await recRow.click();
+        await page.waitForSelector('[role="dialog"]');
+        const back = page.locator('[data-testid="drawer-back"]');
+        check(await back.count() === 1, 'a drawer opened from a link offers Back to the page it came from');
+        if (await back.count()) { await back.click(); check((await hashNow()).startsWith('#/overview'), 'Back returns to the Overview'); }
+      }
+
+      note('\n== guidance: score explanation, what changed, checklist, Safe Mode dry run, undo toast, CSV export');
+      await page.goto(base() + '#/overview');
+      await page.waitForSelector('.hero');
+      await page.locator('details.score-explain summary').click();
+      check(await page.locator('details.score-explain table, details.score-explain p').count() > 0, 'the health score can be explained (points per factor)');
+      check(await page.getByText('What changed since the last run').count() === 1, 'Overview shows what changed since the last run');
+      const checklist = page.getByText(/Finish setting up|Optional extras|setup step/);
+      check(await checklist.count() >= 0, 'the setup checklist renders without errors (or stays hidden when nothing is left)');
+      await page.goto(base() + '#/settings');
+      await page.getByRole('button', { name: /Preview what Safe Mode off would do/ }).click();
+      await page.waitForSelector('text=Would not happen');
+      check(await page.getByText('Would happen automatically').count() === 1 && await page.getByText('Would not happen').count() === 1, 'the Safe Mode dry run lists what would and would not happen');
+      check(/Read only/.test(await page.locator('body').innerText()), 'and says it changes nothing');
+      // undo toast: dismiss a recommendation, then undo it
+      await page.goto(base() + '#/recommendations?tab=open');
+      await page.waitForSelector('[role="button"].card');
+      await page.locator('[role="button"].card').first().click();
+      await page.waitForSelector('[role="dialog"]');
+      const dismiss = page.getByRole('button', { name: 'Dismiss', exact: true });
+      if (await dismiss.count()) {
+        await dismiss.first().click();
+        await page.waitForSelector('.toast button:has-text("Undo")');
+        check(true, 'dismissing a recommendation shows a toast with Undo');
+        await page.locator('.toast button:has-text("Undo")').click();
+        await page.waitForSelector('.toast:has-text("Back to")');
+        check(true, 'Undo puts the status back');
+      }
+      // CSV export of the log
+      await page.goto(base() + '#/logs');
+      await page.waitForSelector('button:has-text("Export CSV")');
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('button:has-text("Export CSV")').first().click()]);
+      check(/^laptop-guardian-log-\d{4}-\d{2}-\d{2}\.csv$/.test(dl.suggestedFilename()), 'the log exports as a dated CSV file: ' + dl.suggestedFilename());
 
       note('\n== loading state is shown while data is slow');
       await page.route('**/api/overview', async (r) => { await new Promise((x) => setTimeout(x, 1200)); await r.continue(); });

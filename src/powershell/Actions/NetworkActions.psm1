@@ -25,5 +25,6 @@ $script:DurationHours = @{ '1h' = 1; '24h' = 24; '7d' = 168 }
 . (Join-Path $PSScriptRoot 'NetworkActions\Firewall.ps1')
 . (Join-Path $PSScriptRoot 'NetworkActions\DnsBlock.ps1')
 . (Join-Path $PSScriptRoot 'NetworkActions\DnsLog.ps1')
+. (Join-Path $PSScriptRoot 'NetworkActions\Doh.ps1')
 
-Export-ModuleMember -Function Test-FirewallCreate, Invoke-FirewallCreate, Test-FirewallManage, Invoke-FirewallManage, Test-DnsBlock, Invoke-DnsBlock, Test-DnsRollback, Invoke-DnsRollback, Test-DnsLogChange, Invoke-DnsLogChange, Update-GuardianHostsBlockFile, Get-HostsParts, Get-HostsDomains, Test-DomainTarget, Test-RemoteTarget, Test-PortTarget, Test-ProgramTarget, Test-GuardianOwned, ConvertTo-IpInfo
+Export-ModuleMember -Function Test-FirewallCreate, Invoke-FirewallCreate, Test-FirewallManage, Invoke-FirewallManage, Test-DnsBlock, Invoke-DnsBlock, Test-DnsRollback, Invoke-DnsRollback, Test-DnsLogChange, Invoke-DnsLogChange, Test-DohEnable, Invoke-DohEnable, Test-DohRestore, Invoke-DohRestore, Update-GuardianHostsBlockFile, Get-HostsParts, Get-HostsDomains, Test-DomainTarget, Test-RemoteTarget, Test-PortTarget, Test-ProgramTarget, Test-GuardianOwned, ConvertTo-IpInfo

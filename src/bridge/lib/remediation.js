@@ -22,7 +22,7 @@ const MAX_HISTORY = 500;
 const REQUIRED_ACKS = {
   'process.stop': ['unsaved-work'], 'app.revo-launch': ['unsaved-work'], 'app.uninstall': ['unsaved-work'], 'service.disable': ['dependent-programs'],
   'firewall.block-program': ['connectivity'], 'firewall.block-port': ['connectivity'], 'firewall.block-remote': ['connectivity'], 'dns.block-domain': ['dns-limits'],
-  'firewall.allow-program': ['allow-exposure'], 'service.stop': ['dependent-programs'],
+  'firewall.allow-program': ['allow-exposure'], 'service.stop': ['dependent-programs'], 'dns.doh-enable': ['dns-provider'],
 };
 
 const byId = new Map(CATALOG.actions.map((a) => [a.id, a]));

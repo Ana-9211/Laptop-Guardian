@@ -11,7 +11,7 @@ export const DATA_RELOAD_MS = 60_000;
 export const STALE_AFTER_MS = 45_000;
 /** Delays for re-checking status right after starting a scan: the agent writes its run marker a moment later. */
 export const SCAN_START_RECHECK_MS = [1_500, 4_000] as const;
-export const TOAST_MS = { default: 4_500 } as const;
+export const TOAST_MS = { default: 4_500, undo: 12_000 } as const;
 export const MAX_TOASTS = 4;
 export const CLOCK_TICK_MS = { fast: 1_000, relative: 5_000, slow: 30_000 } as const;
 /** How often the confirmation dialog checks on an elevated run (Windows prompt answered? finished?). */

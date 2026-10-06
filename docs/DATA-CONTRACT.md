@@ -1,6 +1,6 @@
 # Laptop Guardian data contract
 
-Root = install dir (e.g. `C:\Users\You\LaptopGuardian`). All JSON UTF-8 (no BOM), camelCase keys, timestamps ISO-8601 local with offset. Writers: PowerShell agents + bridge. Readers: bridge -> dashboard. Dashboard must be defensive: any field may be missing/null.
+Root = the data folder (`%LOCALAPPDATA%\LaptopGuardian` for an installed copy, the checkout itself for a development copy; `install.json` beside the program files names it). Administrator results and audit lines of an installed copy live in `%ProgramData%\LaptopGuardian` (see `docs/ARCHITECTURE.md`). All JSON UTF-8 (no BOM), camelCase keys, timestamps ISO-8601 local with offset. Writers: PowerShell agents + bridge. Readers: bridge -> dashboard. Dashboard must be defensive: any field may be missing/null.
 
 ## Files
 
@@ -18,8 +18,14 @@ Root = install dir (e.g. `C:\Users\You\LaptopGuardian`). All JSON UTF-8 (no BOM)
 | `data/latest/daily.json`, `data/latest/weekly.json` | Report | agents |
 | `data/latest/processes.json` | `{generatedAt, processes:[Process]}` | agents |
 | `data/latest/files.json` | `{generatedAt, drives:[...], candidates:[FileCandidate], largest:[...], duplicates:[DupGroup], downloads:{...}}` | agents |
-| `data/metrics/metrics.jsonl` | one `Metric` per line | agents |
-| `data/actions/actions.jsonl` | one `ActionEvent` per line | agents + bridge |
+| `data/metrics/metrics.jsonl` | one `Metric` per line: the last 180 days only | agents (append, under `<file>.lock`) |
+| `data/metrics/metrics-daily.jsonl` | one summary `Metric` per day older than 180 days (`runType:"summary"`, `summaryOf` = rows rolled up, means of the numeric fields, maxima for the problem counters) | bridge maintenance |
+| `data/actions/actions.jsonl` | one `ActionEvent` per line: the last 90 days only | agents + bridge (append, under `<file>.lock`) |
+| `data/actions/archive/actions-YYYY-MM.jsonl` | the original audit rows older than 90 days, by month. Nothing is deleted. The dashboard reads the live file only | bridge maintenance |
+| `data/actions/actions-daily.jsonl` | `{day,total,byCategory,bySeverity,errors}` per archived day | bridge maintenance |
+| `data/network/deep-daily.jsonl` | `{day,opens,closes,topProcesses:[{name,n}],topRemotes:[{name,n}]}` for each expired Deep Network Guard day file | bridge |
+| `data/state/queued-run.json` | `{kind:"daily"|"weekly",full:true,queuedAt}`: make the next scheduled run of that kind a full one; removed by the run that uses it | bridge (scan.queue-next-run), agents |
+| `data/state/app-removals.json` | install folder and publisher recorded before a Revo uninstall, used only to report leftovers | agents |
 | `data/recommendations/recommendations.json` | `{updatedAt, items:[Recommendation]}` | agents + bridge (status) |
 | `data/state/run-state.json` | `{lastDaily:{startedAt,finishedAt,status}, lastWeekly:{...}, running:null|{type,phase,startedAt}}` | agents |
 | `data/state/ai-usage.jsonl` | `{ts,model,kind,ok,promptTokens,outputTokens,error}` | agents + bridge |
@@ -48,7 +54,7 @@ Root = install dir (e.g. `C:\Users\You\LaptopGuardian`). All JSON UTF-8 (no BOM)
 Match key = lower-case process name (without .exe) AND, if `path` set, case-insensitive path equality.
 
 ## Metric (one per line)
-`{ts, runType:"daily"|"weekly", cpuPct, ramPct, ramUsedGB, ramTotalGB, diskUsedPct, diskFreeGB, diskTotalGB, diskFreePct, processCount, flaggedCount, recommendationCount, actionCount, errorCount, startupCount, serviceFailures, batteryPct|null, downloadsGB, defenderSigAgeDays|null, defenderThreats, healthScore(0-100)}`
+`{ts, runType:"daily"|"weekly"|"summary", cpuPct, ramPct, ramUsedGB, ramTotalGB, diskUsedPct, diskFreeGB, diskTotalGB, diskFreePct, processCount, flaggedCount, recommendationCount, actionCount, errorCount, startupCount, serviceFailures, batteryPct|null, downloadsGB, defenderSigAgeDays|null, defenderThreats, healthScore(0-100)}`
 
 ## ActionEvent
 `{id, ts, category:"scan|process|ai|file|cleanup|defender|windows|policy|shutdown|config|system|remediation|network", severity:"info|warning|error", action, target|null, result:"success|failure|skipped|timeout|started", actor:"agent|user|policy|ai-validator", reason|null, relatedRecommendation|null, error|null, runType|null, data?}`
@@ -134,9 +140,22 @@ All JSON unless noted. Every `/api/*` request except `GET /api/ping` must send `
 **Action Center** (every executable change is one of the allowlisted actions in `src/shared/action-catalog.json`; nothing accepts a command)
 - `GET /api/remediation/findings` -> `{generatedAt, revo, findings:[Finding]}`; `GET /api/remediation/history?limit=` -> `{items:[HistoryItem]}`
 - `POST /api/remediation/plan {actionId, params}` -> the exact plan (summary, consequences, undo, `requiredAcks`, `warnings`, `admin`, one-time `token`, 10 minute expiry)
-- `POST /api/remediation/execute {token, confirm:true, acknowledged:[...]}`; `POST /api/remediation/cancel {token}`; `GET /api/remediation/result/:ticket` (polls an elevated run); `POST /api/remediation/undo {eventId}` -> a new plan
+- `POST /api/remediation/execute {token, confirm:true, acknowledged:[...], typed?}` (`typed` must equal the plan's `typedConfirmation`, the file name, for `file.delete-permanent`); `POST /api/remediation/cancel {token}`; `GET /api/remediation/result/:ticket` (polls an elevated run); `POST /api/remediation/undo {eventId}` -> a new plan
+
+**Guidance** (read-only)
+- `GET /api/setup` -> the first-run checklist `{items:[{id,title,detail,done,optional,unknown?,action:{actionId,label,params}|null,link|null}],complete,remaining}`. Nothing runs by itself; every action goes through plan, confirm, execute.
+- `GET /api/changes` -> the newest daily report compared with the one before: `{available, reason?, from, to, items:[{label,from,to,delta,tone}]}`
+- `GET /api/safemode/preview` -> what the agents would do with Safe Mode off, from the latest scan: `{safeMode, wouldDo:[{kind,label,detail}], wouldNotDo:[...], notes, basedOn}`. Runs nothing.
 
 **Network Guard**
-- `GET /api/network/current` (read-only; reads nothing from Windows); `POST /api/network/snapshot` (takes one read-only snapshot); `GET /api/network/history?range=`; `GET /api/network/dns-log`
+- `GET /api/network/current` (read-only; reads nothing from Windows; includes `findings`, a `posture` score with every deduction, and `snapshot.dnsConfig` with each interface's DNS servers and the registered DoH servers); `GET /api/network/fw-events?hours=` -> Windows Filtering Platform events 5156/5157/5152/5158 as `{available, reason, items:[{ts,eventId,result,direction,protocol,pid,application,localAddress,localPort,remoteAddress,remotePort}]}` (needs administrator rights to read the Security log and the audit policy turned on)
+- `POST /api/network/snapshot` (takes one read-only snapshot); `GET /api/network/history?range=`; `GET /api/network/dns-log`
 - `GET /api/network/deep`; `POST /api/network/deep/start {confirm:true, acknowledged:true}`; `POST /api/network/deep/stop`; `GET /api/network/deep/events`; `POST /api/network/deep/export {format:"jsonl"|"csv"}` (streamed download); `POST /api/network/deep/delete {confirm:true}`
 - `POST /api/network/dns-filtering {confirm, enabled, acknowledged}`
+
+## Action catalog (`src/shared/action-catalog.json`)
+Every action has `id, category, label, risk (LOW|MEDIUM|HIGH), admin (true|false|"dynamic"), reversible, params (each an enum or a named pattern), summary ({param} placeholders), consequences, undo, verify`, and optionally `handler:"bridge"`, `undoId`, `long`, `typedConfirm`. A test checks all of this and that every action has a handler.
+Added since the first release: `scan.run-now`, `scan.queue-next-run`, `scan.schedule-once`, `scan.cancel-once`, `setup.register-tasks`, `setup.enable-safe-defaults`, `setup.enable-dns-log`, `setup.enable-firewall-audit`, `setup.disable-firewall-audit`, `defender.enable-realtime`, `system.run-windows-update-scan`, `system.open-settings` (fixed table of Windows pages), `service.stop`, `service.start`, `storage.clean-temp`, `cleanup.empty-recycle-bin`, `file.delete-permanent` (only Recycle Bin or cleanup locations, typed file name), `app.uninstall` (guided Revo launch), `app.cleanup-leftovers` (read-only report), `dns.doh-enable`, `dns.doh-restore`.
+
+## Retention
+Raw metrics are kept for 180 days and raw audit rows for 90 days (constants in `src/bridge/lib/constants.js`; not settings). The bridge compacts them shortly after it starts and then daily, never while a scan runs, holding the same `<file>.lock` the agents hold when they append, writing through a temp file and renaming it over the original. Rows that cannot be parsed are kept. `/api/metrics` and `/api/overview` read a byte-capped tail of the live file plus the daily summaries, never the whole file. Deep Network Guard keeps its configured retention and size cap, summarising each day before it is removed.

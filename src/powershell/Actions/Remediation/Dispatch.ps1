@@ -43,6 +43,8 @@ function Get-RemediationHandler {
         'setup.enable-dns-log' { return @{ V = { param($p) Test-DnsLogChange $true }; E = { param($p, $v) Invoke-DnsLogChange $true } } }
         'setup.enable-firewall-audit' { return @{ V = { param($p) Test-FirewallAuditChange $true }; E = { param($p, $v) Invoke-FirewallAuditChange $true } } }
         'setup.disable-firewall-audit' { return @{ V = { param($p) Test-FirewallAuditChange $false }; E = { param($p, $v) Invoke-FirewallAuditChange $false } } }
+        'dns.doh-enable' { return @{ V = { param($p) Test-DohEnable $p }; E = { param($p, $v) Invoke-DohEnable $p $v } } }
+        'dns.doh-restore' { return @{ V = { param($p) Test-DohRestore $p }; E = { param($p, $v) Invoke-DohRestore $p $v } } }
         'app.uninstall' { return @{ V = { param($p) Test-RevoLaunch $p }; E = { param($p, $v) Invoke-RevoLaunch $p $v } } }
         'app.cleanup-leftovers' { return @{ V = { param($p) Test-AppCleanupLeftovers $p }; E = { param($p, $v) Invoke-AppCleanupLeftovers $p } } }
         'app.verify-removed' { return @{ V = { param($p) Test-AppVerify $p }; E = { param($p, $v) Invoke-AppVerify $p } } }

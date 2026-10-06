@@ -4,7 +4,9 @@ import type { Policy, Process, Recommendation } from '../types';
 import { Badge, Card, Col, DataTable, Empty, ErrorState, PageHead, RiskBadge, SearchBox, SkeletonCards, Tabs, Tip } from '../components/ui';
 import { ProcessDrawer } from '../components/ProcessDrawer';
 import { fmtMB, pct, fmtDate, NA } from '../format';
-import { go, useHash } from '../router';
+import { go, useHash, useBack } from '../router';
+import { usePageState } from '../state/pageState';
+import { CsvButton } from '../components/CsvButton';
 import { flagLabel } from '../labels';
 
 type Tab = 'all' | 'flagged' | 'persistent' | 'high' | 'recommended' | 'blacklisted' | 'whitelisted';
@@ -13,8 +15,10 @@ export default function Processes() {
   const procs = useQuery<{ generatedAt: string | null; processes: Process[] }>('/api/processes');
   const recs = useQuery<{ items: Recommendation[] }>('/api/recommendations');
   const { params } = useHash();
-  const [tab, setTab] = useState<Tab>('all');
-  const [q, setQ] = useState('');
+  const [ps, setPs] = usePageState('processes', { tab: 'all', q: '' });
+  const tab = (['all', 'flagged', 'persistent', 'high', 'recommended', 'blacklisted', 'whitelisted'].includes(ps.tab) ? ps.tab : 'all') as Tab; const q = ps.q;
+  const setTab = (t: Tab) => setPs({ tab: t }); const setQ = (v: string) => setPs({ q: v });
+  const back = useBack();
   const [sel, setSel] = useState<Process | null>(null);
   const reload = () => { procs.reload(); recs.reload(); };
 
@@ -80,13 +84,13 @@ export default function Processes() {
       {procs.error ? <ErrorState error={procs.error} onRetry={reload} /> : !procs.data ? <SkeletonCards n={4} h={140} /> : (
         <Card flush>
           <Tabs value={tab} onChange={setTab} items={tabs} label="Process filters" listStyle={{ padding: '0 14px' }} panelStyle={{ gap: 0 }}>
-          <div className="filters"><SearchBox value={q} onChange={setQ} placeholder="Search name, path, publisher or PID" /><span className="small muted">{rows.length} of {list.length}</span></div>
-          <DataTable label="Processes" cols={cols} rows={rows} rowKey={(p) => `${p.name}:${p.pid}`} onRow={setSel} selected={sel ? `${sel.name}:${sel.pid}` : null} initialSort={{ key: 'ram', dir: -1 }}
+          <div className="filters"><SearchBox value={q} onChange={setQ} placeholder="Search name, path, publisher or PID" /><span className="small muted">{rows.length} of {list.length}</span><CsvButton name="laptop-guardian-processes" rows={rows} cols={[{ label: 'Process', get: (p: Process) => p.name }, { label: 'PID', get: (p: Process) => p.pid }, { label: 'CPU %', get: (p: Process) => p.cpuPct }, { label: 'RAM MB', get: (p: Process) => p.memoryMB }, { label: 'Publisher', get: (p: Process) => p.publisher }, { label: 'Signed', get: (p: Process) => p.signed }, { label: 'Path', get: (p: Process) => p.path }, { label: 'Persistent', get: (p: Process) => p.persistent }, { label: 'Flags', get: (p: Process) => (p.flags || []).join('; ') }, { label: 'Policy', get: (p: Process) => p.policy }]} /></div>
+          <DataTable label="Processes" cols={cols} rows={rows} rowKey={(p) => `${p.name}:${p.pid}`} onRow={setSel} selected={sel ? `${sel.name}:${sel.pid}` : null} initialSort={{ key: 'ram', dir: -1 }} persistKey="processes"
             empty={<Empty icon="processes" title={list.length ? 'No processes match' : 'No process snapshot yet'}>{list.length ? 'Try another filter or clear the search.' : 'Run a daily scan to collect the first snapshot.'}</Empty>} />
           </Tabs>
         </Card>
       )}
-      {sel && <ProcessDrawer proc={sel} rec={selRec} onClose={close} onChanged={() => { reload(); }} />}
+      {sel && <ProcessDrawer proc={sel} rec={selRec} onClose={close} onChanged={() => { reload(); }} back={params.get('rec') || params.get('name') ? back : null} />}
     </div>
   );
 }
