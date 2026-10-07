@@ -155,6 +155,21 @@ function tailJsonl(file, maxLines = 500, maxBytes = 4 * 1024 * 1024) {
   }
 }
 
+/**
+ * tailJsonl, but the parsed rows are kept until the file changes (its size or modification time). The dashboard polls endpoints that look at the audit
+ * log's tail on every request; with an unchanged file the second poll costs one stat instead of reading and parsing up to 4 MB again. A NEW array is
+ * returned every time (callers reverse and sort their copy); the row objects are shared and must not be modified.
+ */
+const tailCache = new Map();
+function tailJsonlCached(file, maxLines = 500, maxBytes = 4 * 1024 * 1024) {
+  let st; try { st = fs.statSync(file); } catch { tailCache.delete(file); return []; }
+  const key = `${st.size}:${st.mtimeMs}`; const hit = tailCache.get(file);
+  if (hit && hit.key === key && hit.lines >= maxLines && hit.bytes >= maxBytes) return hit.rows.slice(-maxLines);
+  const rows = tailJsonl(file, maxLines, maxBytes);
+  tailCache.set(file, { key, lines: maxLines, bytes: maxBytes, rows });
+  return rows.slice();
+}
+
 function readAllJsonl(file) {
   return tailJsonl(file, Number.MAX_SAFE_INTEGER, 256 * 1024 * 1024);
 }
@@ -301,4 +316,4 @@ function nextRun(time, day, from = new Date()) {
 }
 
 module.exports = {
-  readInstall, DEFAULT_PORT, withFileLock, withFileLockAsync, setLockProbe, csvCell, riskyChanges, readJson, RANGES, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };
+  readInstall, DEFAULT_PORT, withFileLock, withFileLockAsync, setLockProbe, csvCell, riskyChanges, readJson, RANGES, writeJsonAtomic, tailJsonl, tailJsonlCached, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };

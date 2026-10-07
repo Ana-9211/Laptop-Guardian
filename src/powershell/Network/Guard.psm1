@@ -11,10 +11,13 @@ $script:RuleGroup = 'Laptop Guardian'
 # thin wrappers (mocked in tests)
 function Get-TcpTable { @(Get-NetTCPConnection -ErrorAction SilentlyContinue) }
 function Get-UdpTable { @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue) }
-function Get-ProcessTable { @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Select-Object ProcessId, Name, ExecutablePath, CreationDate) }
+# ONE Win32_Process query per snapshot. The instances are kept whole (not trimmed to a few properties) because the owner lookup below needs the
+# instance itself; asking WMI again for each process (a query plus a method call per PID, up to 80 times) was the slow part of a snapshot.
+function Get-ProcessTable { @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue) }
+function Get-ProcessOwnerRaw { param($Process) Invoke-CimMethod -InputObject $Process -MethodName GetOwner -ErrorAction Stop }   # thin wrapper (mocked in tests)
 function Get-ProcessOwnerName {
-    param([int]$ProcessId)
-    try { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop; $o = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop; if ($o.User) { return "$($o.Domain)\$($o.User)" } } catch { }
+    param($Process)
+    try { $o = Get-ProcessOwnerRaw -Process $Process; if ($o.User) { return "$($o.Domain)\$($o.User)" } } catch { }
     return $null
 }
 function Get-FileSignatureInfo {
@@ -91,7 +94,7 @@ function Get-NetworkSnapshot {
             if (-not $sigCache.ContainsKey($path)) { $sigCache[$path] = Get-FileSignatureInfo -Path $path; $detailed++ }
             $s = $sigCache[$path]; $entry.signature = $s.status; $entry.signed = ($s.status -eq 'Valid'); $entry.publisher = $s.publisher
         }
-        $entry.owner = $(if ($detailed -le $script:MaxProcessDetails -and $p) { Get-ProcessOwnerName -ProcessId $id } else { $null })
+        $entry.owner = $(if ($detailed -le $script:MaxProcessDetails -and $p) { Get-ProcessOwnerName -Process $p } else { $null })
         $procs[[string]$id] = $entry
     }
 

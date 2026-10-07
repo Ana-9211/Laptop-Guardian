@@ -41,9 +41,9 @@ function createContext(root, opts = {}) {
   const ps = opts.ps || makeRunner(codeRoot, root);
   /** The audit trail: the user's log plus, for an installed copy, the lines elevated runs wrote to the administrators-only folder. Newest last. */
   const tailActions = (n) => {
-    const rows = U.tailJsonl(P.actions, n);
+    const rows = U.tailJsonlCached(P.actions, n);
     if (!P.elevatedAudit) return rows;
-    return rows.concat(U.tailJsonl(P.elevatedAudit, n)).sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts)).slice(-n);
+    return rows.concat(U.tailJsonlCached(P.elevatedAudit, n)).sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts)).slice(-n);
   };
   const state = { boundPort: null };   // read by routes: the port the server is actually listening on
 
