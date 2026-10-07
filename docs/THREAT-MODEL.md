@@ -2,7 +2,7 @@
 
 Laptop Guardian is a local tool that can change things on a Windows laptop (stop a program, disable a task, recycle a file, change a firewall rule, ask for
 administrator rights). So the question is who else could make it do those things, and what stops them. Everything below is checked by tests named in
-`docs/BUILD-LOG-*.md` unless it says otherwise. See `docs/ARCHITECTURE.md` for the parts.
+`docs/history/BUILD-LOG-*.md` unless it says otherwise. See `docs/ARCHITECTURE.md` for the parts.
 
 ## What is being protected
 

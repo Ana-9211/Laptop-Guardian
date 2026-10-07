@@ -1,6 +1,16 @@
 # Laptop Guardian
 
-A local-first Windows auditing, monitoring, recommendation and reporting platform for a personal laptop.
+[CI badge: add it here after the first GitHub Actions run]  [Windows 11 build this was run on: to be filled in after the VM test]
+
+**What it is.** A local-first watchdog for one Windows laptop: a daily audit that explains what looks wrong and why, with a button for each fix.
+Every change is shown first, needs your confirmation, is logged and, where possible, can be undone; Safe Mode (on by default) changes nothing on its own.
+It all runs on your laptop (PowerShell agents, a zero-dependency Node bridge on 127.0.0.1, a React dashboard); only the optional, off-by-default Gemini analysis sends anything out, and only structured metadata.
+
+**Install** (PowerShell, in the downloaded folder): `.\Install-LaptopGuardian.ps1 -Check` to see what it would meet, then `.\Install-LaptopGuardian.ps1 -Elevate` (Windows asks for permission).
+
+[Screenshots / a short GIF of the dashboard: to be added]
+
+More: [how it is built](docs/ARCHITECTURE.md) | [threat model](docs/THREAT-MODEL.md) | [data and API contract](docs/DATA-CONTRACT.md) | [how this was built](#how-this-was-built) | [changelog](CHANGELOG.md)
 
 > **Laptop Guardian observes aggressively, explains clearly, recommends intelligently, and only performs destructive actions that you have explicitly authorised.**
 
@@ -12,7 +22,7 @@ A local-first Windows auditing, monitoring, recommendation and reporting platfor
 ---
 
 ## Contents
-1. [Quick start](#quick-start) · 2. [Prerequisites](#prerequisites) · 3. [Architecture](#architecture) · 4. [How Laptop Guardian decides](#how-laptop-guardian-decides) · 5. [What is automatic vs. what needs approval](#what-is-automatic-vs-what-needs-approval) · 6. [Scheduling](#scheduling) · 7. [Dashboard](#dashboard) · 8. [Configuration](#configuration) · 9. [Gemini setup](#gemini-setup) · 10. [Process blacklist / whitelist](#process-blacklist--whitelist) · 11. [Reports & data](#reports--data) · 12. [Security model](#security-model) · 13. [Testing](#testing) · 14. [Troubleshooting](#troubleshooting) · 15. [Uninstall](#uninstall) · 16. [Known limitations](#known-limitations)
+1. [Quick start](#quick-start) · 2. [Prerequisites](#prerequisites) · 3. [Architecture](#architecture) · 4. [How Laptop Guardian decides](#how-laptop-guardian-decides) · 5. [What is automatic vs. what needs approval](#what-is-automatic-vs-what-needs-approval) · 6. [Scheduling](#scheduling) · 7. [Dashboard](#dashboard) · 8. [Configuration](#configuration) · 9. [Gemini setup](#gemini-setup) · [How this was built](#how-this-was-built) · [Threat model](docs/THREAT-MODEL.md) · 10. [Process blacklist / whitelist](#process-blacklist--whitelist) · 11. [Reports & data](#reports--data) · 12. [Security model](#security-model) · 13. [Testing](#testing) · 14. [Troubleshooting](#troubleshooting) · 15. [Uninstall](#uninstall) · 16. [Known limitations](#known-limitations)
 
 ---
 
@@ -281,6 +291,24 @@ Every fix follows one flow: **plan** (Guardian re-checks the live target and sho
 * **CSV export** of Action Center history, the log, the process table and the connection table, exactly as filtered. Cells that a spreadsheet could run as a formula are neutralised.
 * **File growth**: raw metrics are kept for 180 days and raw audit rows for 90 days by default (Settings > Retention, 30 to 730 days each); older metric rows become daily summaries and older audit rows move, untouched, to monthly archive files. Nothing in the audit log is ever deleted. See `docs/DATA-CONTRACT.md`.
 
+## How this was built
+
+This project was developed together with an AI coding assistant (Claude Code): the assistant wrote most of the code and tests from the author's requirements, the
+author directed the work, reviewed it and tested it on their own laptop. [The author's own words about their role and what they checked: to be written by the author.]
+
+What that means in practice, stated plainly:
+
+* **Checked automatically on every change** (and re-run before each merge): the Node tests (about 175, also run on real Linux, with the Windows-only ones skipped),
+  the TypeScript type check, eslint, an ASCII-only source check, PSScriptAnalyzer, 19 Pester files (one PowerShell process each), and a headless-browser smoke test
+  of the dashboard against fixture data and, read-only, against this laptop's real data. The suites mock every system touchpoint: they do not stop real
+  processes, change real firewall rules or delete real files.
+* **Verified on the author's machine**: a development checkout runs; the daily scan, the bridge and the dashboard work against real data; the read-only parts
+  (reports, network snapshot, Defender and health sections) behave. Windows 11 build: [to be filled in by the author after the VM run].
+* **Not verified yet**: the full installed layout on a clean Windows machine (Program Files and ProgramData permissions, the UAC prompt, scheduled tasks created
+  by the installer, rollback and uninstall), firewall connection logging (WFP audit), changing DNS servers to encrypted DNS and undoing it, a real Revo
+  uninstall, behaviour on other Windows versions, and the GitHub Actions workflow (it has not been seen to run). Treat those as untested until the author says otherwise.
+* Reviewing is not the same as auditing: read [the threat model](docs/THREAT-MODEL.md) for what is and is not defended, and use Safe Mode (the default) until you trust it.
+
 ## Testing
 
 ```powershell
@@ -345,5 +373,5 @@ shutdown /a                                   # only if a shutdown is pending an
 * Process "known application" recognition is a curated publisher list + signature check, not a reputation database. Treat classifications as hints.
 * Process history in the drawer comes from reports' top-CPU/top-memory tables.
 * Gemini results are advisory and can be wrong; they never execute anything.
-* Tests use Pester 3.4 syntax (the version bundled with Windows). A Pester 5 migration was not done because it cannot be verified here without installing Pester 5.
+* Tests use Pester 3.4 syntax (the version bundled with Windows). The plan for a Pester 5 migration is in docs/PESTER5-PLAN.md; it was not done because it cannot be verified without Pester 5 installed.
 * Not verified without administrator rights or a real install: the Program Files install and its permissions, the UAC relaunch, firewall connection logging, DoH changes and a real Revo uninstall.

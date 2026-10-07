@@ -43,7 +43,7 @@ _(written at the end of the run)_
 - Not verifiable here: the real ACL of Program Files; New-ProtectedDirectory was tested on temp folders with a non-elevated owner.
 
 ### 3c. Installer, uninstaller, migration - NOT DONE (carried over)
-A newer instruction (docs/BUILD-LOG-2.md) replaced the rest of this run's order, so the installer rewrite (program/data/ProgramData install, plan-only mode, backup zip, -Rollback, -CleanupLegacy, uninstaller messages) and Batch 5 were not started here. Batch 5's four items are folded into Batch E of BUILD-LOG-2.md. The installer work is listed as Batch F there.
+A newer instruction (docs/history/BUILD-LOG-2.md) replaced the rest of this run's order, so the installer rewrite (program/data/ProgramData install, plan-only mode, backup zip, -Rollback, -CleanupLegacy, uninstaller messages) and Batch 5 were not started here. Batch 5's four items are folded into Batch E of BUILD-LOG-2.md. The installer work is listed as Batch F there.
 
 ## Questions for morning
 - Pester 5: the suites rely on Pester 3 behaviour (legacy Should syntax, top-level setup shared with It blocks, Mock -ModuleName by name). A migration touches about 400 tests and I only have Pester 3.4 here to verify, so I kept CI on 3.x. Do you want the migration as its own piece of work later?
