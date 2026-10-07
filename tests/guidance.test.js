@@ -1,6 +1,7 @@
 'use strict';
 // First-run checklist, what changed since the last run, and the Safe Mode dry-run preview.
 process.env.USERPROFILE = 'C:\\Users\\u'; process.env.SystemDrive = 'C:';
+require('./lib/win-env');   // fills in the Windows environment variables the protection rules read, when not on Windows
 const test = require('node:test');
 const assert = require('node:assert');
 const { startBridge, fakeRunner, task } = require('./lib/harness');

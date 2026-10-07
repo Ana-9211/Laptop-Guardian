@@ -1,5 +1,6 @@
 'use strict';
 // Firewall posture audit, change detection, beaconing, posture score, and the firewall-log route. Synthetic data only.
+require('./lib/win-env');   // fills in the Windows environment variables the protection rules read, when not on Windows
 const test = require('node:test');
 const assert = require('node:assert');
 const { startBridge, fakeRunner } = require('./lib/harness');
@@ -113,11 +114,14 @@ test('per-program summary and timeline: counts, distinct hosts, first seen only 
   assert.strictEqual(helper.connections, 3); assert.strictEqual(helper.remoteHosts, 3); assert.strictEqual(helper.firstSeen, '2026-10-07T08:00:00+05:30'); assert.strictEqual(helper.bytes, null);
   assert.strictEqual(mystery.connections, 12); assert.strictEqual(mystery.firstSeen, null, 'no event, no guess');
   assert.strictEqual(rows[0].name, 'mystery', 'busiest first'); assert.ok(rows.find((r) => r.name === 'remsvc').listening === 1);
-  const now = Date.parse('2026-10-07T12:00:00+05:30');
-  const tl = NPG.buildTimeline({ events: [{ ts: '2026-10-07T11:10:00+05:30', type: 'open' }, { ts: '2026-10-07T11:20:00+05:30', type: 'open' }, { ts: '2026-10-07T11:30:00+05:30', type: 'close' }], now });
+  // all three events inside ONE local hour, whatever the machine's time zone is
+  const hour0 = new Date(); hour0.setHours(10, 0, 0, 0); const at = (min) => new Date(hour0.getTime() + min * 60000).toISOString();
+  const now = hour0.getTime() + 2 * 3600000;
+  const tl = NPG.buildTimeline({ events: [{ ts: at(10), type: 'open' }, { ts: at(20), type: 'open' }, { ts: at(30), type: 'close' }], now });
   assert.strictEqual(tl.source, 'deep'); const hour = tl.buckets.find((x) => x.opens === 2); assert.strictEqual(hour.closes, 1);
-  const tl2 = NPG.buildTimeline({ events: [], history: [{ ts: '2026-10-07T10:00:00+05:30', established: 5 }, { ts: '2026-09-01T10:00:00+05:30', established: 9 }], now });
-  assert.deepStrictEqual(tl2, { source: 'snapshots', unit: 'snapshot', buckets: [{ ts: '2026-10-07T10:00:00+05:30', opens: 5, closes: 0 }] });
+  const recent = new Date(now - 3600000).toISOString();
+  const tl2 = NPG.buildTimeline({ events: [], history: [{ ts: recent, established: 5 }, { ts: '2026-09-01T10:00:00+05:30', established: 9 }], now });
+  assert.deepStrictEqual(tl2, { source: 'snapshots', unit: 'snapshot', buckets: [{ ts: recent, opens: 5, closes: 0 }] });
 });
 
 test('GET /api/network/programs answers read-only from the snapshot and runs nothing', async () => {

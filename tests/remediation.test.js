@@ -1,6 +1,7 @@
 'use strict';
 // Remediation planning, confirmation, elevation and findings. A fake PowerShell runner stands in for the real scripts:
 // nothing here stops a process, changes a service, task or firewall, recycles a file, or starts Revo.
+require('./lib/win-env');   // fills in the Windows environment variables the protection rules read, when not on Windows
 const test = require('node:test');
 // The fixtures describe a user called "u"; the other-profiles rule is measured against the current profile, so make that profile "u".
 process.env.USERPROFILE = 'C:\\Users\\u';

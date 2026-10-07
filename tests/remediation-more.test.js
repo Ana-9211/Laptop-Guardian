@@ -3,6 +3,7 @@
 process.env.USERPROFILE = 'C:\\Users\\u';
 process.env.SystemDrive = 'C:';
 process.env.LOCALAPPDATA = 'C:\\Users\\u\\AppData\\Local';
+require('./lib/win-env');   // fills in the Windows environment variables the protection rules read, when not on Windows
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');

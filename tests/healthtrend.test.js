@@ -2,11 +2,12 @@
 // The score-deduction trend computed from the reasons stored in the metrics rows (src/dashboard/src/healthTrend.ts).
 const test = require('node:test');
 const assert = require('node:assert');
-const path = require('path');
-const { pathToFileURL } = require('url');
-const load = () => import(pathToFileURL(path.join(__dirname, '..', 'src', 'dashboard', 'src', 'healthTrend.ts')).href);
+const { loadTs, tsSupport } = require('./lib/load-ts');
+const sup = tsSupport();
+const T = { skip: sup.ok ? false : sup.reason };   // skipped, with the reason, where Node cannot read TypeScript and the compiler is not installed
+const load = () => loadTs('healthTrend.ts');
 
-test('deductionTrend: counts runs per factor, averages the points, orders by frequency and marks what is still present', async () => {
+test('deductionTrend: counts runs per factor, averages the points, orders by frequency and marks what is still present', T, async () => {
   const { deductionTrend } = await load();
   const rows = [
     { healthReasons: ['-10 RAM above 90%', '-5 Defender signatures older than 7 days'] },

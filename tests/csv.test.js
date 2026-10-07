@@ -2,12 +2,12 @@
 // The dashboard's CSV export (src/dashboard/src/csv.ts), loaded directly: quoting, and the spreadsheet formula guard.
 const test = require('node:test');
 const assert = require('node:assert');
-const path = require('path');
-const { pathToFileURL } = require('url');
+const { loadTs, tsSupport } = require('./lib/load-ts');
+const sup = tsSupport();
+const T = { skip: sup.ok ? false : sup.reason };   // skipped, with the reason, where Node cannot read TypeScript and the compiler is not installed
+const load = () => loadTs('csv.ts');
 
-const load = () => import(pathToFileURL(path.join(__dirname, '..', 'src', 'dashboard', 'src', 'csv.ts')).href);
-
-test('csv: quotes commas, quotes and line breaks, writes empty for null, and keeps numbers and booleans', async () => {
+test('csv: quotes commas, quotes and line breaks, writes empty for null, and keeps numbers and booleans', T, async () => {
   const { csvCell, toCsv } = await load();
   assert.strictEqual(csvCell('plain'), 'plain');
   assert.strictEqual(csvCell('a,b'), '"a,b"');
@@ -19,7 +19,7 @@ test('csv: quotes commas, quotes and line breaks, writes empty for null, and kee
   assert.strictEqual(out, 'Name,Path\r\na,"C:\\x, y"\r\nb,\r\n');
 });
 
-test('csv: text a spreadsheet would run as a formula is neutralised, while real negative numbers are left alone', async () => {
+test('csv: text a spreadsheet would run as a formula is neutralised, while real negative numbers are left alone', T, async () => {
   const { csvCell } = await load();
   for (const evil of ['=HYPERLINK("http://x","y")', '+cmd|calc', '-2+3', '@SUM(A1)', '\tx']) assert.ok(csvCell(evil).replace(/^"/, '').startsWith("'"), evil);
   assert.strictEqual(csvCell('-12.5'), '-12.5');
