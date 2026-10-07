@@ -7,7 +7,8 @@ function Get-GeminiBase { if ($env:GUARDIAN_GEMINI_BASE -and $env:GUARDIAN_TEST 
 # ---------- Key storage (DPAPI, current user + machine) ----------
 function Save-GeminiKey {
     param([Parameter(Mandatory)][string]$Key)
-    if ($Key -notmatch '^[A-Za-z0-9_\-]{20,128}$') { throw 'API key format looks invalid.' }
+    # same rule as the bridge (routes/ai.js): letters, digits and . _ ~ + / = -, 16 to 256 characters, no spaces or control characters
+    if ($Key -notmatch '^[A-Za-z0-9._~+/=\-]{16,256}$') { throw 'API key format looks invalid: use only the key itself, 16 to 256 letters, digits or . _ - ~ + / = with no spaces.' }
     $sec = ConvertTo-SecureString -String $Key -AsPlainText -Force
     $blob = ConvertFrom-SecureString -SecureString $sec     # DPAPI-protected, only decryptable by this Windows user
     $p = Get-GuardianPath 'GeminiKey'

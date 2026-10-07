@@ -8,8 +8,11 @@ module.exports = function registerAiRoutes(ctx) {
   const { P, ps, config, log, need, str, route } = ctx;
   // ---- AI ----
   route('POST', '/api/ai/key', async ({ body }) => {
-    const key = str(body.key, 'key', 128).trim();
-    need(/^[A-Za-z0-9_-]{20,128}$/.test(key), 'key has an unexpected format');
+    // Be forgiving about what was pasted (spaces, a line break, quotes around it), strict about what is stored. The key only ever travels on stdin
+    // and later in an HTTP header, so the allowed characters cannot inject anything; the list covers the older AIza... keys and the newer
+    // dotted ones (AQ.xxxx) without accepting spaces or control characters.
+    const key = str(body.key, 'key', 600).trim().replace(/^["'`]+|["'`]+$/g, '').trim();
+    need(/^[A-Za-z0-9._~+/=-]{16,256}$/.test(key), 'That does not look like an API key. Paste only the key itself: 16 to 256 letters, digits or . _ - ~ + / = with no spaces or line breaks (check that no label such as "API key:" was copied with it).');
     const r = await ps.run('Actions/Set-GeminiKey.ps1', [], { stdin: key });
     if (r.missing) throw new HttpError(501, r.error);
     need(r.ok && r.data?.success !== false, r.error || r.data?.error || 'could not store key', 500);

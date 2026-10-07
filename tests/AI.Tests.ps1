@@ -16,6 +16,10 @@ function New-Rec {
 
 Describe 'Gemini key storage' {
     It 'is not configured initially' { Test-GeminiKeyConfigured | Should Be $false; Get-GeminiKey | Should BeNullOrEmpty }
+    It 'accepts the newer dotted key format and still rejects spaces and control characters' {
+        foreach ($k in 'AQ.Ab8RN6K9xYzExampleKeyValue_123-456', ('A' * 200)) { { Save-GeminiKey -Key $k } | Should Not Throw }
+        foreach ($k in 'has space inside the key value', "line`nbreak-line-break-line", ('A' * 300), 'short') { { Save-GeminiKey -Key $k } | Should Throw }
+    }
     It 'rejects malformed keys' { { Save-GeminiKey -Key 'short' } | Should Throw; { Save-GeminiKey -Key "abc def ghi jkl mno pqr stu vwx" } | Should Throw }
     It 'stores the key DPAPI-encrypted, never in plain text, and round-trips' {
         Save-GeminiKey -Key $fakeKey
