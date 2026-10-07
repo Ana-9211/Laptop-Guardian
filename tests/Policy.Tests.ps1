@@ -111,4 +111,31 @@ Describe 'Blacklist enforcement' {
         } finally { Stop-Process -Id $v.Id -Force -ErrorAction SilentlyContinue }
     }
 }
+Describe 'Policy edits take the shared file lock' {
+    It 'Add-PolicyEntry and Remove-PolicyEntry hold the policy lock around their read-modify-write' {
+        $src = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Processes\Policy.psm1') -Raw
+        foreach ($fn in 'Add-PolicyEntry', 'Remove-PolicyEntry') {
+            $i = $src.IndexOf("function $fn"); $j = $src.IndexOf('function ', $i + 10)
+            $src.Substring($i, $j - $i) | Should Match "Invoke-WithFileLock -Path \(Get-GuardianPath 'ProcessPolicy'\)"
+        }
+    }
+    It 'two PowerShell processes adding entries at the same time lose none and leave no lock behind' {
+        $pol = Get-GuardianPath 'ProcessPolicy'
+        $loader = Join-Path $script:RepoRoot 'src\powershell\Common\Load.ps1'
+        $worker = Join-Path $root 'lock-worker.ps1'
+        Set-Content -LiteralPath $worker -Value @'
+param([string]$Tag, [string]$Loader)
+. $Loader
+1..6 | ForEach-Object { Add-PolicyEntry -List whitelist -Name ('lockw' + $Tag + $_) | Out-Null }
+'@
+        $procs = foreach ($w in 'a', 'b') {
+            $psi = New-Object Diagnostics.ProcessStartInfo (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'), "-NoProfile -ExecutionPolicy Bypass -File `"$worker`" -Tag $w -Loader `"$loader`""
+            $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.EnvironmentVariables['GUARDIAN_ROOT'] = $root
+            [Diagnostics.Process]::Start($psi)
+        }
+        foreach ($p in $procs) { [void]$p.WaitForExit(120000) }
+        @((Get-ProcessPolicy).whitelist | Where-Object { $_.name -like 'lockw*' }).Count | Should Be 12
+        (Test-Path "$pol.lock") | Should Be $false
+    }
+}
 Remove-TestRoot $root

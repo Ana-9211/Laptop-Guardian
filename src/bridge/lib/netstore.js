@@ -22,15 +22,23 @@ function dirs(root) {
 
 /** Drop lines older than `days`, then the oldest lines until the file is under `maxBytes`. Returns lines kept. */
 function pruneJsonl(file, { days, maxBytes, tsKey = 'ts', now = Date.now() }) {
-  let text; try { text = fs.readFileSync(file, 'utf8'); } catch { return 0; }
-  let lines = text.split('\n').filter(Boolean);
-  const cutoff = now - days * DAY_MS;
-  lines = lines.filter((l) => { try { const t = Date.parse(JSON.parse(l)[tsKey]); return Number.isNaN(t) || t >= cutoff; } catch { return false; } });
-  let size = lines.reduce((a, l) => a + Buffer.byteLength(l) + 1, 0);
-  while (lines.length && size > maxBytes) { size -= Buffer.byteLength(lines[0]) + 1; lines.shift(); }
-  fs.writeFileSync(file, lines.length ? `${lines.join('\n')}\n` : '');
-  return lines.length;
+  if (!fs.existsSync(file)) return 0;
+  // Read, filter and replace under the file's lock (appenders take the same lock), and replace through a temp file in the same folder, so a
+  // crash or a concurrent append can never leave a half-written or truncated file.
+  return U.withFileLock(file, () => {
+    let text; try { text = fs.readFileSync(file, 'utf8'); } catch { return 0; }
+    let lines = text.split('\n').filter(Boolean);
+    const cutoff = now - days * DAY_MS;
+    lines = lines.filter((l) => { try { const t = Date.parse(JSON.parse(l)[tsKey]); return Number.isNaN(t) || t >= cutoff; } catch { return false; } });
+    let size = lines.reduce((a, l) => a + Buffer.byteLength(l) + 1, 0);
+    while (lines.length && size > maxBytes) { size -= Buffer.byteLength(lines[0]) + 1; lines.shift(); }
+    const tmp = `${file}.${process.pid}.prune.tmp`;
+    try { fs.writeFileSync(tmp, lines.length ? `${lines.join('\n')}\n` : ''); fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
+    return lines.length;
+  });
 }
+/** Append one row under the file's lock, so it cannot land between a prune's read and its replace. */
+const appendLocked = (file, obj) => U.withFileLock(file, () => U.appendJsonl(file, obj));
 
 function summarize(snapshot, findingsCount) {
   const conns = snapshot.connections || [];
@@ -46,16 +54,16 @@ function createNetStore(root, getConfig) {
 
   function saveSnapshot(snapshot, findingsCount) {
     U.writeJsonAtomic(D.latest, snapshot);
-    U.appendJsonl(D.history, summarize(snapshot, findingsCount));
+    appendLocked(D.history, summarize(snapshot, findingsCount));
     // DNS history: remember each (name, data) the first time it is seen so the history grows without storing duplicates
     const seen = new Set(U.readAllJsonl(D.dns).map((r) => `${r.name}|${r.data}`));
-    for (const e of snapshot.dns || []) { const k = `${e.name}|${e.data}`; if (!seen.has(k)) { seen.add(k); U.appendJsonl(D.dns, { ts: snapshot.generatedAt, name: e.name, type: e.type, data: e.data }); } }
+    for (const e of snapshot.dns || []) { const k = `${e.name}|${e.data}`; if (!seen.has(k)) { seen.add(k); appendLocked(D.dns, { ts: snapshot.generatedAt, name: e.name, type: e.type, data: e.data }); } }
     prune();
   }
   function prune(now = Date.now()) {
     const c = cfg();
-    pruneJsonl(D.history, { days: c.days, maxBytes: c.maxBytes, now });
-    pruneJsonl(D.dns, { days: c.days, maxBytes: Math.min(c.maxBytes, DNS_HISTORY_MAX_LINES * 200), now });
+    // Retention is housekeeping: if a file is locked by another process right now it is simply tried again on the next snapshot.
+    for (const [f, max] of [[D.history, c.maxBytes], [D.dns, Math.min(c.maxBytes, DNS_HISTORY_MAX_LINES * 200)]]) { try { pruneJsonl(f, { days: c.days, maxBytes: max, now }); } catch (e) { if (e.code !== 'ELOCKED') throw e; } }
   }
   const readLatest = () => U.readJson(D.latest, null);
   const readHistory = (range) => { const all = U.readAllJsonl(D.history); const days = Number(range); return Number.isFinite(days) && days > 0 ? all.filter((r) => Date.parse(r.ts) >= Date.now() - days * DAY_MS) : all; };

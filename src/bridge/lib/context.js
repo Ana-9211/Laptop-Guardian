@@ -58,7 +58,8 @@ function createContext(root, opts = {}) {
       id: U.uid('a_'), ts: U.localIso(), category: 'system', severity: 'info', action: '', target: null,
       result: 'success', actor: 'user', reason: null, relatedRecommendation: null, error: null, runType: null, ...ev,
     };
-    try { U.withFileLock(P.actions, () => U.appendJsonl(P.actions, e), 3000); } catch { /* logging must never break a request */ }
+    // Logging must never break a request. The lock fails closed, so a row that could not be written under the lock is reported on stderr rather than appended unlocked.
+    try { U.withFileLock(P.actions, () => U.appendJsonl(P.actions, e), 3000); } catch (err) { console.error(`[bridge] audit row not written (${err.code || err.message}): ${e.action}`); }
     return e;
   }
 
@@ -258,8 +259,15 @@ function createContext(root, opts = {}) {
     log({ category: 'config', action: 'config.update', target: 'safety.safeMode', reason: `Safe Mode turned ${on ? 'on' : 'off'} (setup action)` });
   }
 
-  /** Runs a synchronous handler while holding the shared lock for `file`, so a read-modify-write is not interleaved with the agents. */
-  function locked(file, handler) { return (args) => U.withFileLock(file, () => handler(args)); }
+  /**
+   * Runs a synchronous handler while holding the shared lock for `file`, so a read-modify-write is not interleaved with the agents. Waiting for the
+   * lock uses timers (the server keeps serving), and if it cannot be had the handler does NOT run: the caller gets 503 and can try again.
+   */
+  function locked(file, handler) {
+    return async (args) => {
+      try { return await U.withFileLockAsync(file, () => handler(args)); } catch (e) { if (e && e.code === 'ELOCKED') throw new HttpError(503, 'Another Laptop Guardian process is writing this file. Nothing was changed; try again in a moment.'); throw e; }
+    };
+  }
 
   /** One definition of "a weekly shutdown can happen", shared by /api/status and /api/overview. */
   function shutdownArmed(c) { return !!(c.schedule.weekly.enabled && c.schedule.weekly.shutdownEnabled && c.safety.weeklyShutdown && !c.safety.automationPaused); }

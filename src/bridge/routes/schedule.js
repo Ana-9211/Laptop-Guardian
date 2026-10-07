@@ -3,18 +3,23 @@
 const U = require('../lib/util');
 
 module.exports = function registerScheduleRoutes(ctx) {
-  const { P, config, log, need, route, applySchedule, launchScan } = ctx;
+  const { P, config, log, need, route, applySchedule, launchScan, locked } = ctx;
   // ---- scan / schedule ----
   route('POST', '/api/scan/daily', () => launchScan('Daily', []));
   route('POST', '/api/scan/weekly', () => launchScan('Weekly', ['-NoShutdown']));
 
   route('PUT', '/api/schedule', async ({ body }) => {
-    const before = config().schedule;
-    const m = U.mergeConfig(config(), { schedule: body });
-    need(m.errors.length === 0, m.errors.join('; '));
-    const changed = JSON.stringify(m.value.schedule) !== JSON.stringify(before);
+    // The read, the comparison and the write happen under the config lock, so a Settings save or an agent cannot slip in between them.
+    const out = await locked(P.config, () => {
+      const before = config().schedule;
+      const m = U.mergeConfig(config(), { schedule: body });
+      need(m.errors.length === 0, m.errors.join('; '));
+      const changed = JSON.stringify(m.value.schedule) !== JSON.stringify(before);
+      if (changed) U.writeJsonAtomic(P.config, m.value);
+      return { m, changed };
+    })({});
+    const { m, changed } = out;
     if (!changed) return { saved: true, changed: false, registered: false, needsElevation: false, elevationRequested: false, message: 'Schedule unchanged; Task Scheduler was not touched.', report: [], schedule: m.value.schedule };
-    U.writeJsonAtomic(P.config, m.value);
     log({ category: 'config', action: 'schedule.update', reason: JSON.stringify(body).slice(0, 200) });
     return { saved: true, changed: true, ...(await applySchedule()), schedule: m.value.schedule };
   });

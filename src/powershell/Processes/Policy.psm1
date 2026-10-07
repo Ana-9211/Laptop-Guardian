@@ -44,26 +44,31 @@ function Find-PolicyMatch {
 function Add-PolicyEntry {
     param([ValidateSet('blacklist', 'whitelist', 'ignored')][string]$List, [Parameter(Mandatory)][string]$Name, [string]$Path, [string]$Reason = 'Added by user')
     if ($Name -notmatch '^[A-Za-z0-9 _.\-\(\)]{1,100}$') { throw "Invalid process name '$Name'" }
-    $pol = Get-ProcessPolicy
     $key = ConvertTo-ProcKey $Name
-    $existing = @($pol.$List | Where-Object { (ConvertTo-ProcKey $_.name) -eq $key -and ([string]$_.path) -ieq ([string]$Path) })
-    if ($existing.Count -gt 0) { return $existing[0] }
-    $entry = [pscustomobject][ordered]@{
-        id = New-ShortId; name = $key; path = $(if ($Path) { $Path } else { $null }); reason = $Reason; addedAt = Get-IsoNow; addedBy = 'user'
-        enabled = $true; action = $(if ($List -eq 'blacklist') { 'terminate' } else { 'none' }); terminatedCount = 0; lastTerminatedAt = $null; disabledUntil = $null
-    }
-    $pol.$List = @($pol.$List) + $entry
-    Save-ProcessPolicy $pol
-    [void](Write-GuardianEvent -Category policy -Action "policy:add-$List" -Target $key -Actor user -Reason $Reason)
-    return $entry
+    # read, change and save under the policy file's lock (the bridge and the Daily run take the same one), so no concurrent edit is lost
+    return (Invoke-WithFileLock -Path (Get-GuardianPath 'ProcessPolicy') -ScriptBlock {
+        $pol = Get-ProcessPolicy
+        $existing = @($pol.$List | Where-Object { (ConvertTo-ProcKey $_.name) -eq $key -and ([string]$_.path) -ieq ([string]$Path) })
+        if ($existing.Count -gt 0) { return $existing[0] }
+        $entry = [pscustomobject][ordered]@{
+            id = New-ShortId; name = $key; path = $(if ($Path) { $Path } else { $null }); reason = $Reason; addedAt = Get-IsoNow; addedBy = 'user'
+            enabled = $true; action = $(if ($List -eq 'blacklist') { 'terminate' } else { 'none' }); terminatedCount = 0; lastTerminatedAt = $null; disabledUntil = $null
+        }
+        $pol.$List = @($pol.$List) + $entry
+        Save-ProcessPolicy $pol
+        [void](Write-GuardianEvent -Category policy -Action "policy:add-$List" -Target $key -Actor user -Reason $Reason)
+        return $entry
+    })
 }
 
 function Remove-PolicyEntry {
     param([ValidateSet('blacklist', 'whitelist', 'ignored')][string]$List, [Parameter(Mandatory)][string]$Id)
-    $pol = Get-ProcessPolicy
-    $pol.$List = @($pol.$List | Where-Object { $_.id -ne $Id })
-    Save-ProcessPolicy $pol
-    [void](Write-GuardianEvent -Category policy -Action "policy:remove-$List" -Target $Id -Actor user)
+    Invoke-WithFileLock -Path (Get-GuardianPath 'ProcessPolicy') -ScriptBlock {
+        $pol = Get-ProcessPolicy
+        $pol.$List = @($pol.$List | Where-Object { $_.id -ne $Id })
+        Save-ProcessPolicy $pol
+        [void](Write-GuardianEvent -Category policy -Action "policy:remove-$List" -Target $Id -Actor user)
+    }
 }
 
 function Invoke-BlacklistEnforcement {
