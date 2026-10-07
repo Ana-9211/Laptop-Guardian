@@ -36,6 +36,15 @@ function Test-IpInCidr {
     if ($rem -gt 0) { $mask = (0xFF -shl (8 - $rem)) -band 0xFF; if (($Info.Bytes[$full] -band $mask) -ne ($o.Bytes[$full] -band $mask)) { return $false } }
     return $true
 }
+function Test-Ipv4Special {
+    <# Why an IPv4 address (four bytes) must never be blocked, or $null. #>
+    param($b)
+    if ($b[0] -eq 127) { return 'Loopback addresses are never blocked.' }
+    if ($b[0] -eq 0) { return 'The unspecified address cannot be blocked.' }
+    if ($b[0] -ge 224) { return 'Multicast and reserved ranges are never blocked.' }
+    if ($b[0] -eq 169 -and $b[1] -eq 254) { return 'Link-local addresses (automatic networking) are never blocked.' }
+    return $null
+}
 function Test-RemoteTarget {
     param([string]$Remote)
     $i = ConvertTo-IpInfo $Remote
@@ -43,11 +52,16 @@ function Test-RemoteTarget {
     $minPrefix = if ($i.Family -eq 'InterNetwork') { 8 } else { 16 }
     if ($i.Prefix -lt $minPrefix) { return "That range is too broad (a /$($i.Prefix) would cover a huge part of the internet). Use /$minPrefix or narrower." }
     $b = $i.Bytes
+    if ($i.Family -ne 'InterNetwork') {
+        # IPv4-mapped (::ffff:a.b.c.d) and the deprecated IPv4-compatible form (::a.b.c.d) are the same hosts as the IPv4 address inside them: judged by the
+        # IPv4 rules, and refused otherwise (the gateway/DNS/DHCP comparison would not recognise them). Same behaviour as the bridge (netguard.js).
+        $lead10 = (@($b[0..9] | Where-Object { $_ -ne 0 })).Count -eq 0
+        $mapped = $lead10 -and $b[10] -eq 255 -and $b[11] -eq 255
+        $compat = $lead10 -and $b[10] -eq 0 -and $b[11] -eq 0 -and ((@($b[12..15] | Where-Object { $_ -ne 0 })).Count -gt 0) -and (($b[12..15] -join ',') -ne '0,0,0,1')
+        if ($mapped -or $compat) { $why = Test-Ipv4Special @($b[12..15]); if ($why) { return $why }; return 'Write IPv4 addresses in the normal a.b.c.d form; the IPv6-embedded form is not accepted.' }
+    }
     if ($i.Family -eq 'InterNetwork') {
-        if ($b[0] -eq 127) { return 'Loopback addresses are never blocked.' }
-        if ($b[0] -eq 0) { return 'The unspecified address cannot be blocked.' }
-        if ($b[0] -ge 224) { return 'Multicast and reserved ranges are never blocked.' }
-        if ($b[0] -eq 169 -and $b[1] -eq 254) { return 'Link-local addresses (automatic networking) are never blocked.' }
+        $why = Test-Ipv4Special $b; if ($why) { return $why }
     } else {
         if ($i.Ip.IsIPv6LinkLocal -or $i.Ip.IsIPv6Multicast -or [Net.IPAddress]::IsLoopback($i.Ip) -or $i.Ip.Equals([Net.IPAddress]::IPv6Any)) { return 'Loopback, link-local, multicast and unspecified IPv6 addresses are never blocked.' }
     }

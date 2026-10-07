@@ -238,7 +238,7 @@ const RANGES = {
   'network.thresholds.persistentDestinations': [2, 1000], 'network.thresholds.newConnectionsPerMinute': [5, 100000],
 };
 Object.assign(RANGES, {
-  'cleanup.tempMinAgeDays': [0, 365], 'storage.minLargeFileMB': [1, 1_000_000], 'storage.oldFileDays': [1, 3650], 'storage.duplicateMinMB': [1, 100_000],
+  'cleanup.tempMinAgeDays': [1, 365], 'storage.minLargeFileMB': [1, 1_000_000], 'storage.oldFileDays': [1, 3650], 'storage.duplicateMinMB': [1, 100_000],
   'thresholds.cpuPct': [1, 100], 'thresholds.memoryMB': [50, 1_000_000], 'thresholds.diskFreeWarnPct': [1, 90], 'thresholds.diskFreeCritPct': [1, 89],
   'retention.reportsDays': [0, 3650], 'retention.metricsRawDays': [30, 730], 'retention.auditRawDays': [30, 730],
 });
@@ -301,4 +301,4 @@ function nextRun(time, day, from = new Date()) {
 }
 
 module.exports = {
-  readInstall, DEFAULT_PORT, withFileLock, withFileLockAsync, setLockProbe, csvCell, riskyChanges, readJson, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };
+  readInstall, DEFAULT_PORT, withFileLock, withFileLockAsync, setLockProbe, csvCell, riskyChanges, readJson, RANGES, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };

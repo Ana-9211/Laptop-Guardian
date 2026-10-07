@@ -3,6 +3,7 @@
 const { execFile } = require('child_process');
 const path = require('path');
 const U = require('../lib/util');
+const PM = require('../lib/policymatch');
 const { LISTS } = require('../lib/constants');
 const { HttpError } = require('../lib/http');
 
@@ -41,16 +42,16 @@ module.exports = function registerSettingsRoutes(ctx) {
 
   route('POST', '/api/policy', locked(P.policy, ({ body }) => {
     need(LISTS.includes(body.list), `list must be one of ${LISTS.join(', ')}`);
-    const name = str(body.name, 'name', 128).replace(/\.exe$/i, '');
+    const name = str(body.name, 'name', 128).trim().replace(/\.exe$/i, '');
     need(/^[^\\/:*?"<>|\0]+$/.test(name), 'invalid process name');
     const p = body.path == null || body.path === '' ? null : str(body.path, 'path', 1000);
     const pol = policy();
-    const key = name.toLowerCase();
-    const matches = (e) => String(e.name).toLowerCase() === key && (!e.path || !p || e.path.toLowerCase() === p.toLowerCase());
-    // A process lives in exactly one of blacklist/whitelist; moving it clears the opposite list.
-    if (body.list === 'blacklist') pol.whitelist = pol.whitelist.filter((e) => !matches(e));
-    if (body.list === 'whitelist') pol.blacklist = pol.blacklist.filter((e) => !matches(e));
-    let entry = pol[body.list].find(matches);
+    // Same rules as the PowerShell side (lib/policymatch.js, checked against one shared fixture): names and paths compare case-insensitively, a
+    // trailing .exe and surrounding spaces are ignored, and a path-scoped entry is not the same entry as a name-wide one.
+    // A process lives in exactly one of blacklist/whitelist; moving it clears the overlapping entries of the opposite list.
+    if (body.list === 'blacklist') pol.whitelist = pol.whitelist.filter((e) => !PM.overlapsForMove(e, name, p));
+    if (body.list === 'whitelist') pol.blacklist = pol.blacklist.filter((e) => !PM.overlapsForMove(e, name, p));
+    let entry = pol[body.list].find((e) => PM.sameScope(e, name, p));
     if (!entry) {
       entry = {
         id: U.uid('p_'), name, path: p, reason: typeof body.reason === 'string' ? body.reason.slice(0, 500) : '', addedAt: U.localIso(), addedBy: 'user',

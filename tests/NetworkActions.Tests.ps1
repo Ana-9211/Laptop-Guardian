@@ -40,6 +40,18 @@ Describe 'Target validation' {
         foreach ($bad in 'not-an-ip', '127.0.0.1', '0.0.0.0', '224.0.0.1', '169.254.1.1', '10.0.0.0/4', '0.0.0.0/0', '::1', 'fe80::1', '8.8.8.8/7', '192.168.1.0/24', '1.1.1.1', '192.168.1.1') { (Test-RemoteTarget $bad) | Should Not BeNullOrEmpty }
         foreach ($good in '203.0.113.7', '198.51.100.0/24', '2001:db8::1', '10.20.30.40') { (Test-RemoteTarget $good) | Should BeNullOrEmpty }
     }
+    It 'gives the same verdict as the bridge for every shared case, IPv4-mapped and IPv4-compatible loopback included' {
+        $fx = Get-Content (Join-Path $script:RepoRoot 'tests\fixtures\remote-target-cases.json') -Raw | ConvertFrom-Json
+        $global:T_Identity = @($fx.identity)
+        Mock -ModuleName $M Get-NetworkIdentity { $global:T_Identity }
+        $n = 0
+        foreach ($c in $fx.cases) {
+            $r = Test-RemoteTarget $c.text
+            if ($c.expect -eq 'ok') { ($null -eq $r) | Should Be $true } else { [string]$r | Should Match ([regex]::Escape($c.expect)) }
+            $n++
+        }
+        $n | Should BeGreaterThan 20
+    }
     It 'refuses DNS, DHCP and out-of-range ports' {
         foreach ($p in 0, 53, 67, 68, 546, 547, 70000, -1) { (Test-PortTarget $p) | Should Not BeNullOrEmpty }
         (Test-PortTarget 3389) | Should BeNullOrEmpty

@@ -134,3 +134,12 @@ test('GET /api/network/programs answers read-only from the snapshot and runs not
     assert.strictEqual(ps.calls.length, before, 'no PowerShell call for a read');
   } finally { b.close(); }
 });
+
+test('refuseRemote: the shared cases (IPv4-mapped and IPv4-compatible loopback included) get the same verdict as the PowerShell side', () => {
+  const NGD = require('../src/bridge/lib/netguard');
+  const fx = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'remote-target-cases.json'), 'utf8'));
+  for (const c of fx.cases) {
+    const r = NGD.refuseRemote(c.text, fx.identity);
+    if (c.expect === 'ok') assert.strictEqual(r, null, c.text); else { assert.ok(r, `${c.text} must be refused`); assert.ok(r.includes(c.expect), `${c.text}: "${r}" should mention "${c.expect}"`); }
+  }
+});

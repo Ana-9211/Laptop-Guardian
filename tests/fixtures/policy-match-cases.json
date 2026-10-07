@@ -1,0 +1,44 @@
+{
+  "note": "Run through the Node matcher (tests/policymatch.test.js) and the PowerShell matcher (tests/Policy.Tests.ps1). 'now' is fixed so paused entries are deterministic.",
+  "now": "2026-10-07T12:00:00Z",
+  "policy": {
+    "whitelist": [
+      { "id": "w1", "name": "Trusted.exe", "path": null, "enabled": true },
+      { "id": "w2", "name": "scoped", "path": "C:\\Tools\\Scoped.EXE", "enabled": true },
+      { "id": "w3", "name": "paused-w", "path": null, "enabled": true, "disabledUntil": "2099-01-01T00:00:00Z" }
+    ],
+    "blacklist": [
+      { "id": "b1", "name": "BadApp", "path": null, "enabled": true },
+      { "id": "b2", "name": " Spaced.exe ", "path": null, "enabled": true },
+      { "id": "b3", "name": "trusted", "path": null, "enabled": true },
+      { "id": "b4", "name": "off", "path": null, "enabled": false },
+      { "id": "b5", "name": "paused-w", "path": null, "enabled": true },
+      { "id": "b6", "name": "expired", "path": null, "enabled": true, "disabledUntil": "2020-01-01T00:00:00Z" }
+    ],
+    "ignored": [
+      { "id": "i1", "name": "NoiseMaker", "path": "D:\\Apps\\Noise.exe", "enabled": true },
+      { "id": "i2", "name": "noisemaker", "path": null, "enabled": true }
+    ]
+  },
+  "cases": [
+    { "name": "badapp.exe", "path": null, "expect": "blacklist:b1" },
+    { "name": "BADAPP", "path": "C:\\Anywhere\\bad.exe", "expect": "blacklist:b1" },
+    { "name": "  badapp  ", "path": null, "expect": "blacklist:b1" },
+    { "name": "TRUSTED", "path": null, "expect": "whitelist:w1" },
+    { "name": "spaced", "path": null, "expect": "blacklist:b2" },
+    { "name": "SPACED.EXE", "path": null, "expect": "blacklist:b2" },
+    { "name": "scoped", "path": "c:\\tools\\scoped.exe", "expect": "whitelist:w2" },
+    { "name": "scoped", "path": "C:\\Tools\\Scoped.EXE", "expect": "whitelist:w2" },
+    { "name": "scoped", "path": "C:\\tools\\SCOPED.exe", "expect": "whitelist:w2" },
+    { "name": "scoped", "path": "C:\\Other\\scoped.exe", "expect": "none:" },
+    { "name": "scoped", "path": null, "expect": "none:" },
+    { "name": "off", "path": null, "expect": "none:" },
+    { "name": "paused-w", "path": null, "expect": "blacklist:b5" },
+    { "name": "expired", "path": null, "expect": "blacklist:b6" },
+    { "name": "NOISEMAKER", "path": "d:\\apps\\NOISE.EXE", "expect": "ignored:i1" },
+    { "name": "noisemaker", "path": "D:\\Else\\n.exe", "expect": "ignored:i2" },
+    { "name": "noisemaker", "path": null, "expect": "ignored:i2" },
+    { "name": "unknown", "path": "C:\\x.exe", "expect": "none:" },
+    { "name": "", "path": null, "expect": "none:" }
+  ]
+}

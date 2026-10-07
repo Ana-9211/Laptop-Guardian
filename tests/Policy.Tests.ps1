@@ -138,4 +138,18 @@ param([string]$Tag, [string]$Loader)
         (Test-Path "$pol.lock") | Should Be $false
     }
 }
+Describe 'Policy matching agrees with the bridge (shared fixture)' {
+    $fx = Get-Content (Join-Path $script:RepoRoot 'tests\fixtures\policy-match-cases.json') -Raw | ConvertFrom-Json
+    It 'gives the same answer as the Node matcher for every shared case (case, .exe, spaces, path scope, pauses, precedence)' {
+        $pol = [pscustomobject]@{ whitelist = @($fx.policy.whitelist); blacklist = @($fx.policy.blacklist); ignored = @($fx.policy.ignored) }
+        $n = 0
+        foreach ($c in $fx.cases) {
+            $r = Find-PolicyMatch -Policy $pol -Name $c.name -Path $c.path
+            $got = "$($r.list):$(if ($r.entry) { $r.entry.id } else { '' })"
+            $got | Should Be $c.expect
+            $n++
+        }
+        $n | Should BeGreaterThan 15
+    }
+}
 Remove-TestRoot $root

@@ -88,12 +88,16 @@ function Test-FirewallAuditChange {
     $on = ($s['connection'] -eq 3 -and $s['packet-drop'] -eq 3)
     if ($Enable -and $on) { return New-RemResult -Ok $false -Errors @('Firewall connection logging is already on.') }
     if (-not $Enable -and -not (Test-Path -LiteralPath (Get-WfpAuditBackupPath)) -and -not $on) { return New-RemResult -Ok $false -Errors @('Firewall connection logging is already off.') }
-    return New-RemResult -Ok $true -NeedsAdmin $true -IdentityKey (Get-StringKey @('wfp-audit', $Enable, $s['connection'], $s['packet-drop'])) -Details ([ordered]@{ connection = $s['connection']; packetDrop = $s['packet-drop'] })
+    $noBackup = (-not $Enable) -and -not (Test-Path -LiteralPath (Get-WfpAuditBackupPath))
+    $warn = if ($noBackup) { @('Guardian did not turn this logging on, so it has no saved earlier setting. Turning it off sets both audit subcategories (Filtering Platform Connection and Packet Drop) to "no auditing", which may differ from what Windows had before.') } else { @() }
+    return New-RemResult -Ok $true -NeedsAdmin $true -IdentityKey (Get-StringKey @('wfp-audit', $Enable, $s['connection'], $s['packet-drop'])) -Warnings $warn -Details ([ordered]@{ connection = $s['connection']; packetDrop = $s['packet-drop']; hasSavedSetting = -not $noBackup })
 }
 function Invoke-FirewallAuditChange {
     param([bool]$Enable)
     $before = Get-WfpAuditState
     $backup = Get-WfpAuditBackupPath
+    $hadBackup = Test-Path -LiteralPath $backup
+    $target = $null
     try {
         if ($Enable) {
             if (-not (Test-Path -LiteralPath $backup)) { New-Item -ItemType Directory -Path (Split-Path -Parent $backup) -Force | Out-Null; Write-JsonFile -Path $backup -Object ([ordered]@{ connection = $before['connection']; 'packet-drop' = $before['packet-drop']; savedAt = (Get-IsoNow) }) }
@@ -108,6 +112,7 @@ function Invoke-FirewallAuditChange {
     $after = Get-WfpAuditState
     $want = if ($Enable) { 3 } else { -1 }
     if ($Enable -and ($null -eq $after -or $after['connection'] -ne $want -or $after['packet-drop'] -ne $want)) { return New-RemResult -Ok $false -Errors @('Windows did not report the new audit policy.') }
+    if (-not $Enable -and ($null -eq $after -or $after['connection'] -ne $target['connection'] -or $after['packet-drop'] -ne $target['packet-drop'])) { return New-RemResult -Ok $false -Errors @('Windows did not report the audit policy that was meant to be restored.') }
     $undo = if ($Enable) { [ordered]@{ action = 'setup.disable-firewall-audit'; params = [ordered]@{} } } else { [ordered]@{ action = 'setup.enable-firewall-audit'; params = [ordered]@{} } }
-    return New-RemResult -Ok $true -Verified $true -Message "Windows Filtering Platform logging is now $(if ($Enable) { 'on: the Security log records allowed and blocked connections (it can grow quickly; Guardian reads it, it never copies packet contents)' } else { 'back to what it was before' })." -Undo $undo
+    return New-RemResult -Ok $true -Verified $true -Message "Windows Filtering Platform logging is now $(if ($Enable) { 'on: the Security log records allowed and blocked connections (it can grow quickly; Guardian reads it, it never copies packet contents)' } else { if ($hadBackup) { 'back to what it was before Guardian turned it on' } else { 'off: Guardian had no saved earlier setting, so both audit subcategories were set to no auditing (Windows may have had something else before)' } })." -Undo $undo
 }

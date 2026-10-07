@@ -21,6 +21,25 @@ function Get-InstalledPrograms {
     return @($out | Sort-Object name -Unique)
 }
 
+# Revo is only trusted when the signature is valid, the signer's common name is EXACTLY this, and the signing certificate is one of these (the
+# DigiCert EV certificate of VS REVO GROUP OOD seen on Revo Uninstaller 2.7.0.0, valid until 2027-08-14). A renewed certificate has a new
+# thumbprint: add it here after checking it (the refusal message prints the one it saw).
+$script:RevoSignerCommonName = 'VS REVO GROUP OOD'
+$script:RevoThumbprints = @('47FFEC5C7C4B6688DC1923D7863183C6B2F651B7')
+
+function Test-RevoSignature {
+    <# $null when the signature may be trusted, otherwise the reason. Takes the object Get-AuthenticodeSignature returns (a fake in the tests). #>
+    param($Signature)
+    if (-not $Signature -or [string]$Signature.Status -ne 'Valid') { return 'RevoUnin.exe does not have a valid digital signature.' }
+    $cert = $Signature.SignerCertificate
+    if (-not $cert) { return 'RevoUnin.exe has no signing certificate.' }
+    $cn = if ([string]$cert.Subject -match '(?:^|,\s*)CN=("(?:[^"]|"")*"|[^,]*)') { $Matches[1].Trim().Trim('"') } else { '' }
+    if ($cn -cne $script:RevoSignerCommonName) { return "RevoUnin.exe is not signed by $($script:RevoSignerCommonName) (the signer is '$cn')." }
+    $tp = ([string]$cert.Thumbprint).Replace(' ', '').ToUpperInvariant()
+    if ($script:RevoThumbprints -notcontains $tp) { return "RevoUnin.exe is signed by $($script:RevoSignerCommonName) with a certificate Guardian does not know (thumbprint $tp). If this is your Revo, the certificate was renewed: check it, then add the thumbprint to Guardian." }
+    return $null
+}
+
 function Get-RevoInfo {
     <# Read-only inspection of the Revo Uninstaller shortcut: target, signature, version. Never launches anything. #>
     $info = [ordered]@{ available = $false; shortcut = $script:RevoShortcut; target = $null; arguments = $null; version = $null; signed = $false; publisher = $null; supportedOptions = 'none (Guardian starts Revo with no arguments and you choose the program inside Revo)'; reason = $null }
@@ -34,9 +53,10 @@ function Get-RevoInfo {
         if (-not ($pf | Where-Object { $l.TargetPath.StartsWith($_ + '\', [StringComparison]::OrdinalIgnoreCase) })) { $info.reason = 'Revo is not installed under Program Files, so Guardian will not use it.'; return [pscustomobject]$info }
         $sig = Get-AuthenticodeSignature -FilePath $l.TargetPath
         $info.signed = ($sig.Status -eq 'Valid'); $info.publisher = $(if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { $null })
+        $info.thumbprint = $(if ($sig.SignerCertificate) { [string]$sig.SignerCertificate.Thumbprint } else { $null })
         $info.version = (Get-Item -LiteralPath $l.TargetPath).VersionInfo.ProductVersion
-        if (-not $info.signed) { $info.reason = 'RevoUnin.exe does not have a valid digital signature.'; return [pscustomobject]$info }
-        if ($info.publisher -notmatch 'VS Revo') { $info.reason = 'RevoUnin.exe is not signed by VS Revo Group.'; return [pscustomobject]$info }
+        $why = Test-RevoSignature -Signature $sig
+        if ($why) { $info.reason = $why; return [pscustomobject]$info }
         $info.available = $true
     } catch { $info.reason = "Could not inspect Revo: $($_.Exception.Message)" }
     return [pscustomobject]$info
