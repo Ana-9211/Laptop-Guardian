@@ -153,6 +153,12 @@ test('reports: list, read, html, export, delete', async () => {
   assert.ok((await get('/api/reports?type=weekly')).json.length >= 2);
 });
 test('files: ignore overlay', async () => {
+  // Fixture candidates point at files that do not exist on this machine, and the bridge hides candidates that are gone, so give it a real one.
+  const real = path.join(root, 'ignore-overlay.tmp'); fs.writeFileSync(real, 'x');
+  const filesJson = path.join(root, 'data', 'latest', 'files.json');
+  const d = JSON.parse(fs.readFileSync(filesJson, 'utf8').replace(/^\uFEFF/, ''));
+  d.candidates = [{ ...d.candidates[0], path: real, name: 'ignore-overlay.tmp' }];
+  fs.writeFileSync(filesJson, JSON.stringify(d));
   const f = (await get('/api/files')).json.candidates[0];
   await mut('POST', '/api/files/ignore', { id: f.id });
   assert.strictEqual((await get('/api/files')).json.candidates[0].ignored, true);

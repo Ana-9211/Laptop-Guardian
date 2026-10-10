@@ -14,7 +14,7 @@ test('POST /api/ai/report refuses while AI is off, then runs the fixed script wi
   const b = await startBridge({ ps });
   try {
     const cfgFile = path.join(b.root, 'config', 'config.json');
-    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8').replace(/^﻿/, '')); cfg.ai = { ...(cfg.ai || {}), enabled: false };
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8').replace(/^\uFEFF/, '')); cfg.ai = { ...(cfg.ai || {}), enabled: false };
     fs.writeFileSync(cfgFile, JSON.stringify(cfg));
     const off = await b.post('/api/ai/report', { type: 'daily' });
     assert.strictEqual(off.status, 409); assert.strictEqual(mine(ps).length, 0, 'nothing was started while AI is off');
@@ -34,7 +34,7 @@ test('POST /api/ai/report reports a failed analysis as 502 with the reason, and 
   const b = await startBridge({ ps });
   try {
     const cfgFile = path.join(b.root, 'config', 'config.json');
-    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8').replace(/^﻿/, '')); cfg.ai = { ...(cfg.ai || {}), enabled: true };
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8').replace(/^\uFEFF/, '')); cfg.ai = { ...(cfg.ai || {}), enabled: true };
     fs.writeFileSync(cfgFile, JSON.stringify(cfg));
     const bad = await b.post('/api/ai/report', { type: 'daily' });
     assert.strictEqual(bad.status, 502); assert.match(bad.json.error, /unavailable|validation/);
