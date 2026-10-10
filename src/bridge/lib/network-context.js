@@ -80,8 +80,8 @@ function createNetworkContext(ctx) {
   }
   const NET_PRIVACY = 'Network data stays on this laptop in data/network. It is never sent to Gemini or anywhere else, and Guardian never records packet contents.';
   function setNetworkFlag(path1, path2, value) {
-    const c = config(); c.network[path1][path2] = value;
-    U.writeJsonAtomic(P.config, c);
+    // read-modify-write of config.json under the same lock as every other writer (Settings save, schedule save, the agents)
+    U.withFileLock(P.config, () => { const c = config(); c.network[path1][path2] = value; U.writeJsonAtomic(P.config, c); });
   }
   return { sampler, netStore, hostsPath, deep, netTimers, persistentPaths, netCtx, dnsBlocked, computeNetFindings, takeSnapshot, enrich, rulesView, deepView, dnsView, currentView, NET_PRIVACY, setNetworkFlag };
 }

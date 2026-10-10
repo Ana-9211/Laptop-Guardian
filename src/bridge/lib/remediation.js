@@ -234,7 +234,7 @@ function createRemediation(deps) {
       return finish(!!q, q ? `The next scheduled ${q.kind} run will be a full run.` : 'Could not queue the run.', !!(back && q && back.kind === q.kind), { details: { queued: q } });
     }
     if (spec.id === 'setup.enable-safe-defaults') {
-      deps.setSafeMode(true);
+      try { deps.setSafeMode(true); } catch (e) { return finish(false, e.code === 'ELOCKED' ? 'Settings are being written by another Laptop Guardian process. Nothing was changed; try again in a moment.' : e.message, false); }
       const on = !!config().safety.safeMode;
       return finish(on, on ? 'Safe Mode is on.' : 'Safe Mode could not be turned on.', on);
     }

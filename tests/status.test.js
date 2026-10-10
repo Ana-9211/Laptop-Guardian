@@ -1,5 +1,6 @@
 'use strict';
 // Live status endpoint, bridge identity, and the pure status helpers used by the dashboard's Refresh / attention features.
+require('./lib/win-env');   // fills in the Windows environment variables the protection rules read, when not on Windows
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');

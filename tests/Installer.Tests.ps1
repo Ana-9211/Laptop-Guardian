@@ -63,6 +63,31 @@ Describe 'Installer: program copy' {
             Test-Path "$dest.old" | Should Be $false
         } finally { Remove-Item $s, $t -Recurse -Force }
     }
+}
+
+Describe 'Installer: program copy when the folder is busy' {
+    It 'an update still works when the program folder cannot be renamed (a process is working inside it), and removes a stray nested staging folder' {
+        $s = New-FakeSource; $t = New-TempDir 'progbusy'
+        try {
+            $dest = "$t\prog"
+            Copy-ProgramFiles -SourceRoot $s -ProgramDir $dest | Out-Null
+            New-Item -ItemType Directory -Path "$dest\prog.new\src" -Force | Out-Null; Set-Content "$dest\prog.new\src\x.js" 'stray'   # what an earlier failed swap left behind
+            Set-Content "$dest\install.json" '{"keep":true}'
+            Set-Content "$s\src\bridge\server.js" 'new version'
+            # Windows refuses to rename a folder that something holds (a shell or program working inside it, a scanner): simulate exactly that refusal
+            Mock -ModuleName Installer Move-Item { throw 'The process cannot access the file because it is being used by another process.' }
+            Mock -ModuleName Installer Start-Sleep { }
+            (Copy-ProgramFiles -SourceRoot $s -ProgramDir $dest) | Should BeGreaterThan 5
+            Assert-MockCalled -ModuleName Installer Move-Item -Times 4 -Exactly   # retried, never moved the staged folder into the busy one
+            (Get-Content "$dest\src\bridge\server.js" -Raw).Trim() | Should Be 'new version'
+            Test-Path "$dest\prog.new" | Should Be $false
+            (Get-Content "$dest\install.json" -Raw) | Should Match 'keep'
+            Test-Path "$dest.new" | Should Be $false
+        } finally { Remove-Item $s, $t -Recurse -Force }
+    }
+}
+
+Describe 'Installer: program copy (failures)' {
     It 'a failed update keeps the working copy' {
         $s = New-FakeSource; $t = New-TempDir 'prog2'
         try {

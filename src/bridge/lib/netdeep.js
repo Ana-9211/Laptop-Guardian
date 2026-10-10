@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
-const { localIso, csvCell } = require('./util');
+const { localIso, csvCell, withFileLock } = require('./util');
 const { eachLine } = require('./compact');
 
 const MB = 1024 * 1024;
@@ -87,9 +87,15 @@ function createDeep({ root, getConfig, log, sampler = null, runNetstat = realNet
     let list = files(); let total = storageBytes();
     while (total > c.maxBytes && list.length > 1) { total -= fs.statSync(list[0]).size; dropDayFile(list[0]); list = list.slice(1); }
     if (total > c.maxBytes && list.length === 1) {
-      // keep the newest maxBytes only: read just that tail, start at a line boundary
-      const size = fs.statSync(list[0]).size; const fd = fs.openSync(list[0], 'r');
-      try { const buf = Buffer.alloc(c.maxBytes); fs.readSync(fd, buf, 0, c.maxBytes, size - c.maxBytes); const nl = buf.indexOf(10); fs.writeFileSync(list[0], nl >= 0 ? buf.subarray(nl + 1) : Buffer.alloc(0)); } finally { fs.closeSync(fd); }
+      // Keep the newest maxBytes only: read just that tail (starting at a line boundary) and replace the file through a temp file. All of it
+      // happens under the day file's lock (the sampler appends under the same lock), and the file is closed before it is replaced.
+      withFileLock(list[0], () => {
+        const size = fs.statSync(list[0]).size; if (size <= c.maxBytes) return;
+        const fd = fs.openSync(list[0], 'r'); const buf = Buffer.alloc(c.maxBytes);
+        try { fs.readSync(fd, buf, 0, c.maxBytes, size - c.maxBytes); } finally { fs.closeSync(fd); }
+        const nl = buf.indexOf(10); const tmp = `${list[0]}.${process.pid}.trim.tmp`;
+        fs.writeFileSync(tmp, nl >= 0 ? buf.subarray(nl + 1) : Buffer.alloc(0)); fs.renameSync(tmp, list[0]);
+      });
     }
   }
 
@@ -123,7 +129,7 @@ function createDeep({ root, getConfig, log, sampler = null, runNetstat = realNet
       }
       if (dropped && !saturatedLogged) { saturatedLogged = true; log({ category: 'network', action: 'network.deep.saturated', result: 'skipped', severity: 'warning', reason: `Too many connections to record in full (limits: ${MAX_OPEN_TRACKED} tracked, ${MAX_EVENTS_PER_TICK} events per sample). Some connections are not in the record.` }); }
       const batch = events;
-      if (batch.length) { fs.mkdirSync(dir, { recursive: true }); fs.appendFileSync(dayFile(t), `${batch.map((e) => JSON.stringify(e)).join('\n')}\n`); eventCount += batch.length; prune(); }
+      if (batch.length) { fs.mkdirSync(dir, { recursive: true }); const df = dayFile(t); withFileLock(df, () => fs.appendFileSync(df, `${batch.map((e) => JSON.stringify(e)).join('\n')}\n`)); eventCount += batch.length; prune(); }
       lastTick = ts;
       return { events: batch.length, tracking: open.size };
     } finally { ticking = false; }

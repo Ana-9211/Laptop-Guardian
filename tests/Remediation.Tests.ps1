@@ -281,6 +281,43 @@ Describe 'administrator-only maintenance actions' {
     }
 }
 
+Describe 'Revo signature check is exact' {
+    function New-FakeSig($status, $subject, $thumb) { [pscustomobject]@{ Status = $status; SignerCertificate = [pscustomobject]@{ Subject = $subject; Thumbprint = $thumb } } }
+    $goodTp = '47FFEC5C7C4B6688DC1923D7863183C6B2F651B7'
+    $goodSubject = 'CN=VS REVO GROUP OOD, O=VS REVO GROUP OOD, L=Ruse, C=BG'
+    function Check($sig) { & (Get-Module Remediation) { param($s) Test-RevoSignature -Signature $s } $sig }
+    It 'accepts only a valid signature, the exact signer name and a known certificate thumbprint' {
+        (Check (New-FakeSig 'Valid' $goodSubject $goodTp)) | Should BeNullOrEmpty
+        (Check (New-FakeSig 'Valid' $goodSubject ($goodTp.ToLower()))) | Should BeNullOrEmpty
+        (Check (New-FakeSig 'Valid' 'CN="VS REVO GROUP OOD", O=x' $goodTp)) | Should BeNullOrEmpty
+    }
+    It 'refuses a loose, similar or differently cased name even with a valid signature' {
+        foreach ($cn in 'VS Revo Group', 'VS REVO GROUP', 'VS REVO GROUP OOD Ltd', 'Not VS REVO GROUP OOD', 'vs revo group ood') {
+            [string](Check (New-FakeSig 'Valid' "CN=$cn, O=VS REVO GROUP OOD" $goodTp)) | Should Match 'is not signed by VS REVO GROUP OOD'
+        }
+        [string](Check (New-FakeSig 'Valid' 'O=VS REVO GROUP OOD, CN=Someone Else' $goodTp)) | Should Match 'is not signed by'
+        [string](Check (New-FakeSig 'Valid' 'O=VS REVO GROUP OOD, L=Ruse' $goodTp)) | Should Match 'is not signed by'
+    }
+    It 'refuses the right name with a certificate that is not on the list, and says which thumbprint it saw' {
+        $r = [string](Check (New-FakeSig 'Valid' $goodSubject 'AAAABBBBCCCCDDDDEEEEFFFF000011112222' ))
+        $r | Should Match 'does not know'; $r | Should Match 'AAAABBBBCCCCDDDDEEEEFFFF000011112222'
+    }
+    It 'refuses an unsigned, tampered or unreadable signature' {
+        foreach ($st in 'NotSigned', 'HashMismatch', 'NotTrusted', 'UnknownError') { [string](Check (New-FakeSig $st $goodSubject $goodTp)) | Should Match 'valid digital signature' }
+        [string](Check $null) | Should Match 'valid digital signature'
+        [string](Check ([pscustomobject]@{ Status = 'Valid'; SignerCertificate = $null })) | Should Match 'no signing certificate'
+    }
+    It 'the accepted names and thumbprints are constants in one place' {
+        $src = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Actions\Remediation\Apps.ps1') -Raw
+        $src | Should Match "RevoSignerCommonName = 'VS REVO GROUP OOD'"; $src | Should Match 'RevoThumbprints = @\('
+        $src | Should Not Match "notmatch 'VS Revo'"
+    }
+    It 'on a machine with Revo installed its real signature passes (read only; skipped silently otherwise)' {
+        $exe = 'C:\Program Files\VS Revo Group\Revo Uninstaller\RevoUnin.exe'
+        if (Test-Path -LiteralPath $exe) { (Check (Get-AuthenticodeSignature -FilePath $exe)) | Should BeNullOrEmpty }
+    }
+}
+
 Describe 'Revo Uninstaller integration' {
     $revoOk = { [pscustomobject]@{ available = $true; target = 'C:\Program Files\VS Revo Group\Revo Uninstaller\RevoUnin.exe'; version = '2.7.0.0'; reason = $null } }
     $app = { @([pscustomobject]@{ name = 'Old Tool'; version = '1.0'; publisher = 'Acme'; installLocation = 'C:\Program Files\Acme\Old Tool'; systemComponent = $false; isUpdate = $false }) }

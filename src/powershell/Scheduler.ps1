@@ -32,6 +32,7 @@ function Get-TaskInfo {
         $i = Get-ScheduledTaskInfo -TaskPath $folder -TaskName $names[$k] -ErrorAction SilentlyContinue
         $trg = @($t.Triggers)[0]
         $args0 = [string]@($t.Actions)[0].Arguments
+        $wantsHeadless = ((Get-TaskLauncher -Program 'x' -ProgramArgs 'y').Execute -match 'conhost[.]exe$')   # a task that still starts the console program directly opens a window
         $out += [pscustomobject]@{
             name = $t.TaskName; kind = $k; state = [string]$t.State
             nextRun = $(if ($i -and $i.NextRunTime -and $i.NextRunTime.Year -gt 2000) { ConvertTo-IsoTime $i.NextRunTime } else { $null })
@@ -39,7 +40,7 @@ function Get-TaskInfo {
             lastResult = $(if ($i) { $i.LastTaskResult } else { $null }); runLevel = [string]$t.Principal.RunLevel
             days = @($(if ($trg -and $trg.PSObject.Properties['DaysOfWeek'] -and $trg.DaysOfWeek) { $bits = [int]$trg.DaysOfWeek; $dn = 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'; 0..6 | Where-Object { $bits -band (1 -shl $_) } | ForEach-Object { $dn[$_] } }))
             scheduledFlag = [bool]($args0 -match '-Scheduled\b')
-            scriptCurrent = ($args0.IndexOf($scriptFor[$k], [StringComparison]::OrdinalIgnoreCase) -ge 0)
+            scriptCurrent = (($args0.IndexOf($scriptFor[$k], [StringComparison]::OrdinalIgnoreCase) -ge 0) -and (-not $wantsHeadless -or [string]@($t.Actions)[0].Execute -match 'conhost[.]exe$'))
             time = $(if ($trg -and $trg.StartBoundary) { ([datetime]$trg.StartBoundary).ToString('HH:mm') } else { $null })
             trigger = $(if ($trg) { ConvertTo-IsoTime $trg.StartBoundary } else { $null }); wakeToRun = [bool]$t.Settings.WakeToRun
         }
@@ -56,6 +57,15 @@ function Get-DesiredTasks {
     )
 }
 
+function Get-TaskLauncher {
+    <# Console programs (powershell.exe, node.exe) open a window when Task Scheduler starts them; -WindowStyle Hidden only hides it after it has appeared (a flash).
+       conhost.exe --headless runs the same command with no window at all (Windows 10 1809 and later). Falls back to starting the program directly. #>
+    param([Parameter(Mandatory)][string]$Program, [Parameter(Mandatory)][string]$ProgramArgs)
+    $conhost = Join-Path ([Environment]::GetFolderPath('System')) 'conhost.exe'
+    if ((Test-Path -LiteralPath $conhost) -and [Environment]::OSVersion.Version.Build -ge 17763) { return [pscustomobject]@{ Execute = $conhost; Argument = "--headless `"$Program`" $ProgramArgs" } }
+    return [pscustomobject]@{ Execute = $Program; Argument = $ProgramArgs }
+}
+
 function Set-GuardianTask {
     param([string]$Kind, $Cfg, [string]$RunLevel)
     # A Highest task runs this folder's scripts as administrator on every schedule, so the folder must be trusted first.
@@ -65,14 +75,16 @@ function Set-GuardianTask {
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel $RunLevel
     switch ($Kind) {
         'daily' {
-            $action = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSScriptRoot\Daily.ps1`" -Scheduled" -WorkingDirectory $root
+            $l = Get-TaskLauncher -Program $ps -ProgramArgs "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSScriptRoot\Daily.ps1`" -Scheduled"
+            $action = New-ScheduledTaskAction -Execute $l.Execute -Argument $l.Argument -WorkingDirectory $root
             $time = [datetime]::ParseExact($Cfg.schedule.daily.time, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
             $trigger = New-ScheduledTaskTrigger -Daily -At $time
             $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
             Register-ScheduledTask -TaskPath $folder -TaskName $names.daily -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Laptop Guardian daily audit (observe, analyse, recommend).' -Force | Out-Null
         }
         'weekly' {
-            $action = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSScriptRoot\Weekly.ps1`" -Scheduled" -WorkingDirectory $root
+            $l = Get-TaskLauncher -Program $ps -ProgramArgs "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSScriptRoot\Weekly.ps1`" -Scheduled"
+            $action = New-ScheduledTaskAction -Execute $l.Execute -Argument $l.Argument -WorkingDirectory $root
             $time = [datetime]::ParseExact($Cfg.schedule.weekly.time, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
             $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek ([System.DayOfWeek]$Cfg.schedule.weekly.day) -At $time
             $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -WakeToRun -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 5)
@@ -81,7 +93,8 @@ function Set-GuardianTask {
         'dashboard' {
             # Local-only web server (127.0.0.1) started at logon with LEAST privilege, whatever this process's own level.
             $node = (Get-Command node.exe -ErrorAction Stop).Source
-            $a = New-ScheduledTaskAction -Execute $node -Argument "`"$($scriptFor.dashboard)`"" -WorkingDirectory $root
+            $l = Get-TaskLauncher -Program $node -ProgramArgs "`"$($scriptFor.dashboard)`""   # no console window at logon
+            $a = New-ScheduledTaskAction -Execute $l.Execute -Argument $l.Argument -WorkingDirectory $root
             $tr = New-ScheduledTaskTrigger -AtLogOn -User $user
             $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
             $pr = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited

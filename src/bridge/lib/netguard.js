@@ -60,16 +60,32 @@ function refuseProgram(p, { guardianRoot } = {}) {
   return null;
 }
 
+/** Why an IPv4 address (as four bytes) must never be blocked, or null. */
+function refuseV4Bytes(b) {
+  if (b[0] === 127) return 'Loopback addresses are never blocked.';   // all of 127.0.0.0/8
+  if (b[0] === 0) return 'The unspecified address cannot be blocked.';
+  if (b[0] >= 224) return 'Multicast and reserved ranges are never blocked.';
+  if (b[0] === 169 && b[1] === 254) return 'Link-local addresses (automatic networking) are never blocked.';
+  return null;
+}
+const MAPPED_ONLY = 'Write IPv4 addresses in the normal a.b.c.d form; the IPv6-embedded form is not accepted.';
+
 function refuseRemote(text, identity = []) {
   const i = parseIp(text);
   if (!i) return 'That is not a valid IP address or CIDR range.';
   const min = i.family === 4 ? MIN_PREFIX.v4 : MIN_PREFIX.v6;
   if (i.prefix < min) return `That range is too broad (a /${i.prefix} would cover a huge part of the internet). Use /${min} or narrower.`;
+  if (i.family === 6) {
+    // IPv4-mapped (::ffff:a.b.c.d) and the deprecated IPv4-compatible form (::a.b.c.d) are the SAME hosts as the IPv4 address inside them. They are
+    // judged by the IPv4 rules (so ::ffff:127.0.0.1 is loopback), and anything else in these forms is refused, because the identity check
+    // (gateway, DNS, DHCP) compares like with like and would not recognise the gateway written this way.
+    const lead10 = i.bytes.slice(0, 10).every((x) => x === 0);
+    const mapped = lead10 && i.bytes[10] === 0xff && i.bytes[11] === 0xff;
+    const compat = lead10 && i.bytes[10] === 0 && i.bytes[11] === 0 && i.bytes.slice(12).some((x) => x !== 0) && i.bytes.slice(12).join() !== '0,0,0,1';
+    if (mapped || compat) return refuseV4Bytes(i.bytes.slice(12)) || MAPPED_ONLY;
+  }
   if (i.family === 4) {
-    if (i.bytes[0] === 127) return 'Loopback addresses are never blocked.';
-    if (i.bytes[0] === 0) return 'The unspecified address cannot be blocked.';
-    if (i.bytes[0] >= 224) return 'Multicast and reserved ranges are never blocked.';
-    if (i.bytes[0] === 169 && i.bytes[1] === 254) return 'Link-local addresses (automatic networking) are never blocked.';
+    const v4 = refuseV4Bytes(i.bytes); if (v4) return v4;
   } else if (isLoopback(text) || isUnspecified(text) || (i.bytes[0] === 0xfe && (i.bytes[1] & 0xc0) === 0x80) || i.bytes[0] === 0xff) return 'Loopback, link-local, multicast and unspecified IPv6 addresses are never blocked.';
   for (const keep of identity) { if (inCidr(i, keep)) return `Refused: this would block your gateway, DNS or DHCP server (${keep}), which would cut the laptop off the network.`; }
   return null;

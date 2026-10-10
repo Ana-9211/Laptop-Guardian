@@ -6,7 +6,7 @@
  */
 const protectedTargets = require('./protected');
 
-const same = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+const PM = require('./policymatch');
 
 function previewSafeModeOff({ config, policy, processes = [], daily = null, guardianRoot }) {
   const doing = []; const notDoing = []; const notes = [];
@@ -17,7 +17,8 @@ function previewSafeModeOff({ config, policy, processes = [], daily = null, guar
   const black = ((policy && policy.blacklist) || []).filter((e) => e.enabled !== false && (!e.disabledUntil || Date.parse(e.disabledUntil) < Date.now()));
   const autoKill = !!safety.autoKillBlacklisted;
   for (const e of black) {
-    const hits = processes.filter((p) => same(p.name, e.name) && (!e.path || same(p.path, e.path)));
+    // the matching rules of the agents themselves: name without .exe and case, path-scoped entries only for that exact path
+    const hits = processes.filter((p) => PM.procKey(p.name) === PM.procKey(e.name) && (!e.path || (p.path && String(p.path).toLowerCase() === String(e.path).toLowerCase())));
     for (const p of hits) {
       const prot = protectedTargets.checkProcess({ name: p.name, pid: p.pid, path: p.path, guardianRoot });
       if (prot.protected) notDoing.push({ kind: 'process', label: `${p.name} (PID ${p.pid})`, detail: `Protected: ${prot.reason}. It stays running even though it is on your blacklist.` });

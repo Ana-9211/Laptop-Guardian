@@ -24,7 +24,7 @@ module.exports = function registerStatusRoutes(ctx) {
     const lastErr = [...acts].reverse().find((a) => a.severity === 'error');
     const recs = loadRecs().items.filter((r) => r.status === 'open');
     const daily = cachedJson(P.latest('daily.json')); const weekly = cachedJson(P.latest('weekly.json'));
-    const procs = cachedJson(P.latest('processes.json'), null); const files = cachedJson(P.latest('files.json'), null);
+    const procs = cachedJson(P.latest('processes.json'), null); const files = U.dropGoneCandidates(cachedJson(P.latest('files.json'), null));
     const shutdownGates = shutdownArmed(c);
     const worst = tasks.some((t) => t.level === 'crit') ? 'crit' : tasks.some((t) => t.level === 'warn') ? 'warn' : tasks.some((t) => t.level === 'info' && t.status !== 'never-run' && t.status !== 'off') ? 'info' : 'ok';
     return {

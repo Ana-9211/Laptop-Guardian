@@ -8,7 +8,7 @@ function Get-TaskDrift {
     <# Lists how an existing task differs from what the config asks for. Empty list = nothing to change. #>
     param([Parameter(Mandatory)]$Existing, [Parameter(Mandatory)]$Desired, [bool]$IsAdmin)
     $drift = New-Object System.Collections.Generic.List[string]
-    if (-not $Existing.scriptCurrent) { $drift.Add('task runs a different script path than this installation') }
+    if (-not $Existing.scriptCurrent) { $drift.Add('task runs a different script path than this installation, or still opens a console window') }
     if ($Desired.needsScheduledFlag -and -not $Existing.scheduledFlag) { $drift.Add('task is missing the -Scheduled marker') }
     if ($Desired.time -and $Existing.time -ne $Desired.time) { $drift.Add("start time is $($Existing.time) but Settings say $($Desired.time)") }
     if ($Desired.day -and @($Existing.days) -notcontains $Desired.day) { $drift.Add("day is $(@($Existing.days) -join ',') but Settings say $($Desired.day)") }

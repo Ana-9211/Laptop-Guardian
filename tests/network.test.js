@@ -2,6 +2,7 @@
 // Network Guard: target rules, findings, offers, storage, Deep Network Guard sampling and the HTTP surface.
 // Everything uses synthetic snapshots, injected netstat output and temp roots. Nothing here reads real connections,
 // captures traffic, edits the hosts file or touches the firewall.
+require('./lib/win-env');   // fills in the Windows environment variables the protection rules read, when not on Windows
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');

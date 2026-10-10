@@ -111,4 +111,45 @@ Describe 'Blacklist enforcement' {
         } finally { Stop-Process -Id $v.Id -Force -ErrorAction SilentlyContinue }
     }
 }
+Describe 'Policy edits take the shared file lock' {
+    It 'Add-PolicyEntry and Remove-PolicyEntry hold the policy lock around their read-modify-write' {
+        $src = Get-Content (Join-Path $script:RepoRoot 'src\powershell\Processes\Policy.psm1') -Raw
+        foreach ($fn in 'Add-PolicyEntry', 'Remove-PolicyEntry') {
+            $i = $src.IndexOf("function $fn"); $j = $src.IndexOf('function ', $i + 10)
+            $src.Substring($i, $j - $i) | Should Match "Invoke-WithFileLock -Path \(Get-GuardianPath 'ProcessPolicy'\)"
+        }
+    }
+    It 'two PowerShell processes adding entries at the same time lose none and leave no lock behind' {
+        $pol = Get-GuardianPath 'ProcessPolicy'
+        $loader = Join-Path $script:RepoRoot 'src\powershell\Common\Load.ps1'
+        $worker = Join-Path $root 'lock-worker.ps1'
+        Set-Content -LiteralPath $worker -Value @'
+param([string]$Tag, [string]$Loader)
+. $Loader
+1..6 | ForEach-Object { Add-PolicyEntry -List whitelist -Name ('lockw' + $Tag + $_) | Out-Null }
+'@
+        $procs = foreach ($w in 'a', 'b') {
+            $psi = New-Object Diagnostics.ProcessStartInfo (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'), "-NoProfile -ExecutionPolicy Bypass -File `"$worker`" -Tag $w -Loader `"$loader`""
+            $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.EnvironmentVariables['GUARDIAN_ROOT'] = $root
+            [Diagnostics.Process]::Start($psi)
+        }
+        foreach ($p in $procs) { [void]$p.WaitForExit(120000) }
+        @((Get-ProcessPolicy).whitelist | Where-Object { $_.name -like 'lockw*' }).Count | Should Be 12
+        (Test-Path "$pol.lock") | Should Be $false
+    }
+}
+Describe 'Policy matching agrees with the bridge (shared fixture)' {
+    $fx = Get-Content (Join-Path $script:RepoRoot 'tests\fixtures\policy-match-cases.json') -Raw | ConvertFrom-Json
+    It 'gives the same answer as the Node matcher for every shared case (case, .exe, spaces, path scope, pauses, precedence)' {
+        $pol = [pscustomobject]@{ whitelist = @($fx.policy.whitelist); blacklist = @($fx.policy.blacklist); ignored = @($fx.policy.ignored) }
+        $n = 0
+        foreach ($c in $fx.cases) {
+            $r = Find-PolicyMatch -Policy $pol -Name $c.name -Path $c.path
+            $got = "$($r.list):$(if ($r.entry) { $r.entry.id } else { '' })"
+            $got | Should Be $c.expect
+            $n++
+        }
+        $n | Should BeGreaterThan 15
+    }
+}
 Remove-TestRoot $root

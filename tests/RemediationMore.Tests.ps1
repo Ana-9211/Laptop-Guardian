@@ -85,6 +85,23 @@ Describe 'firewall connection logging (audit policy)' {
         $r2 = Run 'setup.disable-firewall-audit' @{}; $r2.ok | Should Be $true
         $global:T_Aud['connection'] | Should Be 1; $global:T_Aud['packet-drop'] | Should Be 0
         Test-Path $global:T_Bk | Should Be $false
+        $r2.message | Should Match 'back to what it was before Guardian turned it on'
+    }
+    It 'turning it off when Guardian saved nothing says so: a warning in the plan, and a message that does not claim a restore' {
+        $global:T_Aud = [ordered]@{ connection = 3; 'packet-drop' = 3 }   # someone else turned it on; there is no backup file
+        Test-Path $global:T_Bk | Should Be $false
+        $v = Run 'setup.disable-firewall-audit' @{} 'Validate'
+        $v.ok | Should Be $true; (@($v.warnings) -join ' ') | Should Match 'no saved earlier setting'; $v.details.hasSavedSetting | Should Be $false
+        $r = Run 'setup.disable-firewall-audit' @{}
+        $r.ok | Should Be $true; $r.verified | Should Be $true
+        $r.message | Should Match 'no saved earlier setting'; $r.message | Should Not Match 'back to what it was before'
+        $global:T_Aud['connection'] | Should Be 0; $global:T_Aud['packet-drop'] | Should Be 0
+        (First (Run 'setup.disable-firewall-audit' @{})) | Should Match 'already off'
+    }
+    It 'reports a disable that Windows did not apply' {
+        Mock -ModuleName $M Set-WfpAuditState { }
+        $global:T_Aud = [ordered]@{ connection = 3; 'packet-drop' = 3 }
+        (First (Run 'setup.disable-firewall-audit' @{})) | Should Match 'did not report the audit policy'
     }
     It 'refuses to enable twice' { $global:T_Aud = [ordered]@{ connection = 3; 'packet-drop' = 3 }; (First (Run 'setup.enable-firewall-audit' @{})) | Should Match 'already on' }
     It 'reports an auditpol failure and does not claim success' {

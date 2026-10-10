@@ -75,6 +75,9 @@ test('security: invalid JSON rejected', async () => {
 });
 test('security: missing scripts give 501, not a crash', async () => {
   assert.strictEqual((await mut('POST', '/api/ai/key', { key: 'A'.repeat(39) })).status, 501);
+  // newer dotted keys, and keys pasted with spaces, a line break or quotes around them, are accepted; real garbage is still refused
+  for (const ok of ['AQ.Ab8RN6K9xYzExampleKeyValue_123-456', '  AIzaSyExampleExampleExampleExample12345  \n', '"AIzaSyExampleExampleExampleExample12345"', 'A'.repeat(200)]) assert.strictEqual((await mut('POST', '/api/ai/key', { key: ok })).status, 501, ok);
+  for (const bad of ['short', 'has space inside the key value', 'key;calc', 'a\nb'.repeat(10), 'A'.repeat(300), 'AIza\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9']) { const r = await mut('POST', '/api/ai/key', { key: bad }); assert.strictEqual(r.status, 400, bad); assert.match(r.json.error, /does not look like an API key/); }
 });
 
 test('api: overview shape', async () => {
@@ -150,6 +153,12 @@ test('reports: list, read, html, export, delete', async () => {
   assert.ok((await get('/api/reports?type=weekly')).json.length >= 2);
 });
 test('files: ignore overlay', async () => {
+  // Fixture candidates point at files that do not exist on this machine, and the bridge hides candidates that are gone, so give it a real one.
+  const real = path.join(root, 'ignore-overlay.tmp'); fs.writeFileSync(real, 'x');
+  const filesJson = path.join(root, 'data', 'latest', 'files.json');
+  const d = JSON.parse(fs.readFileSync(filesJson, 'utf8').replace(/^\uFEFF/, ''));
+  d.candidates = [{ ...d.candidates[0], path: real, name: 'ignore-overlay.tmp' }];
+  fs.writeFileSync(filesJson, JSON.stringify(d));
   const f = (await get('/api/files')).json.candidates[0];
   await mut('POST', '/api/files/ignore', { id: f.id });
   assert.strictEqual((await get('/api/files')).json.candidates[0].ignored, true);
@@ -232,7 +241,7 @@ test('shutdown: cancel runs the fixed abort command once, is audited, and clears
   } finally { a.close(); }
 });
 
-test('locking: a shared file lock serialises writers, a stale lock is broken, and a held lock never freezes the caller', () => {
+test('locking: a shared file lock serialises writers, a stale lock is broken, and a held lock fails closed after a bounded wait', () => {
   const f = path.join(root, 'lockdemo', 'x.json');
   let inner = 0;
   U.withFileLock(f, () => { inner++; assert.ok(fs.existsSync(`${f}.lock`)); });
@@ -241,7 +250,8 @@ test('locking: a shared file lock serialises writers, a stale lock is broken, an
   fs.writeFileSync(`${f}.lock`, ''); const old = new Date(Date.now() - 60000); fs.utimesSync(`${f}.lock`, old, old);
   U.withFileLock(f, () => { inner++; }); assert.strictEqual(inner, 2, 'stale lock broken');
   fs.writeFileSync(`${f}.lock`, '');
-  const t0 = Date.now(); U.withFileLock(f, () => { inner++; }, 300); assert.strictEqual(inner, 3, 'runs even when the lock is held');
-  assert.ok(Date.now() - t0 >= 250 && Date.now() - t0 < 3000);
+  // a lock that is held (fresh, no owner information, not removable) now makes the caller give up: the work does NOT run anyway (fail closed)
+  const t0 = Date.now(); assert.throws(() => U.withFileLock(f, () => { inner++; }, 300), (e) => e.code === 'ELOCKED'); assert.strictEqual(inner, 2, 'the work did not run');
+  assert.ok(Date.now() - t0 >= 250 && Date.now() - t0 < 3000, 'and the wait was bounded');
   fs.unlinkSync(`${f}.lock`);
 });

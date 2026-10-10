@@ -86,7 +86,7 @@ function compactJsonl(file, opts) {
       fs.renameSync(tmp, file);   // atomic replace; the lock is still held, so no agent appends between the read and the swap
     } catch (e) { fs.rmSync(tmp, { force: true }); throw e; }
     return { rolled, kept, days: byDay.size };
-  }, lockTimeoutMs, { strict: true });   // compaction never runs without the lock: another writer could lose a row in the swap
+  }, lockTimeoutMs);   // withFileLock fails closed: compaction never runs without the lock, because another writer could lose a row in the swap
 }
 
 /** The newest rows of a file that stay under a byte cap, then older summary rows to fill the front. Never reads more than maxBytes from either. */

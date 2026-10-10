@@ -72,6 +72,17 @@ components/ActionFlow.tsx       plan -> confirm -> execute -> verify flow used b
 
 Pages that need the same data read it from a shared context (`useOverview`, `useFindings`, `useRemediationHistory`) rather than fetching it again.
 
+## Documents
+
+| File | What it is |
+|---|---|
+| README.md | what it is, install, how it works, how this was built |
+| docs/ARCHITECTURE.md | this page |
+| docs/THREAT-MODEL.md | what is and is not defended |
+| docs/DATA-CONTRACT.md | files, config, API |
+| docs/PESTER5-PLAN.md | the plan for moving the PowerShell tests to Pester 5 |
+| docs/history/ | the build logs of each working session (what was done, what was verified, what is still open) |
+
 ## Tests
 
 | Suite | Command | Covers |

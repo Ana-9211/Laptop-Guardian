@@ -10,6 +10,7 @@ import { Badge, Card, Empty, ErrorState, Expander, Icon, PageHead, Sep, Skeleton
 import { LineChart, RangeSelect, Range, filterRange, ScoreRing, SERIES_COLORS, Sparkline } from '../components/Chart';
 import { ActionTimeline, RunButtons } from '../components/common';
 import { AttentionCard, TaskStatusCard } from '../components/AttentionPanels';
+import { AiReportCard } from '../components/AiReportCard';
 import { useStatus } from '../state/StatusProvider';
 import { ago, fmtFull, until, scoreTone, NA, riskTone } from '../format';
 import { kindLabel } from '../labels';
@@ -129,6 +130,8 @@ export default function Overview() {
         </div>
         {d && <p className="small muted" style={{ margin: 0 }}>Security, storage, memory, CPU and battery show the state at the last scan ({ago(d.generatedAt)}), not live.</p>}
       </section>
+
+      {d && <AiReportCard report={d} />}
 
       <div className="split">
         <div className="col">

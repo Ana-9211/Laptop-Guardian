@@ -27,23 +27,107 @@ function writeJsonAtomic(file, data) {
   }
 }
 
-/**
- * Runs fn while holding `<file>.lock` (created exclusively; the PowerShell agents use the same protocol), so a read-modify-write of a shared
- * JSON file is not interleaved with another writer. A lock older than 30 s is treated as left behind by a crash. If the lock cannot be
- * obtained within `timeoutMs` the work still runs: a stuck lock must never freeze the dashboard.
- */
-function withFileLock(file, fn, timeoutMs = 4000, { strict = false } = {}) {
-  const lock = `${file}.lock`;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const deadline = Date.now() + timeoutMs; let fd = null;
-  while (fd === null) {
-    try { fd = fs.openSync(lock, 'wx'); } catch (e) {
-      try { if (Date.now() - fs.statSync(lock).mtimeMs > 30000) fs.unlinkSync(lock); } catch { /* raced with the holder */ }
-      if (Date.now() > deadline) { if (strict) throw new Error(`could not lock ${path.basename(file)}`); break; }
-      sleepSync(15 + Math.floor(Math.random() * 30));
+// ---------- shared file locks ----------
+// `<file>.lock` is created exclusively and the PowerShell agents use the same protocol (Invoke-WithFileLock), so a read-modify-write of a
+// shared file is never interleaved with another writer. Rules:
+//  * FAIL CLOSED: if the lock cannot be had in time the work does NOT run; the caller gets an error with code ELOCKED.
+//  * A lock is taken over only when it is old (30 s) AND its owner is gone: the owner process no longer exists, or the pid now belongs to a
+//    process that started after the lock was written (pid reuse). A live owner is never robbed. A lock without owner information (the agents
+//    write none) is removed only if Windows lets us: a live agent holds the file open without delete sharing, so the removal fails.
+//  * Waiting is a bounded retry. withFileLockAsync waits with timers, so a request handler never freezes the event loop while another process
+//    holds the lock. withFileLock (sync) blocks for at most timeoutMs and is for the places that cannot await (the audit-log append and the
+//    background maintenance job); lock hold times are milliseconds, so the wait is almost always zero.
+const LOCK_STALE_MS = 30000;
+const held = new Map();   // lock path -> depth, for nested use inside this one process (everything here is synchronous while held)
+
+function lockError(file) { const e = new Error(`could not lock ${path.basename(file)}: another Guardian process is writing it`); e.code = 'ELOCKED'; return e; }
+
+const probe = {
+  alive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } },
+  /** Start time (ms) of another process, or null when it cannot be read. Only used for a lock that is already old, so the cost does not matter. */
+  startTime(pid) {
+    if (process.platform !== 'win32') return null;
+    try {
+      const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      const out = require('child_process').execFileSync(ps, ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${Number(pid)}).StartTime.ToUniversalTime().ToString('o')`], { timeout: 8000, windowsHide: true, encoding: 'utf8' });
+      const t = Date.parse(out.trim()); return Number.isNaN(t) ? null : t;
+    } catch { return null; }
+  },
+};
+function setLockProbe(p) { Object.assign(probe, p); }
+
+/** True when the lock file is old and nothing alive owns it. May remove it. */
+function reclaimIfAbandoned(lock) {
+  let st; try { st = fs.statSync(lock); } catch { return false; }
+  if (Date.now() - st.mtimeMs <= LOCK_STALE_MS) return false;
+  let text = ''; try { text = fs.readFileSync(lock, 'utf8'); } catch { return false; }
+  let info = null; try { info = JSON.parse(text); } catch { info = null; }
+  if (info && Number.isInteger(info.pid)) {
+    if (probe.alive(info.pid)) {
+      const started = probe.startTime(info.pid);
+      const written = Date.parse(info.createdAt);
+      // the pid is alive: it is the owner unless that process started after the lock was written (the pid was reused)
+      if (!(started !== null && !Number.isNaN(written) && started > written + 2000)) return false;
     }
   }
-  try { return fn(); } finally { if (fd !== null) { try { fs.closeSync(fd); fs.unlinkSync(lock); } catch { /* best effort */ } } }
+  // Take the file by renaming it (atomic), then check it is the very lock we judged abandoned before deleting it.
+  const mine = `${lock}.stale.${process.pid}.${crypto.randomBytes(3).toString('hex')}`;
+  try { fs.renameSync(lock, mine); } catch { return false; }   // a live agent holds it open, or someone else got there first
+  let moved = ''; try { moved = fs.readFileSync(mine, 'utf8'); } catch { /* unreadable: fall through */ }
+  if (moved !== text) { try { fs.renameSync(mine, lock); } catch { /* the owner will notice its lock is gone */ } return false; }
+  try { fs.unlinkSync(mine); } catch { /* best effort */ }
+  return true;
+}
+
+/** One attempt: returns a release function, or null when someone else holds the lock. */
+function tryLock(file) {
+  const lock = `${file}.lock`;
+  const token = crypto.randomBytes(8).toString('hex');
+  for (let i = 0; i < 2; i++) {
+    let fd;
+    try { fd = fs.openSync(lock, 'wx'); } catch (e) {
+      if (e.code === 'EEXIST' || e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'EACCES') { if (i === 0 && reclaimIfAbandoned(lock)) continue; return null; }
+      throw e;
+    }
+    try { fs.writeSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString(), token })); } catch { /* an unreadable lock is treated like an agent's */ }
+    return () => {
+      try { fs.closeSync(fd); } catch { /* already closed */ }
+      try { if (JSON.parse(fs.readFileSync(lock, 'utf8')).token === token) fs.unlinkSync(lock); } catch { try { fs.unlinkSync(lock); } catch { /* gone */ } }
+    };
+  }
+  return null;
+}
+
+function runHeld(file, release, fn) {
+  const key = `${file}.lock`;
+  held.set(key, 1);
+  try { return fn(); } finally { held.delete(key); release(); }
+}
+
+/** Runs fn (synchronously) while holding the lock; throws ELOCKED without running it when the lock cannot be had within timeoutMs. */
+function withFileLock(file, fn, timeoutMs = 4000) {
+  if (held.has(`${file}.lock`)) return fn();   // nested use in this process
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const release = tryLock(file);
+    if (release) return runHeld(file, release, fn);
+    if (Date.now() > deadline) throw lockError(file);
+    sleepSync(15 + Math.floor(Math.random() * 30));
+  }
+}
+
+/** Like withFileLock but waits with timers, so the event loop keeps serving while another process holds the lock. fn must be synchronous. */
+async function withFileLockAsync(file, fn, timeoutMs = 4000) {
+  if (held.has(`${file}.lock`)) return fn();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const release = tryLock(file);
+    if (release) return runHeld(file, release, fn);
+    if (Date.now() > deadline) throw lockError(file);
+    await new Promise((resolve) => setTimeout(resolve, 15 + Math.floor(Math.random() * 30)));
+  }
 }
 
 /** Read the last `maxLines` parsable lines of a JSONL file, reading at most `maxBytes` from the end. */
@@ -69,6 +153,21 @@ function tailJsonl(file, maxLines = 500, maxBytes = 4 * 1024 * 1024) {
   } finally {
     if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
   }
+}
+
+/**
+ * tailJsonl, but the parsed rows are kept until the file changes (its size or modification time). The dashboard polls endpoints that look at the audit
+ * log's tail on every request; with an unchanged file the second poll costs one stat instead of reading and parsing up to 4 MB again. A NEW array is
+ * returned every time (callers reverse and sort their copy); the row objects are shared and must not be modified.
+ */
+const tailCache = new Map();
+function tailJsonlCached(file, maxLines = 500, maxBytes = 4 * 1024 * 1024) {
+  let st; try { st = fs.statSync(file); } catch { tailCache.delete(file); return []; }
+  const key = `${st.size}:${st.mtimeMs}`; const hit = tailCache.get(file);
+  if (hit && hit.key === key && hit.lines >= maxLines && hit.bytes >= maxBytes) return hit.rows.slice(-maxLines);
+  const rows = tailJsonl(file, maxLines, maxBytes);
+  tailCache.set(file, { key, lines: maxLines, bytes: maxBytes, rows });
+  return rows.slice();
 }
 
 function readAllJsonl(file) {
@@ -154,7 +253,7 @@ const RANGES = {
   'network.thresholds.persistentDestinations': [2, 1000], 'network.thresholds.newConnectionsPerMinute': [5, 100000],
 };
 Object.assign(RANGES, {
-  'cleanup.tempMinAgeDays': [0, 365], 'storage.minLargeFileMB': [1, 1_000_000], 'storage.oldFileDays': [1, 3650], 'storage.duplicateMinMB': [1, 100_000],
+  'cleanup.tempMinAgeDays': [1, 365], 'storage.minLargeFileMB': [1, 1_000_000], 'storage.oldFileDays': [1, 3650], 'storage.duplicateMinMB': [1, 100_000],
   'thresholds.cpuPct': [1, 100], 'thresholds.memoryMB': [50, 1_000_000], 'thresholds.diskFreeWarnPct': [1, 90], 'thresholds.diskFreeCritPct': [1, 89],
   'retention.reportsDays': [0, 3650], 'retention.metricsRawDays': [30, 730], 'retention.auditRawDays': [30, 730],
 });
@@ -216,5 +315,19 @@ function nextRun(time, day, from = new Date()) {
   return localIso(d);
 }
 
+/**
+ * A scan snapshot can be hours old. Drop file candidates whose path is verifiably gone (deleted by hand, moved, cleaned) so the lists and the
+ * Action Center do not offer them. Only a definite "does not exist" removes one: any other error (permissions, a locked drive) keeps it.
+ */
+function dropGoneCandidates(files) {
+  if (!files || !Array.isArray(files.candidates)) return files;
+  const gone = (p) => {
+    if (typeof p !== 'string' || !p) return false;
+    try { fs.lstatSync(p); return false; } catch (e) { return e.code === 'ENOENT' || e.code === 'ENOTDIR'; }
+  };
+  const kept = files.candidates.filter((c) => !gone(c && c.path));
+  return kept.length === files.candidates.length ? files : { ...files, candidates: kept, goneCount: files.candidates.length - kept.length };
+}
+
 module.exports = {
-  readInstall, DEFAULT_PORT, withFileLock, csvCell, riskyChanges, readJson, writeJsonAtomic, tailJsonl, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };
+  dropGoneCandidates, readInstall, DEFAULT_PORT, withFileLock, withFileLockAsync, setLockProbe, csvCell, riskyChanges, readJson, RANGES, writeJsonAtomic, tailJsonl, tailJsonlCached, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };

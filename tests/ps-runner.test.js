@@ -1,6 +1,8 @@
 'use strict';
 // The real runner against throwaway scripts in a temp root: a non-zero exit or timeout is a failure even with parseable stdout.
 const test = require('node:test');
+const WIN = process.platform === 'win32';
+const NEEDS_WINDOWS = WIN ? false : 'starts Windows PowerShell (powershell.exe), which exists only on Windows';
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
@@ -14,7 +16,7 @@ function rootWith(scripts) {
   return root;
 }
 
-test('runner: exit 0 with JSON is ok; non-zero exit with JSON is a failure; timeout is a failure', async () => {
+test('runner: exit 0 with JSON is ok; non-zero exit with JSON is a failure; timeout is a failure', { skip: NEEDS_WINDOWS }, async () => {
   const root = rootWith({
     'good.ps1': "'{\"a\":1}'; exit 0",
     'bad.ps1': "'{\"connections\":[]}'; exit 3",
@@ -28,7 +30,7 @@ test('runner: exit 0 with JSON is ok; non-zero exit with JSON is a failure; time
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('runner: never more than MAX_CONCURRENT PowerShell children at once', async () => {
+test('runner: never more than MAX_CONCURRENT PowerShell children at once', { skip: NEEDS_WINDOWS }, async () => {
   const { MAX_CONCURRENT } = require('../src/bridge/lib/ps');
   const root = rootWith({ 'nap.ps1': "Start-Sleep -Milliseconds 700; '{\"ok\":true}'" });
   try {
@@ -40,7 +42,7 @@ test('runner: never more than MAX_CONCURRENT PowerShell children at once', async
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('runner: non-ASCII text from a script that loads the encoding setup arrives intact (no replacement characters)', async () => {
+test('runner: non-ASCII text from a script that loads the encoding setup arrives intact (no replacement characters)', { skip: NEEDS_WINDOWS }, async () => {
   const root = rootWith({});
   const common = path.join(root, 'src', 'powershell', 'Common');
   fs.mkdirSync(common, { recursive: true });

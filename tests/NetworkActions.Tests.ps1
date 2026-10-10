@@ -40,6 +40,18 @@ Describe 'Target validation' {
         foreach ($bad in 'not-an-ip', '127.0.0.1', '0.0.0.0', '224.0.0.1', '169.254.1.1', '10.0.0.0/4', '0.0.0.0/0', '::1', 'fe80::1', '8.8.8.8/7', '192.168.1.0/24', '1.1.1.1', '192.168.1.1') { (Test-RemoteTarget $bad) | Should Not BeNullOrEmpty }
         foreach ($good in '203.0.113.7', '198.51.100.0/24', '2001:db8::1', '10.20.30.40') { (Test-RemoteTarget $good) | Should BeNullOrEmpty }
     }
+    It 'gives the same verdict as the bridge for every shared case, IPv4-mapped and IPv4-compatible loopback included' {
+        $fx = Get-Content (Join-Path $script:RepoRoot 'tests\fixtures\remote-target-cases.json') -Raw | ConvertFrom-Json
+        $global:T_Identity = @($fx.identity)
+        Mock -ModuleName $M Get-NetworkIdentity { $global:T_Identity }
+        $n = 0
+        foreach ($c in $fx.cases) {
+            $r = Test-RemoteTarget $c.text
+            if ($c.expect -eq 'ok') { ($null -eq $r) | Should Be $true } else { [string]$r | Should Match ([regex]::Escape($c.expect)) }
+            $n++
+        }
+        $n | Should BeGreaterThan 20
+    }
     It 'refuses DNS, DHCP and out-of-range ports' {
         foreach ($p in 0, 53, 67, 68, 546, 547, 70000, -1) { (Test-PortTarget $p) | Should Not BeNullOrEmpty }
         (Test-PortTarget 3389) | Should BeNullOrEmpty
@@ -233,6 +245,8 @@ Describe 'Collector (mocked): standard visibility only' {
         Mock -ModuleName Guard Get-ProcessTable { @([pscustomobject]@{ ProcessId = 42; Name = 'thing.exe'; ExecutablePath = 'C:\Tools\thing.exe' }) }
         Mock -ModuleName Guard Get-FileSignatureInfo { [pscustomobject]@{ status = 'NotSigned'; publisher = $null } }
         Mock -ModuleName Guard Get-ProcessOwnerName { 'LAPTOP\someone' }
+        Mock -ModuleName Guard Get-FirewallPostureTable { @() }
+        Mock -ModuleName Guard Get-DnsConfigTable { [pscustomobject]@{ interfaces = @(); doh = @() } }
         Mock -ModuleName Guard Get-DnsCacheTable { @([pscustomobject]@{ Entry = 'example.org'; Type = 1; Data = '203.0.113.5'; TimeToLive = 60 }) }
         Mock -ModuleName Guard Get-FirewallProfileTable { @([pscustomobject]@{ Name = 'Public'; Enabled = 'True'; DefaultInboundAction = 'Block'; DefaultOutboundAction = 'Allow' }) }
         Mock -ModuleName Guard Get-GuardianRuleTable { @() }
@@ -242,6 +256,38 @@ Describe 'Collector (mocked): standard visibility only' {
         $s.processes['42'].name | Should Be 'thing'; $s.processes['42'].signed | Should Be $false; $s.processes['42'].owner | Should Be 'LAPTOP\someone'
         $s.connections[0].remoteAddress | Should Be '203.0.113.5'; $s.connections[1].remoteAddress | Should Be ''
         $s.firewall.profiles[0].enabled | Should Be $true; $s.identity.gateway | Should Be '192.168.1.1'; $s.mode | Should Be 'standard'
+    }
+}
+
+Describe 'Collector (mocked): process owners come from the one process query' {
+    It 'asks WMI for the process list ONCE per snapshot and reuses those instances for the owners (no query per PID), with the same output' {
+        $global:T_Pids = 1..60
+        Mock -ModuleName Guard Get-TcpTable { @($global:T_Pids | ForEach-Object { [pscustomobject]@{ State = 'Established'; LocalAddress = '10.0.0.5'; LocalPort = (50000 + $_); RemoteAddress = '203.0.113.5'; RemotePort = 443; OwningProcess = $_; CreationTime = (Get-Date) } }) }
+        Mock -ModuleName Guard Get-UdpTable { @() }
+        Mock -ModuleName Guard Get-ProcessTable { @($global:T_Pids | ForEach-Object { [pscustomobject]@{ ProcessId = $_; Name = "p$_.exe"; ExecutablePath = "C:\Tools\p$_.exe"; CreationDate = (Get-Date) } }) }
+        Mock -ModuleName Guard Get-FileSignatureInfo { [pscustomobject]@{ status = 'Valid'; publisher = 'Acme' } }
+        Mock -ModuleName Guard Get-CimInstance { throw 'a per-process CIM query was attempted' }
+        Mock -ModuleName Guard Get-ProcessOwnerRaw { [pscustomobject]@{ User = 'someone'; Domain = 'LAPTOP' } }
+        Mock -ModuleName Guard Get-FirewallPostureTable { @() }
+        Mock -ModuleName Guard Get-DnsConfigTable { [pscustomobject]@{ interfaces = @(); doh = @() } }
+        Mock -ModuleName Guard Get-DnsCacheTable { @() }
+        Mock -ModuleName Guard Get-FirewallProfileTable { @() }
+        Mock -ModuleName Guard Get-GuardianRuleTable { @() }
+        Mock -ModuleName Guard Get-NetworkIdentityTable { [pscustomobject]@{ gateway = @(); dns = @(); dhcp = @() } }
+        $s = Get-NetworkSnapshot
+        Assert-MockCalled -ModuleName Guard Get-ProcessTable -Times 1 -Exactly
+        Assert-MockCalled -ModuleName Guard Get-CimInstance -Times 0 -Exactly
+        $s.processes['7'].owner | Should Be 'LAPTOP\someone'
+        $s.processes['7'].name | Should Be 'p7'; $s.processes['7'].path | Should Be 'C:\Tools\p7.exe'; $s.processes['7'].signed | Should Be $true
+        @($s.errors).Count | Should Be 0
+    }
+    It 'the owner lookup uses the instance it is given and returns DOMAIN\user, or nothing when Windows will not say' {
+        Mock -ModuleName Guard Get-ProcessOwnerRaw { [pscustomobject]@{ User = 'me'; Domain = 'PC' } }
+        (& (Get-Module Guard) { Get-ProcessOwnerName -Process ([pscustomobject]@{ ProcessId = 1 }) }) | Should Be 'PC\me'
+        Mock -ModuleName Guard Get-ProcessOwnerRaw { [pscustomobject]@{ User = $null; Domain = $null } }
+        (& (Get-Module Guard) { Get-ProcessOwnerName -Process ([pscustomobject]@{ ProcessId = 1 }) }) | Should BeNullOrEmpty
+        Mock -ModuleName Guard Get-ProcessOwnerRaw { throw 'access denied' }
+        (& (Get-Module Guard) { Get-ProcessOwnerName -Process ([pscustomobject]@{ ProcessId = 1 }) }) | Should BeNullOrEmpty
     }
     It 'contains no packet capture, tracing, setting changes or network access' {
         $src = (Get-Content (Join-Path $script:RepoRoot 'src\powershell\Network\Guard.psm1') -Raw) + (Get-Content (Join-Path $script:RepoRoot 'src\powershell\Network\Get-NetworkSnapshot.ps1') -Raw)

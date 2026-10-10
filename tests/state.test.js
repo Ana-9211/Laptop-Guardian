@@ -1,18 +1,17 @@
 'use strict';
 // Unit tests for the dashboard's pure connection model (src/dashboard/src/state/connection.ts).
-// Node strips the TypeScript types itself, so no build step is needed (Node 22.18+).
+// Node 22.18+ strips the TypeScript types itself; older Node uses the dashboard's own TypeScript compiler (tests/lib/load-ts.js); with neither, skipped with the reason.
 const test = require('node:test');
 const assert = require('node:assert');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-const modUrl = pathToFileURL(path.join(__dirname, '..', 'src', 'dashboard', 'src', 'state', 'connection.ts')).href;
-const load = () => import(modUrl);
+const { loadTs, tsSupport } = require('./lib/load-ts');
+const sup = tsSupport();
+const T = { skip: sup.ok ? false : sup.reason };   // skipped, with the reason, where Node cannot read TypeScript and the compiler is not installed
+const load = () => loadTs('state/connection.ts');
 
 const status = (o = {}) => ({ now: '2026-10-05T10:00:00+05:30', run: { running: null, lastDaily: { finishedAt: 'a' }, lastWeekly: { finishedAt: 'w' } }, schedule: { pending: false, elevationPending: null }, ...o });
 const inputs = (o = {}) => ({ hasStatus: true, status: status(), failed: false, errorMessage: null, refreshing: false, finished: null, aged: false, ...o });
 
-test('link state: connecting, online, offline', async () => {
+test('link state: connecting, online, offline', T, async () => {
   const { deriveLive } = await load();
   assert.strictEqual(deriveLive(inputs({ hasStatus: false, status: null })).link, 'connecting');
   assert.strictEqual(deriveLive(inputs()).link, 'online');
@@ -22,7 +21,7 @@ test('link state: connecting, online, offline', async () => {
   assert.strictEqual(off.errorMessage, 'down');
 });
 
-test('stale only when online data has aged, never when fresh', async () => {
+test('stale only when online data has aged, never when fresh', T, async () => {
   const { deriveLive } = await load();
   assert.strictEqual(deriveLive(inputs()).stale, false);
   assert.strictEqual(deriveLive(inputs({ aged: true })).stale, true);
@@ -31,7 +30,7 @@ test('stale only when online data has aged, never when fresh', async () => {
   assert.strictEqual(isAged(0, 1e9), true);
 });
 
-test('scan phase: running wins over finished; finished shows when idle', async () => {
+test('scan phase: running wins over finished; finished shows when idle', T, async () => {
   const { deriveLive } = await load();
   const running = status({ run: { running: { type: 'daily', mode: 'manual', phase: 'collecting' } } });
   const fin = { type: 'daily', at: 'x' };
@@ -40,14 +39,14 @@ test('scan phase: running wins over finished; finished shows when idle', async (
   assert.strictEqual(deriveLive(inputs()).scan.phase, 'idle');
 });
 
-test('refreshing is independent of the link and scan state', async () => {
+test('refreshing is independent of the link and scan state', T, async () => {
   const { deriveLive } = await load();
   const l = deriveLive(inputs({ refreshing: true }));
   assert.strictEqual(l.refreshing, true);
   assert.strictEqual(l.link, 'online');
 });
 
-test('finished detection: running to stopped, or a changed finish time between polls', async () => {
+test('finished detection: running to stopped, or a changed finish time between polls', T, async () => {
   const { detectFinished, finishKey } = await load();
   const prev = { type: 'weekly', mode: 'manual' };
   assert.strictEqual(detectFinished(prev, 'a|w', status()).type, 'weekly');
@@ -60,9 +59,9 @@ test('finished detection: running to stopped, or a changed finish time between p
   assert.strictEqual(finishKey(status()), 'a|w');
 });
 
-test('poll cadence: offline and idle are slow, an active scan is fast, a pending UAC prompt is fastest', async () => {
+test('poll cadence: offline and idle are slow, an active scan is fast, a pending UAC prompt is fastest', T, async () => {
   const { nextPollDelay } = await load();
-  const cfg = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'dashboard', 'src', 'config.ts')).href);
+  const cfg = await loadTs('config.ts');
   const base = { link: 'online', scan: { phase: 'idle' }, schedulePending: false, elevationPending: false };
   assert.strictEqual(nextPollDelay(base), cfg.POLL_MS.idle);
   assert.strictEqual(nextPollDelay({ ...base, link: 'offline' }), cfg.POLL_MS.offline);

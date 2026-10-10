@@ -82,9 +82,23 @@ function Copy-ProgramFiles {
         if (@(Get-ChildItem -LiteralPath $stage -Recurse -File).Count -ne $files.Count) { throw 'The staged copy is incomplete.' }
     } catch { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue; throw }
     $hadOld = Test-Path -LiteralPath $dest
+    if ($hadOld) {
+        # Renaming a folder fails while anything has a file open inside it or a window/shell sits in it (an antivirus scan, an Explorer window, a running program).
+        # Try a few times; if it stays busy, update in place instead (never move the staged folder INTO the busy one, which is what a plain retry would do).
+        $swapped = $false
+        for ($try = 1; $try -le 4 -and -not $swapped; $try++) {
+            try { Move-Item -LiteralPath $dest -Destination $old -ErrorAction Stop; $swapped = $true } catch { if ($try -lt 4) { Start-Sleep -Milliseconds 700 } }
+        }
+        if (-not $swapped) {
+            & robocopy.exe $stage $dest /MIR /XF install.json /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+            $rc = $LASTEXITCODE
+            if ($rc -ge 8) { throw "The program folder is in use and could not be updated in place (robocopy exit $rc). Close Laptop Guardian (the dashboard window and any bridge) and run the installer again." }
+            Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+            return $files.Count
+        }
+    }
     try {
-        if ($hadOld) { Move-Item -LiteralPath $dest -Destination $old }
-        Move-Item -LiteralPath $stage -Destination $dest
+        Move-Item -LiteralPath $stage -Destination $dest -ErrorAction Stop
     } catch {
         # put the previous copy back
         if ($hadOld -and -not (Test-Path -LiteralPath $dest) -and (Test-Path -LiteralPath $old)) { Move-Item -LiteralPath $old -Destination $dest -ErrorAction SilentlyContinue }
