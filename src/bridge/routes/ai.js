@@ -44,6 +44,22 @@ module.exports = function registerAiRoutes(ctx) {
     need(r.ok && r.data?.success !== false, r.error || r.data?.error || 'analysis failed', 502);
     return r.data;
   });
+  // ---- AI analysis of the current report (on demand; the result is kept next to the report data so it survives a reload) ----
+  const reportKind = (v) => { const t = v == null ? 'daily' : String(v); need(t === 'daily' || t === 'weekly', 'type must be daily or weekly'); return t; };
+  route('POST', '/api/ai/report', async ({ body }) => {
+    const type = reportKind(body && body.type);
+    need(config().ai.enabled, 'AI analysis is disabled in Settings', 409);
+    log({ category: 'ai', action: 'ai.report.requested', target: type, result: 'started', reason: 'user requested; a short numeric summary of the current report (no paths, no user name) is sent to Gemini' });
+    const r = await ps.run('AI/Invoke-AiReportAnalyze.ps1', ['-Type', type], { timeoutMs: 150000 });
+    if (r.missing) throw new HttpError(501, r.error);
+    need(r.ok && r.data?.success !== false, r.error || r.data?.error || 'analysis failed', 502);
+    return r.data.analysis;
+  });
+  route('GET', '/api/ai/report', ({ query }) => {
+    const type = reportKind(query.get('type'));
+    const saved = U.readJson(P.latest('ai-report-' + type + '.json'), null);
+    return { analysis: saved };
+  });
   route('GET', '/api/ai/usage', () => {
     const rows = U.tailJsonl(P.aiUsage, 500);
     const today = U.localIso().slice(0, 10);

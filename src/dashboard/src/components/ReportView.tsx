@@ -2,6 +2,7 @@ import type { Any, Report } from '../types';
 import { Badge, Card, Expander, KV } from './ui';
 import { ScoreRing } from './Chart';
 import { ActionTimeline } from './common';
+import { AiReportCard } from './AiReportCard';
 import { fmtDate, fmtFull, fmtMB, scoreTone, NA } from '../format';
 
 const STATUS_TONE: Record<string, string> = { complete: 'ok', partial: 'warn', failed: 'crit', timeout: 'crit', skipped: '', incomplete: 'warn' };
@@ -22,6 +23,8 @@ export function ReportView({ r }: { r: Report }) {
           </div>
         </div>
       </Card>
+
+      <AiReportCard report={r} />
 
       {r.ai?.briefing && <Card title="AI briefing"><p className="t2" style={{ maxWidth: '72ch' }}>{r.ai.briefing}</p></Card>}
       {r.ai?.patterns && r.ai.patterns.length > 0 && <Card title="Patterns found" flush>{r.ai.patterns.map((p) => <Expander key={p.title} head={<b>{p.title}</b>}><p className="t2">{p.detail}</p>{(p.evidence || []).map((e) => <div key={e} className="mono-block">{e}</div>)}</Expander>)}</Card>}
