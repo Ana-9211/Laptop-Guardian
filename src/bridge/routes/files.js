@@ -5,7 +5,7 @@ const U = require('../lib/util');
 module.exports = function registerFileRoutes(ctx) {
   const { P, log, str, route, locked } = ctx;
   route('GET', '/api/files', () => {
-    const d = U.readJson(P.latest('files.json'), { generatedAt: null, drives: [], candidates: [], largest: [], duplicates: [], downloads: {} }) || {};
+    const d = { ...U.dropGoneCandidates(U.readJson(P.latest('files.json'), { generatedAt: null, drives: [], candidates: [], largest: [], duplicates: [], downloads: {} }) || {}) };
     const ignored = new Set(U.readJson(P.ignoredFiles, []) || []);
     d.candidates = (d.candidates || []).map((c) => ({ ...c, ignored: c.ignored || ignored.has(c.id) }));
     return d;

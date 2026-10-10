@@ -39,7 +39,7 @@ module.exports = function registerRemediationRoutes(ctx) {
     const procs = U.readJson(P.latest('processes.json'), { processes: [] }) || {};
     const c = config();
     const findings = F.buildFindings({
-      recs: loadRecs().items, processes: procs.processes || [], files: U.readJson(P.latest('files.json'), null), daily: U.readJson(P.latest('daily.json'), null), weekly: U.readJson(P.latest('weekly.json'), null),
+      recs: loadRecs().items, processes: procs.processes || [], files: U.dropGoneCandidates(U.readJson(P.latest('files.json'), null)), daily: U.readJson(P.latest('daily.json'), null), weekly: U.readJson(P.latest('weekly.json'), null),
       tasks: S.assessTasks(cachedTasks(), c), apps, revo, history: remediation.history(300), protectedDirs: c.storage.protectedDirs || [], guardianRoot: guardianRoots, now: Date.now(),
     });
     const latest = netStore.readLatest();

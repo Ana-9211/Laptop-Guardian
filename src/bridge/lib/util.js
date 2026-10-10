@@ -315,5 +315,19 @@ function nextRun(time, day, from = new Date()) {
   return localIso(d);
 }
 
+/**
+ * A scan snapshot can be hours old. Drop file candidates whose path is verifiably gone (deleted by hand, moved, cleaned) so the lists and the
+ * Action Center do not offer them. Only a definite "does not exist" removes one: any other error (permissions, a locked drive) keeps it.
+ */
+function dropGoneCandidates(files) {
+  if (!files || !Array.isArray(files.candidates)) return files;
+  const gone = (p) => {
+    if (typeof p !== 'string' || !p) return false;
+    try { fs.lstatSync(p); return false; } catch (e) { return e.code === 'ENOENT' || e.code === 'ENOTDIR'; }
+  };
+  const kept = files.candidates.filter((c) => !gone(c && c.path));
+  return kept.length === files.candidates.length ? files : { ...files, candidates: kept, goneCount: files.candidates.length - kept.length };
+}
+
 module.exports = {
-  readInstall, DEFAULT_PORT, withFileLock, withFileLockAsync, setLockProbe, csvCell, riskyChanges, readJson, RANGES, writeJsonAtomic, tailJsonl, tailJsonlCached, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };
+  dropGoneCandidates, readInstall, DEFAULT_PORT, withFileLock, withFileLockAsync, setLockProbe, csvCell, riskyChanges, readJson, RANGES, writeJsonAtomic, tailJsonl, tailJsonlCached, readAllJsonl, appendJsonl, uid, localIso, DEFAULT_CONFIG, mergeConfig, nextRun };
