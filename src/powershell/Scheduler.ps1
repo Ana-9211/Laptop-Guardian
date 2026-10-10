@@ -32,6 +32,7 @@ function Get-TaskInfo {
         $i = Get-ScheduledTaskInfo -TaskPath $folder -TaskName $names[$k] -ErrorAction SilentlyContinue
         $trg = @($t.Triggers)[0]
         $args0 = [string]@($t.Actions)[0].Arguments
+        $wantsHeadless = ((Get-TaskLauncher -Program 'x' -ProgramArgs 'y').Execute -match 'conhost[.]exe$')   # a task that still starts the console program directly opens a window
         $out += [pscustomobject]@{
             name = $t.TaskName; kind = $k; state = [string]$t.State
             nextRun = $(if ($i -and $i.NextRunTime -and $i.NextRunTime.Year -gt 2000) { ConvertTo-IsoTime $i.NextRunTime } else { $null })
@@ -39,7 +40,7 @@ function Get-TaskInfo {
             lastResult = $(if ($i) { $i.LastTaskResult } else { $null }); runLevel = [string]$t.Principal.RunLevel
             days = @($(if ($trg -and $trg.PSObject.Properties['DaysOfWeek'] -and $trg.DaysOfWeek) { $bits = [int]$trg.DaysOfWeek; $dn = 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'; 0..6 | Where-Object { $bits -band (1 -shl $_) } | ForEach-Object { $dn[$_] } }))
             scheduledFlag = [bool]($args0 -match '-Scheduled\b')
-            scriptCurrent = ($args0.IndexOf($scriptFor[$k], [StringComparison]::OrdinalIgnoreCase) -ge 0)
+            scriptCurrent = (($args0.IndexOf($scriptFor[$k], [StringComparison]::OrdinalIgnoreCase) -ge 0) -and (-not $wantsHeadless -or [string]@($t.Actions)[0].Execute -match 'conhost[.]exe$'))
             time = $(if ($trg -and $trg.StartBoundary) { ([datetime]$trg.StartBoundary).ToString('HH:mm') } else { $null })
             trigger = $(if ($trg) { ConvertTo-IsoTime $trg.StartBoundary } else { $null }); wakeToRun = [bool]$t.Settings.WakeToRun
         }
