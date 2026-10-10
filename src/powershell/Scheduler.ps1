@@ -56,6 +56,15 @@ function Get-DesiredTasks {
     )
 }
 
+function Get-TaskLauncher {
+    <# Console programs (powershell.exe, node.exe) open a window when Task Scheduler starts them; -WindowStyle Hidden only hides it after it has appeared (a flash).
+       conhost.exe --headless runs the same command with no window at all (Windows 10 1809 and later). Falls back to starting the program directly. #>
+    param([Parameter(Mandatory)][string]$Program, [Parameter(Mandatory)][string]$ProgramArgs)
+    $conhost = Join-Path ([Environment]::GetFolderPath('System')) 'conhost.exe'
+    if ((Test-Path -LiteralPath $conhost) -and [Environment]::OSVersion.Version.Build -ge 17763) { return [pscustomobject]@{ Execute = $conhost; Argument = "--headless `"$Program`" $ProgramArgs" } }
+    return [pscustomobject]@{ Execute = $Program; Argument = $ProgramArgs }
+}
+
 function Set-GuardianTask {
     param([string]$Kind, $Cfg, [string]$RunLevel)
     # A Highest task runs this folder's scripts as administrator on every schedule, so the folder must be trusted first.
@@ -65,14 +74,16 @@ function Set-GuardianTask {
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel $RunLevel
     switch ($Kind) {
         'daily' {
-            $action = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSScriptRoot\Daily.ps1`" -Scheduled" -WorkingDirectory $root
+            $l = Get-TaskLauncher -Program $ps -ProgramArgs "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSScriptRoot\Daily.ps1`" -Scheduled"
+            $action = New-ScheduledTaskAction -Execute $l.Execute -Argument $l.Argument -WorkingDirectory $root
             $time = [datetime]::ParseExact($Cfg.schedule.daily.time, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
             $trigger = New-ScheduledTaskTrigger -Daily -At $time
             $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
             Register-ScheduledTask -TaskPath $folder -TaskName $names.daily -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Laptop Guardian daily audit (observe, analyse, recommend).' -Force | Out-Null
         }
         'weekly' {
-            $action = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSScriptRoot\Weekly.ps1`" -Scheduled" -WorkingDirectory $root
+            $l = Get-TaskLauncher -Program $ps -ProgramArgs "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSScriptRoot\Weekly.ps1`" -Scheduled"
+            $action = New-ScheduledTaskAction -Execute $l.Execute -Argument $l.Argument -WorkingDirectory $root
             $time = [datetime]::ParseExact($Cfg.schedule.weekly.time, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
             $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek ([System.DayOfWeek]$Cfg.schedule.weekly.day) -At $time
             $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -WakeToRun -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 5)
@@ -81,7 +92,8 @@ function Set-GuardianTask {
         'dashboard' {
             # Local-only web server (127.0.0.1) started at logon with LEAST privilege, whatever this process's own level.
             $node = (Get-Command node.exe -ErrorAction Stop).Source
-            $a = New-ScheduledTaskAction -Execute $node -Argument "`"$($scriptFor.dashboard)`"" -WorkingDirectory $root
+            $l = Get-TaskLauncher -Program $node -ProgramArgs "`"$($scriptFor.dashboard)`""   # no console window at logon
+            $a = New-ScheduledTaskAction -Execute $l.Execute -Argument $l.Argument -WorkingDirectory $root
             $tr = New-ScheduledTaskTrigger -AtLogOn -User $user
             $st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
             $pr = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited

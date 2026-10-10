@@ -15,6 +15,10 @@ Describe 'Windows Task Scheduler integration' {
         $w.Settings.WakeToRun | Should Be $true
         $d.Actions[0].Arguments | Should Match 'Daily\.ps1'
         $w.Actions[0].Arguments | Should Match 'Weekly\.ps1'
+        # No console window at all (powershell.exe started by Task Scheduler would flash one): run through conhost --headless, the real program quoted after it.
+        $d.Actions[0].Execute | Should Match 'conhost\.exe$'
+        $d.Actions[0].Arguments | Should Match '^--headless "[^"]*powershell\.exe" -NoProfile'
+        $w.Actions[0].Execute | Should Match 'conhost\.exe$'
     }
     It 'reports status as JSON' {
         $r = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sched -Action Status -Json -TaskFolder $testFolder | ConvertFrom-Json

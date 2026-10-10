@@ -21,3 +21,5 @@ npm-debug.log*
 *.log
 Thumbs.db
 tests/browser/out/
+
+release/
