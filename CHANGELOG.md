@@ -23,11 +23,16 @@ installed Windows machine are listed in the README ("How this was built") and in
 - **Docs.** Architecture, threat model, data contract, Pester 5 plan.
 - **CI.** A Linux job (type check, lint, ASCII check, Node tests) next to the Windows jobs. Not yet seen to run on GitHub.
 
+- **AI analysis of the current report.** An "Analyze with AI" button on Overview and on the report pages. On demand only: a short numeric summary (no paths, no user name) goes to Gemini, the answer is checked locally, saved next to the report data and shown again after a reload. It explains and never runs anything.
+
 ### Changed
 - File locks fail closed and never take a lock from a live owner; every shared-file write takes the lock.
 - Policy matching, number ranges and loopback rules are the same in Node and PowerShell, each checked against one shared fixture or table.
 - The Revo Uninstaller signature check needs the exact signer name and a known certificate thumbprint.
 - The Gemini API key check accepts the newer dotted keys and pasted whitespace or quotes.
+- Scheduled tasks start through `conhost.exe --headless` (Windows 10 1809 or later), so no console window flashes at logon or at the daily run. The task planner counts a task that still opens a window as out of date.
+- The installer updates the program folder in place (robocopy) when the folder cannot be renamed because it is in use, instead of leaving a stray staging folder.
+- Cleanup candidates whose file was deleted after the scan are no longer listed or offered, so Refresh status reflects files you removed by hand.
 - The default bridge port is 7878 for an installed copy and 7879 for a development checkout.
 
 ### Fixed
