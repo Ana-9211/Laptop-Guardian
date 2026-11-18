@@ -10,7 +10,7 @@ It all runs on your laptop (PowerShell agents, a zero-dependency Node bridge on 
 
 [Screenshots / a short GIF of the dashboard: to be added]
 
-More: [how it is built](docs/ARCHITECTURE.md) | [threat model](docs/THREAT-MODEL.md) | [data and API contract](docs/DATA-CONTRACT.md) | [how this was built](#how-this-was-built) | [changelog](CHANGELOG.md)
+More: [how it is built](docs/ARCHITECTURE.md) | [threat model](docs/THREAT-MODEL.md) | [data and API contract](docs/DATA-CONTRACT.md) | [how this was tested](#how-this-was-tested) | [changelog](CHANGELOG.md)
 
 > **Laptop Guardian observes aggressively, explains clearly, recommends intelligently, and only performs destructive actions that you have explicitly authorised.**
 
@@ -22,7 +22,7 @@ More: [how it is built](docs/ARCHITECTURE.md) | [threat model](docs/THREAT-MODEL
 ---
 
 ## Contents
-1. [Quick start](#quick-start) · 2. [Prerequisites](#prerequisites) · 3. [Architecture](#architecture) · 4. [How Laptop Guardian decides](#how-laptop-guardian-decides) · 5. [What is automatic vs. what needs approval](#what-is-automatic-vs-what-needs-approval) · 6. [Scheduling](#scheduling) · 7. [Dashboard](#dashboard) · 8. [Configuration](#configuration) · 9. [Gemini setup](#gemini-setup) · [How this was built](#how-this-was-built) · [Threat model](docs/THREAT-MODEL.md) · 10. [Process blacklist / whitelist](#process-blacklist--whitelist) · 11. [Reports & data](#reports--data) · 12. [Security model](#security-model) · 13. [Testing](#testing) · 14. [Troubleshooting](#troubleshooting) · 15. [Uninstall](#uninstall) · 16. [Known limitations](#known-limitations)
+1. [Quick start](#quick-start) · 2. [Prerequisites](#prerequisites) · 3. [Architecture](#architecture) · 4. [How Laptop Guardian decides](#how-laptop-guardian-decides) · 5. [What is automatic vs. what needs approval](#what-is-automatic-vs-what-needs-approval) · 6. [Scheduling](#scheduling) · 7. [Dashboard](#dashboard) · 8. [Configuration](#configuration) · 9. [Gemini setup](#gemini-setup) · [How this was tested](#how-this-was-tested) · [Threat model](docs/THREAT-MODEL.md) · 10. [Process blacklist / whitelist](#process-blacklist--whitelist) · 11. [Reports & data](#reports--data) · 12. [Security model](#security-model) · 13. [Testing](#testing) · 14. [Troubleshooting](#troubleshooting) · 15. [Uninstall](#uninstall) · 16. [Known limitations](#known-limitations)
 
 ---
 
@@ -291,12 +291,9 @@ Every fix follows one flow: **plan** (Guardian re-checks the live target and sho
 * **CSV export** of Action Center history, the log, the process table and the connection table, exactly as filtered. Cells that a spreadsheet could run as a formula are neutralised.
 * **File growth**: raw metrics are kept for 180 days and raw audit rows for 90 days by default (Settings > Retention, 30 to 730 days each); older metric rows become daily summaries and older audit rows move, untouched, to monthly archive files. Nothing in the audit log is ever deleted. See `docs/DATA-CONTRACT.md`.
 
-## How this was built
+## How this was tested
 
-This project was developed together with an AI coding assistant (Claude Code): the assistant wrote most of the code and tests from the author's requirements, the
-author directed the work, reviewed it and tested it on their own laptop. [The author's own words about their role and what they checked: to be written by the author.]
-
-What that means in practice, stated plainly:
+What is checked, and where, stated plainly:
 
 * **Checked automatically on every change** (and re-run before each merge): the Node tests (about 175, also run on real Linux, with the Windows-only ones skipped),
   the TypeScript type check, eslint, an ASCII-only source check, PSScriptAnalyzer, 19 Pester files (one PowerShell process each), and a headless-browser smoke test
